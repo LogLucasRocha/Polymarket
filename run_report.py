@@ -1,7 +1,7 @@
-"""Gera o relatório de previsão da temperatura máxima em SBGR para D0 e D+1.
+"""Gera o relatório de previsão da temperatura máxima para D0 e D+1.
 
 Uso:
-    python run_report.py [--force-bias] [--no-open]
+    python run_report.py [--station SBGR|SAEZ] [--force-bias] [--no-open]
 
 Pipeline:
   1. METAR/TAF em tempo real (aviationweather.gov)
@@ -27,23 +27,26 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from sbgr import config, pipeline, report
-from sbgr.pipeline import TZ
-
-
-def log(msg: str) -> None:
-    print(f"[{dt.datetime.now(TZ).strftime('%H:%M:%S')}] {msg}")
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--station", choices=sorted(config.STATIONS),
+                    default=config.DEFAULT_STATION.icao,
+                    help="estação/aeroporto da previsão (padrão: SBGR)")
     ap.add_argument("--force-bias", action="store_true",
                     help="recalcula a correção de viés mesmo com cache válido")
     ap.add_argument("--no-open", action="store_true",
                     help="não abre o relatório no navegador ao final")
     args = ap.parse_args()
 
+    station = config.STATIONS[args.station]
+
+    def log(msg: str) -> None:
+        print(f"[{dt.datetime.now(station.tz).strftime('%H:%M:%S')}] {msg}")
+
     try:
-        ctx = pipeline.build_context(force_bias=args.force_bias, log=log)
+        ctx = pipeline.build_context(station, force_bias=args.force_bias, log=log)
     except RuntimeError as exc:
         log(f"ERRO: {exc}.")
         return 1
@@ -69,10 +72,13 @@ def main() -> int:
     html_out = report.render_html(ctx)
 
     config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    out_file = config.REPORTS_DIR / f"relatorio_{now.strftime('%Y-%m-%d_%H%M')}.html"
+    out_file = (config.REPORTS_DIR
+                / f"relatorio_{station.icao}_{now.strftime('%Y-%m-%d_%H%M')}.html")
     out_file.write_text(html_out, encoding="utf-8")
-    latest_file = config.REPORTS_DIR / "latest.html"
+    latest_file = config.REPORTS_DIR / f"latest_{station.icao}.html"
     latest_file.write_text(html_out, encoding="utf-8")
+    if station.icao == "SBGR":  # compatibilidade com o atalho antigo
+        (config.REPORTS_DIR / "latest.html").write_text(html_out, encoding="utf-8")
 
     # ------------------------------------------------------------- resumo
     q0, q1 = dist_d0["quantiles"], dist_d1["quantiles"]
@@ -83,7 +89,8 @@ def main() -> int:
     taf_tx_d0, taf_tx_d1 = ctx["taf_tx_d0"], ctx["taf_tx_d1"]
     print()
     print("=" * 62)
-    print(f"  MÁXIMA EM SBGR — resumo ({now.strftime('%d/%m %H:%M')})")
+    print(f"  MÁXIMA EM {station.icao} ({station.city.upper()}) — "
+          f"resumo ({now.strftime('%d/%m %H:%M')})")
     print("=" * 62)
     if latest:
         print(f"  Agora: {latest['temp']:.0f} °C"

@@ -1,4 +1,5 @@
-"""Painel interativo da previsão de Tmax em SBGR (Guarulhos).
+"""Painel interativo da previsão de Tmax — uma aba por aeroporto/mercado
+(SBGR Guarulhos e SAEZ Buenos Aires/Ezeiza).
 
 Uso:
     streamlit run app.py
@@ -30,8 +31,8 @@ st.set_page_config(page_title="Previsão de TMax", page_icon="🌡️", layout="
 
 
 @st.cache_data(ttl=600, show_spinner="Buscando METAR, TAF, modelos e ensembles...")
-def load_context() -> dict:
-    return pipeline.build_context()
+def load_context(icao: str) -> dict:
+    return pipeline.build_context(config.STATIONS[icao])
 
 
 def fig_hourly(ctx: dict) -> go.Figure:
@@ -177,27 +178,30 @@ def day_section(label: str, date, dist: dict, det: dict, taf_tx) -> None:
         "corrigidos de viés e suavizados pelo erro residual histórico.")
 
 
-def main() -> None:
+def render_station(station: config.Station) -> None:
     head, btn = st.columns([5, 1], vertical_alignment="center")
     with head:
-        st.title(f"🌡️ Previsão de TMax — {config.STATION} (Guarulhos)")
+        st.subheader(f"{station.flag} {station.city} — {station.airport}")
     with btn:
-        if st.button("🔄 Atualizar", type="primary", width="stretch"):
-            load_context.clear()
+        if st.button("🔄 Atualizar", type="primary", width="stretch",
+                     key=f"refresh_{station.icao}"):
+            load_context.clear(station.icao)
             st.rerun()
 
     try:
-        ctx = load_context()
+        ctx = load_context(station.icao)
     except RuntimeError as exc:
         st.error(f"Sem dados suficientes: {exc}. Tente atualizar em alguns minutos.")
-        st.stop()
+        return
 
-    age_min = (dt.datetime.now(pipeline.TZ) - ctx["generated"]).total_seconds() / 60
+    age_min = (dt.datetime.now(station.tz) - ctx["generated"]).total_seconds() / 60
     st.caption(
         f"Dados coletados em {ctx['generated'].strftime('%d/%m/%Y %H:%M %Z')} "
         f"(há {age_min:.0f} min) · cache de 10 min — use o botão para forçar nova coleta · "
-        f"Verdade terrestre: METAR de {config.STATION} · Fontes: Open-Meteo, "
-        "aviationweather.gov, arquivo IEM")
+        f"Verdade terrestre: METAR de {station.icao} · Fontes: Open-Meteo, "
+        "aviationweather.gov, arquivo IEM · "
+        f"🕐 Todos os horários em hora local de {station.city} "
+        f"({station.timezone}, UTC{ctx['generated'].strftime('%z')[:3]})")
 
     if ctx["latest_metar"]:
         m = ctx["latest_metar"]
@@ -206,7 +210,8 @@ def main() -> None:
                        help=m["raw"], delta=m["time"].strftime("%d/%m %H:%M"),
                        delta_color="off")
         if ctx["obs_max_today"] is not None:
-            cols[1].metric("Máx. já observada hoje", f"{ctx['obs_max_today']:.0f} °C")
+            cols[1].metric(f"Máx. já observada em {ctx['d0'].strftime('%d/%m')}",
+                           f"{ctx['obs_max_today']:.0f} °C")
         cols[2].metric("Mediana D0 / D+1",
                        f"{ctx['dist_d0']['quantiles'][50]:.1f} / "
                        f"{ctx['dist_d1']['quantiles'][50]:.1f} °C")
@@ -219,7 +224,9 @@ def main() -> None:
             f"**{abs(nc['offset']):.1f} °C {direction}** que o ensemble corrigido "
             f"→ ajuste de **{nc['shift']:+.1f} °C** aplicado às horas restantes de hoje.")
 
-    st.subheader("Trajetória horária (hoje e amanhã)")
+    st.subheader(
+        f"Trajetória horária ({ctx['d0'].strftime('%d/%m')} "
+        f"e {ctx['d1'].strftime('%d/%m')}, hora local)")
     st.plotly_chart(fig_hourly(ctx), width="stretch")
     with st.expander("ℹ️ O que são P10, P90, ensemble bruto e corrigido?"):
         st.markdown(
@@ -236,7 +243,7 @@ def main() -> None:
             "- **Ensemble bruto** — mediana dos 82 membros exatamente como "
             "saem dos modelos, sem nenhum ajuste.\n"
             "- **Ensemble corrigido** — mediana após subtrair o **viés** que "
-            "cada modelo mostrou em SBGR nos últimos "
+            f"cada modelo mostrou em {station.icao} nos últimos "
             f"{config.BIAS_LOOKBACK_DAYS} dias e, nas horas restantes de "
             "hoje, somar o ajuste do **nowcast** (desvio observado nos "
             "METARs das últimas horas). É a linha em que o painel confia.")
@@ -265,7 +272,16 @@ def main() -> None:
              "Dias": [b["n_days"] for _, b in sorted(ctx["bias"].items())]})
         st.dataframe(bias_df, hide_index=True, width="stretch")
         st.caption("Viés = previsto − observado (METAR). Valor positivo → o modelo "
-                   "superestima a máxima em SBGR e a correção subtrai esse valor.")
+                   f"superestima a máxima em {station.icao} e a correção subtrai esse valor.")
+
+
+def main() -> None:
+    st.title("🌡️ Previsão de TMax — mercados de temperatura")
+    stations = list(config.STATIONS.values())
+    tabs = st.tabs([f"{s.flag} {s.label}" for s in stations])
+    for tab, station in zip(tabs, stations):
+        with tab:
+            render_station(station)
 
 
 main()

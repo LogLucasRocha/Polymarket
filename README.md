@@ -1,21 +1,30 @@
-# Previsão de TMax — SBGR (Guarulhos), D0 e D+1
+# Previsão de TMax — SBGR (Guarulhos) e SAEZ (Buenos Aires), D0 e D+1
 
 Pipeline que combina múltiplos modelos numéricos, ensembles, correção de viés
 por estação e observações em tempo real para gerar uma **distribuição de
-probabilidade** da temperatura máxima do dia em SBGR — a lógica dos traders de
+probabilidade** da temperatura máxima do dia — a lógica dos traders de
 clima: não esperar a próxima rodada de modelo, e sim atualizar a estimativa
 com o que a estação já observou.
+
+Estações suportadas (em `sbgr/config.py`):
+
+- **SBGR** — Guarulhos (mercado de São Paulo)
+- **SAEZ** — Ministro Pistarini/Ezeiza (o mercado de Buenos Aires do
+  Polymarket resolve pela estação de Ezeiza via Wunderground, que é o
+  METAR de SAEZ, em graus inteiros)
 
 ## Uso
 
 ```
 pip install -r requirements.txt
-python run_report.py
+python run_report.py [--station SBGR|SAEZ]
 ```
 
-Isso gera `reports/relatorio_AAAA-MM-DD_HHMM.html` (e `reports/latest.html`),
-abre no navegador e imprime um resumo no console. Opções:
+Isso gera `reports/relatorio_<ICAO>_AAAA-MM-DD_HHMM.html` (e
+`reports/latest_<ICAO>.html`), abre no navegador e imprime um resumo no
+console. Opções:
 
+- `--station SAEZ` — gera para Buenos Aires/Ezeiza (padrão: SBGR)
 - `--no-open` — não abre o navegador ao final
 - `--force-bias` — recalcula a correção de viés ignorando o cache diário
 
@@ -29,9 +38,10 @@ python main.py
 
 (ou `streamlit run app.py`, ou dois cliques em `abrir_painel.bat`)
 
-Mesmos dados, mas com gráficos Plotly — passe o mouse para ver a temperatura
-exata (observado, mediana, P10 e P90) em cada hora — e botão **🔄 Atualizar**
-que refaz a coleta na hora. Os dados ficam em cache por 10 minutos.
+Mesmos dados, mas com **uma aba por aeroporto** (🇧🇷 SBGR e 🇦🇷 SAEZ) e
+gráficos Plotly — passe o mouse para ver a temperatura exata (observado,
+mediana, P10 e P90) em cada hora — e botão **🔄 Atualizar** que refaz a
+coleta na hora. Os dados ficam em cache por 10 minutos, por estação.
 
 ## O que o pipeline faz
 
@@ -46,8 +56,8 @@ que refaz a coleta na hora. Os dados ficam em cache por 10 minutos.
 5. **Correção de viés ("MOS caseiro")**: compara as máximas previstas nos
    últimos 60 dias (API de histórico de previsões do Open-Meteo) com as máximas
    observadas nos METARs (arquivo da Iowa State) e aprende o erro sistemático
-   de cada modelo no ponto de SBGR. Recalculado 1x/dia (cache em
-   `data/bias_cache.json`).
+   de cada modelo no ponto da estação. Recalculado 1x/dia (cache em
+   `data/bias_cache_<ICAO>.json`).
 6. **Nowcast intradiário**: mede o desvio entre o observado nas últimas horas e
    o ensemble corrigido, e desloca as horas restantes de hoje por uma fração
    amortecida desse desvio (com peso menor de manhã cedo, quando nevoeiro e
@@ -64,7 +74,7 @@ que refaz a coleta na hora. Os dados ficam em cache por 10 minutos.
 main.py                abre o painel interativo (python main.py)
 app.py                 o painel em si (Streamlit + Plotly)
 run_report.py          relatório HTML estático
-sbgr/config.py         coordenadas, modelos, parâmetros ajustáveis
+sbgr/config.py         estações (Station), modelos, parâmetros ajustáveis
 sbgr/fetch.py          coleta (METAR, TAF, IEM, Open-Meteo)
 sbgr/bias.py           correção de viés com cache diário
 sbgr/distribution.py   nowcast + mistura probabilística
