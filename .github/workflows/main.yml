@@ -2,14 +2,21 @@ name: Previsão Tmax → Telegram
 
 on:
   schedule:
-    # Horários em UTC. Brasil (UTC-3): 12:00 UTC = 09:00 / 21:00 UTC = 18:00
-    - cron: "0 12 * * *"
-    - cron: "0 21 * * *"
+    # Aos minutos :05 e :35 de toda hora (00:05, 00:35, 01:05…). Brasília é
+    # UTC-3, então o minuto é o mesmo em UTC e BRT. Obs.: o cron do GitHub
+    # pode atrasar alguns minutos em horários de pico.
+    - cron: "5,35 * * * *"
   workflow_dispatch:        # permite rodar manualmente pelo botão "Run workflow"
+
+# Evita duas execuções simultâneas se um agendamento atrasar.
+concurrency:
+  group: telegram-tmax
+  cancel-in-progress: false
 
 jobs:
   enviar:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout do repositório
         uses: actions/checkout@v4
