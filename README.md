@@ -1,4 +1,4 @@
-# Previsão de TMax — SBGR (Guarulhos) e SAEZ (Buenos Aires), D0 e D+1
+# Previsão de TMax — Guarulhos, Buenos Aires e Moscou, D0 e D+1
 
 Pipeline que combina múltiplos modelos numéricos, ensembles, correção de viés
 por estação e observações em tempo real para gerar uma **distribuição de
@@ -6,12 +6,14 @@ probabilidade** da temperatura máxima do dia — a lógica dos traders de
 clima: não esperar a próxima rodada de modelo, e sim atualizar a estimativa
 com o que a estação já observou.
 
-Estações suportadas (em `sbgr/config.py`):
+Estações suportadas (em `tmax/config.py`):
 
 - **SBGR** — Guarulhos (mercado de São Paulo)
 - **SAEZ** — Ministro Pistarini/Ezeiza (o mercado de Buenos Aires do
   Polymarket resolve pela estação de Ezeiza via Wunderground, que é o
   METAR de SAEZ, em graus inteiros)
+- **UUWW** — Moscou/Vnukovo (o mercado de Moscou resolve pela coluna
+  "Temp" do weather.gov/wrh/timeseries, que é o METAR de UUWW, em °C)
 
 ## Uso
 
@@ -74,17 +76,20 @@ coleta na hora. Os dados ficam em cache por 10 minutos, por estação.
 main.py                abre o painel interativo (python main.py)
 app.py                 o painel em si (Streamlit + Plotly)
 run_report.py          relatório HTML estático
-sbgr/config.py         estações (Station), modelos, parâmetros ajustáveis
-sbgr/fetch.py          coleta (METAR, TAF, IEM, Open-Meteo)
-sbgr/bias.py           correção de viés com cache diário
-sbgr/distribution.py   nowcast + mistura probabilística
-sbgr/pipeline.py       coleta + cálculo compartilhados (contexto da previsão)
-sbgr/report.py         gráficos matplotlib e HTML do relatório estático
-data/                  cache do viés
+send_telegram.py       digest para o Telegram (roda no GitHub Actions)
+tmax/config.py         estações (Station), modelos, parâmetros ajustáveis
+tmax/fetch.py          coleta (METAR, TAF, IEM, Open-Meteo)
+tmax/bias.py           correção de viés com cache diário
+tmax/distribution.py   nowcast + mistura probabilística
+tmax/pipeline.py       coleta + cálculo compartilhados (contexto da previsão)
+tmax/report.py         gráficos matplotlib e HTML do relatório estático
+tmax/notify.py         mensagens e gráficos do Telegram
+tmax/polymarket.py     posições da carteira e odds dos mercados
+data/                  caches gerados em runtime (viés, estado do digest)
 reports/               relatórios gerados
 ```
 
-## Parâmetros para calibrar (em `sbgr/config.py`)
+## Parâmetros para calibrar (em `tmax/config.py`)
 
 - `BIAS_LOOKBACK_DAYS` (60) — janela de aprendizado do viés
 - `NOWCAST_DAMPING` (0.7) — quanto do desvio observado propagar para a tarde

@@ -19,7 +19,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from sbgr import config, pipeline
+from tmax import config, pipeline
 
 BLUE = "#1a5fb4"
 ORANGE = "#e56c00"
