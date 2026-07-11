@@ -1,0 +1,173 @@
+"""Camada de notificação por Telegram: formata o contexto da previsão em texto
+(HTML do Telegram) e compõe um gráfico por estação (trajetória horária +
+distribuições D0/D+1) num único PNG pronto para `sendPhoto`.
+
+Reaproveita o núcleo do pipeline; nada de coleta acontece aqui."""
+from __future__ import annotations
+
+import html
+import io
+
+import matplotlib
+
+matplotlib.use("Agg")  # sem display (roda no GitHub Actions)
+import matplotlib.dates as mdates
+import matplotlib.pyplot as plt
+import requests
+
+from . import config
+from .pipeline import hourly_percentiles
+
+TELEGRAM_API = "https://api.telegram.org"
+
+BLUE = "#1a5fb4"
+ORANGE = "#e56c00"
+RED = "#c01c28"
+GREEN = "#26a269"
+
+plt.rcParams.update({
+    "figure.facecolor": "white",
+    "axes.facecolor": "#fafafa",
+    "axes.grid": True,
+    "grid.color": "#e0e0e0",
+    "grid.linewidth": 0.6,
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+    "font.size": 10,
+})
+
+
+# ------------------------------------------------------------------ gráfico
+
+def _draw_hourly(ax, ctx) -> None:
+    times, p10, p50, p90, _raw = hourly_percentiles(
+        ctx["ens"]["time"], ctx["ens"]["members"], ctx["bias"],
+        ctx["shift"], ctx["now"], days={ctx["d0"], ctx["d1"]})
+    ax.fill_between(times, p10, p90, color=BLUE, alpha=0.18, label="P10–P90")
+    ax.plot(times, p50, color=BLUE, lw=1.8, label="Mediana (corrigida)")
+    if ctx["obs_today"]:
+        ax.plot([o["time"] for o in ctx["obs_today"]],
+                [o["temp"] for o in ctx["obs_today"]], "o-",
+                color=RED, ms=4, lw=1.2, label="Observado (METAR)")
+    ax.axvline(ctx["now"], color="#666", lw=1, ls="--")
+    ax.annotate("agora", (ctx["now"], ax.get_ylim()[1]), fontsize=8,
+                color="#666", ha="left", va="top", xytext=(4, -2),
+                textcoords="offset points")
+    ax.xaxis.set_major_formatter(
+        mdates.DateFormatter("%d/%m\n%Hh", tz=times[0].tzinfo))
+    ax.set_ylabel("°C")
+    ax.set_title("Trajetória horária (hora local)", fontsize=11)
+    ax.legend(loc="upper left", fontsize=8, framealpha=0.9)
+
+
+def _draw_dist(ax, dist, title, det_points, taf_tx) -> None:
+    buckets = dist["buckets"]
+    xs = [b["low"] + 0.5 for b in buckets]
+    ps = [b["prob"] * 100 for b in buckets]
+    bars = ax.bar(xs, ps, width=0.92, color=BLUE, alpha=0.75)
+    for bar, p in zip(bars, ps):
+        if p >= 5:
+            ax.annotate(f"{p:.0f}%", (bar.get_x() + bar.get_width() / 2, p),
+                        ha="center", va="bottom", fontsize=7, color="#333")
+    med = dist["quantiles"][50]
+    ax.axvline(med, color=RED, lw=1.5, ls="--", label=f"Mediana {med:.1f}")
+    if det_points:
+        for v in det_points.values():
+            ax.plot(v, 0, marker="^", ms=8, color=ORANGE, clip_on=False, zorder=5)
+    if taf_tx is not None:
+        ax.axvline(taf_tx, color=GREEN, lw=1.5, ls=":", label=f"TAF {taf_tx:.0f}")
+    ax.set_xticks([b["low"] for b in buckets] + [buckets[-1]["high"]])
+    ax.set_xlabel("Faixa da máxima (°C)")
+    ax.set_ylabel("Prob. (%)")
+    ax.set_title(title, fontsize=10)
+    ax.legend(loc="upper right", fontsize=7.5, framealpha=0.9)
+    ax.set_ylim(0, max(ps) * 1.25 + 2)
+
+
+def station_chart_png(ctx: dict) -> bytes:
+    """Um único PNG por estação: trajetória horária no topo e as distribuições
+    de D0 e D+1 embaixo."""
+    fig = plt.figure(figsize=(9, 8))
+    gs = fig.add_gridspec(2, 2, height_ratios=[1.05, 1], hspace=0.35, wspace=0.2)
+    _draw_hourly(fig.add_subplot(gs[0, :]), ctx)
+
+    det0 = {m: v["corrected"] for m, v in ctx["det_corrected"]["d0"].items()}
+    det1 = {m: v["corrected"] for m, v in ctx["det_corrected"]["d1"].items()}
+    _draw_dist(fig.add_subplot(gs[1, 0]), ctx["dist_d0"],
+               f"Hoje ({ctx['d0'].strftime('%d/%m')})", det0, ctx["taf_tx_d0"])
+    _draw_dist(fig.add_subplot(gs[1, 1]), ctx["dist_d1"],
+               f"Amanhã ({ctx['d1'].strftime('%d/%m')})", det1, ctx["taf_tx_d1"])
+
+    station = ctx["station"]
+    # Sem a bandeira: emojis não existem na fonte do matplotlib (viram tofu).
+    fig.suptitle(f"{station.city} — {station.icao}",
+                 fontsize=13, fontweight="bold")
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=110, bbox_inches="tight")
+    plt.close(fig)
+    return buf.getvalue()
+
+
+# -------------------------------------------------------------------- texto
+
+def _exceed_summary(dist: dict) -> str:
+    """Prob. de exceder os limiares inteiros ao redor da mediana (info-chave
+    para os mercados de temperatura)."""
+    med = round(dist["quantiles"][50])
+    parts = []
+    for t in (med - 1, med, med + 1, med + 2):
+        p = dist["exceed"].get(t)
+        if p is not None:
+            parts.append(f"≥{t} {p * 100:.0f}%")
+    return " · ".join(parts)
+
+
+def station_lines(ctx: dict) -> str:
+    """Bloco de texto (HTML do Telegram) de uma estação."""
+    s = ctx["station"]
+    q0, q1 = ctx["dist_d0"]["quantiles"], ctx["dist_d1"]["quantiles"]
+    lines = [f"{s.flag} <b>{html.escape(s.city)} ({s.icao})</b>"]
+
+    if ctx["latest_metar"]:
+        agora = f"Agora: <b>{ctx['latest_metar']['temp']:.0f} °C</b>"
+        if ctx["obs_max_today"] is not None:
+            agora += f" · máx. já hoje: {ctx['obs_max_today']:.0f} °C"
+        lines.append(agora)
+
+    taf0 = f" · TAF {ctx['taf_tx_d0']:.0f}" if ctx["taf_tx_d0"] is not None else ""
+    taf1 = f" · TAF {ctx['taf_tx_d1']:.0f}" if ctx["taf_tx_d1"] is not None else ""
+    lines.append(
+        f"Hoje {ctx['d0'].strftime('%d/%m')}: <b>{q0[50]:.1f} °C</b> "
+        f"(P10–P90 {q0[10]:.1f}–{q0[90]:.1f}){taf0}")
+    lines.append(f"  {_exceed_summary(ctx['dist_d0'])}")
+    lines.append(
+        f"Amanhã {ctx['d1'].strftime('%d/%m')}: <b>{q1[50]:.1f} °C</b> "
+        f"(P10–P90 {q1[10]:.1f}–{q1[90]:.1f}){taf1}")
+    lines.append(f"  {_exceed_summary(ctx['dist_d1'])}")
+    return "\n".join(lines)
+
+
+def digest_header(when_label: str) -> str:
+    return (f"🌡️ <b>Previsão de máxima</b> · {when_label}\n"
+            "Mediana e P10–P90 do ensemble corrigido; ≥X = prob. de exceder.")
+
+
+# ----------------------------------------------------------- envio Telegram
+
+def send_message(token: str, chat_id: str, text: str) -> None:
+    r = requests.post(
+        f"{TELEGRAM_API}/bot{token}/sendMessage",
+        data={"chat_id": chat_id, "text": text, "parse_mode": "HTML",
+              "disable_web_page_preview": "true"},
+        timeout=30)
+    r.raise_for_status()
+
+
+def send_photo(token: str, chat_id: str, png: bytes, caption: str) -> None:
+    r = requests.post(
+        f"{TELEGRAM_API}/bot{token}/sendPhoto",
+        data={"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"},
+        files={"photo": ("previsao.png", png, "image/png")},
+        timeout=60)
+    r.raise_for_status()

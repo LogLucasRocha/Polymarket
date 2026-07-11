@@ -1,0 +1,40 @@
+{
+  "computed_at": "2026-07-10T10:10:53.052948",
+  "bias": {
+    "ecmwf": {
+      "model": "ecmwf_ifs025",
+      "bias": -0.407,
+      "resid_std": 0.804,
+      "n_days": 60,
+      "mae": 0.547
+    },
+    "gfs": {
+      "model": "gfs_seamless",
+      "bias": -0.72,
+      "resid_std": 1.444,
+      "n_days": 60,
+      "mae": 1.014
+    },
+    "icon": {
+      "model": "icon_seamless",
+      "bias": -0.625,
+      "resid_std": 0.844,
+      "n_days": 60,
+      "mae": 0.617
+    },
+    "gem": {
+      "model": "gem_seamless",
+      "bias": -0.165,
+      "resid_std": 1.561,
+      "n_days": 60,
+      "mae": 1.092
+    },
+    "aifs": {
+      "model": "ecmwf_aifs025_single",
+      "bias": -0.68,
+      "resid_std": 0.666,
+      "n_days": 60,
+      "mae": 0.516
+    }
+  }
+}
