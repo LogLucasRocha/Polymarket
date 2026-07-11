@@ -133,13 +133,18 @@ def main() -> int:
     # 3) Sinais: faixas do D0 em que projetado e mercado divergem o suficiente
     # para interessar. Cada faixa avisa UMA vez ao cruzar o corte (o estado
     # guarda as que já estão acima; a virada do dia re-arma tudo, porque a
-    # data faz parte da chave).
-    edges_now = _collect_d0_edges(stations, contexts, yes_prob)
+    # data faz parte da chave). O estado também guarda o projetado de TODAS as
+    # faixas da rodada anterior, para o sinal mostrar de onde a projeção veio.
+    d0_rows = _collect_d0_rows(stations, contexts, yes_prob)
+    prev_probs = state.get("d0_probs", {})
+    edges_now = {k: v for k, v in d0_rows.items()
+                 if abs(v["mp"] - v["yes"]) >= config.EDGE_ALERT_MIN}
     prev_edges = state.get("edges", {})
     new_edges = {k: v for k, v in edges_now.items() if k not in prev_edges}
     if new_edges:
         try:
-            notify.send_message(token, chat_id, _edges_message(new_edges))
+            notify.send_message(token, chat_id,
+                                _edges_message(new_edges, prev_probs))
             print(f"[sinais] {len(new_edges)} sinal(is) enviado(s).")
         except Exception as exc:  # noqa: BLE001 — sinal é acessório
             print(f"[sinais] ERRO ao enviar: {exc}", file=sys.stderr)
@@ -165,17 +170,18 @@ def main() -> int:
         else:
             if fp is not None:
                 station_state[station.icao] = fp
-    _save_digest_state({"stations": station_state, "edges": edges_now})
+    _save_digest_state({"stations": station_state, "edges": edges_now,
+                        "d0_probs": d0_rows})
 
     return 1 if len(errors) == len(stations) else 0
 
 
-def _collect_d0_edges(stations, contexts, yes_prob) -> dict:
-    """Faixas do D0 com |projetado − mercado| ≥ EDGE_ALERT_MIN, indexadas por
+def _collect_d0_rows(stations, contexts, yes_prob) -> dict:
+    """Todas as faixas do D0 com preço e projeção, indexadas por
     "icao:data:faixa" (a data na chave re-arma os sinais na virada do dia).
     Cada valor: {icao, label, yes, mp}. Normalizado via JSON para comparar com
     o estado salvo em disco."""
-    edges: dict = {}
+    rows: dict = {}
     for station in stations:
         ctx = contexts.get(station.icao)
         if ctx is None:
@@ -191,26 +197,28 @@ def _collect_d0_edges(stations, contexts, yes_prob) -> dict:
         for r in polymarket.odds_rows(event, yes_prob):
             if r["yes"] is None or r["mp"] is None:
                 continue
-            if abs(r["mp"] - r["yes"]) < config.EDGE_ALERT_MIN:
-                continue
             key = f"{station.icao}:{ctx['d0'].isoformat()}:{r['label']}"
-            edges[key] = {"icao": station.icao, "label": r["label"],
-                          "yes": r["yes"], "mp": r["mp"]}
-    return json.loads(json.dumps(edges))
+            rows[key] = {"icao": station.icao, "label": r["label"],
+                         "yes": r["yes"], "mp": r["mp"]}
+    return json.loads(json.dumps(rows))
 
 
-def _edges_message(edges: dict) -> str:
-    """Mensagem de sinais (HTML do Telegram): uma linha por faixa divergente."""
+def _edges_message(edges: dict, prev_probs: dict) -> str:
+    """Mensagem de sinais (HTML do Telegram): uma linha por faixa divergente,
+    com o projetado da rodada anterior para mostrar de onde a projeção veio."""
     lines = [f"🚨 <b>Sinais — hoje (D0)</b> · divergência ≥ "
              f"{config.EDGE_ALERT_MIN * 100:.0f} p.p. entre mercado e projetado"]
-    for e in edges.values():
+    for key, e in edges.items():
         st = config.STATIONS[e["icao"]]
         diff = (e["mp"] - e["yes"]) * 100
         side = "Yes barato" if diff > 0 else "Yes caro"
+        prev_mp = prev_probs.get(key, {}).get("mp")
+        antes = ("antes —" if prev_mp is None
+                 else f"antes {prev_mp * 100:.0f}%")
         lines.append(
             f"{st.flag} {st.city} · <b>{html.escape(e['label'])}</b>: "
             f"mercado {e['yes'] * 100:.0f}% vs projetado {e['mp'] * 100:.0f}% "
-            f"({diff:+.0f} p.p. → {side})")
+            f"({antes}) · {diff:+.0f} p.p. → {side}")
     return "\n".join(lines)
 
 
