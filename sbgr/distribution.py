@@ -89,7 +89,8 @@ def member_maxima_for_day(day: dt.date, ens_times: list[dt.datetime],
         if not candidates:
             continue
         results.append({"model": model, "member": mid, "family": fam,
-                        "tmax": max(candidates)})
+                        "tmax": max(candidates),
+                        "future_max": max(future) if future else None})
     return results
 
 
@@ -106,6 +107,13 @@ def build_distribution(member_maxima: list[dict], bias: dict,
     for m in member_maxima:
         s = bias.get(m["family"], {}).get("resid_std", 1.5) * std_scale
         s = max(s, 0.3)
+        # Máxima já travada: nenhuma hora restante do membro chega perto do
+        # observado, então a "máxima do dia" virou fato medido, não previsão.
+        # Sem encolher o sigma, o piso de 0.3 vaza cauda para a faixa acima
+        # (ex.: 5% em 26 °C com obs 25.0 e noite a 18 °C).
+        fut = m.get("future_max")
+        if obs_floor is not None and (fut is None or fut + 2 * s < obs_floor):
+            s = 0.05
         comps.append((m["tmax"], s))
 
     def cdf(x: float) -> float:
