@@ -75,7 +75,7 @@ def parse_temp_market(title: str | None) -> dict | None:
 DUST_USD = 1.0
 
 # Orçamento de caracteres do corpo (limite do sendMessage é 4096; deixamos
-# folga para cabeçalho, rodapé de truncagem e resgatáveis).
+# folga para cabeçalho e rodapé de truncagem).
 BODY_BUDGET = 3500
 
 
@@ -231,21 +231,19 @@ def _position_line(p: dict, prob: float | None = None) -> str:
 
 
 def positions_message(positions: list[dict], prob_fn=None) -> str:
-    """Resumo em HTML do Telegram. Abertas ordenadas por valor atual;
-    resolvidas-a-resgatar num rodapé compacto. String vazia se não há nada.
+    """Resumo em HTML do Telegram: posições abertas ordenadas por valor atual
+    (resolvidas-a-resgatar são omitidas de propósito).
 
     `prob_fn(position) -> float | None` devolve a probabilidade (0..1) de a
     posição *dar certo* segundo a previsão atual; None quando não dá para casar
     o mercado com uma estação/dia."""
     prob_fn = prob_fn or (lambda _p: None)
-    open_pos, redeemable = [], []
-    for p in positions:
-        if p.get("redeemable"):
-            redeemable.append(p)
-        elif float(p.get("currentValue") or 0) >= DUST_USD:
-            open_pos.append(p)
+    open_pos = [
+        p for p in positions
+        if not p.get("redeemable")
+        and float(p.get("currentValue") or 0) >= DUST_USD]
 
-    if not open_pos and not redeemable:
+    if not open_pos:
         return "💼 <b>Polymarket</b>\nSem posições abertas no momento."
 
     open_pos.sort(key=lambda p: float(p.get("currentValue") or 0), reverse=True)
@@ -275,12 +273,6 @@ def positions_message(positions: list[dict], prob_fn=None) -> str:
     if shown < len(open_pos):
         blocks.append(f"<i>… e mais {len(open_pos) - shown} posição(ões) "
                       "(menores, omitidas por espaço).</i>")
-
-    if redeemable:
-        val = sum(float(p.get("currentValue") or 0) for p in redeemable)
-        blocks.append(
-            f"✅ <b>{len(redeemable)}</b> posição(ões) resolvida(s) a resgatar "
-            f"(~{_fmt_money(val)}).")
 
     return "\n\n".join(blocks)
 

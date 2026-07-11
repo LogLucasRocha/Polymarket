@@ -97,7 +97,15 @@ MIN_OBS_PER_DAY = 18             # mínimo de METARs no dia para validar a máxi
 NOWCAST_DAMPING = 0.7            # fração do desvio observado aplicada às horas restantes
 NOWCAST_HOURS = 3                # quantas horas recentes usar no cálculo do desvio
 
+# Máxima do dia considerada "travada" quando as últimas N horas observadas
+# ficaram todas abaixo dela (o pico passou); o digest corta o hora a hora
+# restante de hoje.
+TMAX_LOCK_HOURS = 3
+
+# Estado do último digest enviado (para omitir estações sem novidade)
+DIGEST_STATE_FILE = DATA_DIR / "digest_state.json"
+
 # Inflação de incerteza para D+1 (erro cresce com o horizonte)
 D1_STD_INFLATION = 1.15
 
-USER_AGENT = "sbgr-tmax-pipeline/1.0 (uso pessoal, previsao de temperatura)"
+USER_AGENT = "tmax-pipeline/1.0 (uso pessoal, previsao de temperatura)"

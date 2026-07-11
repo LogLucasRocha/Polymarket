@@ -11,8 +11,11 @@ token e o chat_id guardados como *secrets* do repositório.
 Estrutura do envio:
   1. Resumo geral das posições da Polymarket (todas as cidades) + probabilidade
      de cada uma dar certo.
-  2. Um bloco por estação: posições daquela cidade, tabela mercado × nossa
-     probabilidade e o gráfico (nowcast + distribuições) com o hora a hora.
+  2. Um bloco por estação: posições daquela cidade, tabela mercado × projetado
+     e o gráfico (nowcast + distribuições) com o hora a hora.
+
+Estações sem novidade desde o último envio (mesmo observado e mesma projeção,
+comparados via data/digest_state.json) são omitidas do digest.
 """
 from __future__ import annotations
 
@@ -28,6 +31,7 @@ except Exception:
 
 import argparse
 import datetime as dt
+import json
 import os
 import sys
 
@@ -122,18 +126,58 @@ def main() -> int:
         token, chat_id, notify.digest_header(now.strftime("%d/%m/%Y %H:%M")))
 
     # 3) Um bloco por estação: divisor, posições da cidade, tabela mercado ×
-    # nossa probabilidade e, por fim, gráfico (nowcast) + hora a hora. Falha de
-    # uma parte/estação não derruba o resto.
+    # projetado e, por fim, gráfico (nowcast) + hora a hora. Falha de uma
+    # parte/estação não derruba o resto. Estação sem novidade (mesma assinatura
+    # do último envio bem-sucedido) é omitida.
+    state = _load_digest_state()
     for station in stations:
         ctx = contexts.get(station.icao)
+        fp = _station_fingerprint(ctx) if ctx is not None else None
+        if fp is not None and state.get(station.icao) == fp:
+            print(f"[{station.icao}] sem novidade na projeção; bloco omitido.")
+            continue
         try:
             _send_station_block(token, chat_id, station, ctx, positions,
                                 errors, yes_prob, position_success_prob)
         except Exception as exc:  # noqa: BLE001 — falha de envio de uma estação não derruba as demais
             errors[station.icao] = str(exc)
             print(f"[{station.icao}] ERRO no bloco: {exc}", file=sys.stderr)
+        else:
+            if fp is not None:
+                state[station.icao] = fp
+    _save_digest_state(state)
 
     return 1 if len(errors) == len(stations) else 0
+
+
+def _station_fingerprint(ctx: dict) -> dict:
+    """Assinatura do que o digest comunica de uma estação: muda quando o
+    observado muda (nova temperatura ou nova máxima) ou quando a projeção muda
+    (quantis de hoje/amanhã). Normalizada via JSON para comparar com o estado
+    salvo em disco (chaves viram string)."""
+    lm = ctx["latest_metar"]
+    fp = {
+        "obs_max": ctx["obs_max_today"],
+        "latest_temp": lm["temp"] if lm else None,
+        "q_d0": ctx["dist_d0"]["quantiles"],
+        "q_d1": ctx["dist_d1"]["quantiles"],
+    }
+    return json.loads(json.dumps(fp))
+
+
+def _load_digest_state() -> dict:
+    try:
+        return json.loads(config.DIGEST_STATE_FILE.read_text("utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_digest_state(state: dict) -> None:
+    try:
+        config.DIGEST_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        config.DIGEST_STATE_FILE.write_text(json.dumps(state), "utf-8")
+    except OSError as exc:
+        print(f"AVISO: não salvou o estado do digest ({exc})", file=sys.stderr)
 
 
 def _send_station_block(token, chat_id, station, ctx, positions,

@@ -26,6 +26,18 @@ jobs:
       - name: Instalar dependências
         run: pip install -r requirements.txt
 
+      # data/ guarda o cache do viés (recalculado 1x/dia) e o estado do último
+      # digest (para omitir estações sem novidade). A chave é única por run,
+      # então cada execução salva um cache novo e a próxima restaura o mais
+      # recente via restore-keys.
+      - name: Restaurar caches (viés + estado do digest)
+        uses: actions/cache@v4
+        with:
+          path: data
+          key: tmax-data-${{ github.run_id }}
+          restore-keys: |
+            tmax-data-
+
       - name: Enviar previsão pro Telegram
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}

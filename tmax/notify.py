@@ -174,7 +174,7 @@ def odds_table_png(station, day_tables: list[tuple]) -> bytes:
         axes = [axes]
     for ax, (day_label, date, rows) in zip(axes, day_tables):
         _draw_odds_table(ax, day_label, date, rows)
-    fig.suptitle(f"{station.city} ({station.icao}) — mercado × nossa previsão",
+    fig.suptitle(f"{station.city} ({station.icao}) — mercado × projetado",
                  fontsize=13, fontweight="bold")
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=110, bbox_inches="tight")
@@ -184,10 +184,10 @@ def odds_table_png(station, day_tables: list[tuple]) -> bytes:
 
 def odds_caption(station) -> str:
     return (f"📊 <b>{html.escape(station.city)} ({station.icao})</b> — "
-            "mercado × nossa previsão\n"
-            "<i>Yes/No = preço do mercado (prob. implícita) · Sim/Não = nossa "
-            "previsão de o resultado acontecer · verde/vermelho = onde divergimos "
-            "do mercado.</i>")
+            "mercado × projetado\n"
+            "<i>Yes/No = preço do mercado (prob. implícita) · Sim/Não = "
+            "probabilidade projetada de o resultado acontecer · verde/vermelho = "
+            "onde divergimos do mercado.</i>")
 
 
 # -------------------------------------------------------------------- texto
@@ -259,10 +259,16 @@ def station_hourly_lines(ctx: dict) -> str:
     blocks = [f"{s.flag} <b>{html.escape(s.city)} ({s.icao})</b> — hora a hora\n"
               "<i>mediana corrigida · faixa P10–P90 · obs = METAR observado</i>"]
 
+    # Máxima de hoje já travada: o hora a hora restante de hoje vira ruído —
+    # mantém só as horas já observadas e avisa que o resto foi omitido.
+    locked = bool(ctx.get("tmax_locked"))
+
     current_day = None
     day_lines: list[str] = []
     for t, lo, md, hi in zip(times, p10, p50, p90):
         if md is None:
+            continue
+        if locked and t.date() == ctx["d0"] and t > ctx["now"]:
             continue
         if t.date() != current_day:
             if day_lines:
@@ -270,6 +276,11 @@ def station_hourly_lines(ctx: dict) -> str:
             current_day = t.date()
             label = "Hoje" if current_day == ctx["d0"] else "Amanhã"
             day_lines = [f"<b>{label} {current_day.strftime('%d/%m')}</b>"]
+            if locked and current_day == ctx["d0"]:
+                day_lines.append(
+                    f"🔒 <i>máx. já definida: "
+                    f"<b>{ctx['obs_max_today']:.0f} °C</b> — horas restantes "
+                    "de hoje omitidas</i>")
         obs = obs_by_hour.get(t.replace(minute=0, second=0, microsecond=0))
         line = f"{t.strftime('%Hh')}  <b>{md:.1f}°</b> (P10–P90 {lo:.0f}–{hi:.0f})"
         if obs is not None:

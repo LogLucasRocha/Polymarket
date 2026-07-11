@@ -61,6 +61,17 @@ def build_context(station: Station = config.DEFAULT_STATION,
     latest = metars[-1] if metars else None
     obs_max_today = max((m["temp"] for m in obs_today), default=None)
 
+    # Máxima "travada": as últimas N horas observadas ficaram todas abaixo da
+    # máxima do dia — o pico passou e o hora a hora restante de hoje vira ruído.
+    hour_max: dict[dt.datetime, float] = {}
+    for ob in obs_today:
+        h = ob["time"].replace(minute=0, second=0, microsecond=0)
+        hour_max[h] = max(hour_max.get(h, ob["temp"]), ob["temp"])
+    last_hours = sorted(hour_max)[-config.TMAX_LOCK_HOURS:]
+    tmax_locked = (obs_max_today is not None
+                   and len(last_hours) >= config.TMAX_LOCK_HOURS
+                   and all(hour_max[h] < obs_max_today for h in last_hours))
+
     log("Buscando TAF...")
     taf = fetch.fetch_taf(station)
     taf_tx = fetch.parse_taf_tx(taf, now, station) if taf else []
@@ -139,6 +150,7 @@ def build_context(station: Station = config.DEFAULT_STATION,
         "obs_today": obs_today,
         "latest_metar": latest,
         "obs_max_today": obs_max_today,
+        "tmax_locked": tmax_locked,
         "nowcast": nowcast,
         "taf": taf, "taf_tx": taf_tx,
         "taf_tx_d0": taf_tx_d0, "taf_tx_d1": taf_tx_d1,
