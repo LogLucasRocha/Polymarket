@@ -109,6 +109,86 @@ def station_chart_png(ctx: dict) -> bytes:
     return buf.getvalue()
 
 
+# --------------------------------------------------------- tabela de odds PNG
+
+# Divergência (nossa prob. − preço do mercado) a partir da qual destacamos a
+# faixa: verde quando achamos o Yes mais provável que o mercado, vermelho quando
+# menos. Abaixo disso, sem cor (ruído).
+_EDGE = 0.08
+_GREEN_BG = "#d7f0dd"
+_RED_BG = "#f7d6da"
+
+
+def _pct(v) -> str:
+    return "—" if v is None else f"{v * 100:.0f}%"
+
+
+def _draw_odds_table(ax, day_label: str, date, rows: list[dict]) -> None:
+    ax.axis("off")
+    ax.set_title(f"{day_label} ({date.strftime('%d/%m')})",
+                 fontsize=11, fontweight="bold", pad=10)
+    col_labels = ["Faixa", "Yes", "No",
+                  "Probabilidade\nReal de Sim", "Probabilidade\nReal de Não"]
+    cell_text = [[r["label"], _pct(r["yes"]), _pct(r["no"]),
+                  _pct(r["mp"]), _pct(r["mp_no"])] for r in rows]
+    tbl = ax.table(cellText=cell_text, colLabels=col_labels,
+                   cellLoc="center", loc="upper center",
+                   colWidths=[0.30, 0.105, 0.105, 0.245, 0.245])
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(9)
+    tbl.scale(1, 1.55)
+
+    for (row, col), cell in tbl.get_celld().items():
+        cell.set_edgecolor("#d9d9d9")
+        if row == 0:                                  # cabeçalho (2 linhas)
+            cell.set_facecolor(BLUE)
+            cell.set_text_props(color="white", fontweight="bold")
+            cell.set_fontsize(8)
+            cell.set_height(cell.get_height() * 1.7)
+        elif row % 2 == 0:                            # zebra
+            cell.set_facecolor("#f4f6fa")
+        if col == 0 and row > 0:
+            cell.get_text().set_ha("left")
+            cell.PAD = 0.04
+
+    # Realce da divergência mercado × nós, na coluna "Sim".
+    for i, r in enumerate(rows, start=1):
+        if r["mp"] is None or r["yes"] is None:
+            continue
+        edge = r["mp"] - r["yes"]
+        if edge >= _EDGE:
+            tbl[i, 3].set_facecolor(_GREEN_BG)
+        elif edge <= -_EDGE:
+            tbl[i, 3].set_facecolor(_RED_BG)
+
+
+def odds_table_png(station, day_tables: list[tuple]) -> bytes:
+    """Um PNG por estação comparando mercado × nossa previsão. `day_tables` é uma
+    lista de (rótulo_do_dia, date, rows) — normalmente Hoje e Amanhã."""
+    n = len(day_tables)
+    max_rows = max(len(rows) for _, _, rows in day_tables)
+    fig, axes = plt.subplots(
+        1, n, figsize=(5.4 * n, max_rows * 0.42 + 1.4))
+    if n == 1:
+        axes = [axes]
+    for ax, (day_label, date, rows) in zip(axes, day_tables):
+        _draw_odds_table(ax, day_label, date, rows)
+    fig.suptitle(f"{station.city} ({station.icao}) — mercado × nossa previsão",
+                 fontsize=13, fontweight="bold")
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=110, bbox_inches="tight")
+    plt.close(fig)
+    return buf.getvalue()
+
+
+def odds_caption(station) -> str:
+    return (f"📊 <b>{html.escape(station.city)} ({station.icao})</b> — "
+            "mercado × nossa previsão\n"
+            "<i>Yes/No = preço do mercado (prob. implícita) · Sim/Não = nossa "
+            "previsão de o resultado acontecer · verde/vermelho = onde divergimos "
+            "do mercado.</i>")
+
+
 # -------------------------------------------------------------------- texto
 
 def _exceed_summary(dist: dict) -> str:

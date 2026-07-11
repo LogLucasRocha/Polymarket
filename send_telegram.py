@@ -132,31 +132,39 @@ def main() -> int:
         notify.send_message(token, chat_id, notify.station_hourly_lines(ctx))
         print(f"[{station.icao}] enviado.")
 
-    # 4) No fim de tudo: para cada evento em que você tem posição aberta de
-    # temperatura, uma tabela com todas as faixas — odd de Yes/No do mercado vs.
-    # a nossa probabilidade de acontecer. Falha aqui não derruba o resto.
-    if not args.no_positions:
-        seen_slugs: list[str] = []
-        for p in positions:
-            if p.get("redeemable"):
+    # 4) No fim de tudo: para CADA estação acompanhada, uma tabela (PNG) por dia
+    # (hoje e amanhã) com todas as faixas — odd de Yes/No do mercado vs. a nossa
+    # probabilidade de acontecer. Independe de ter posição. Falha de uma estação
+    # não derruba o resto.
+    for station in stations:
+        ctx = contexts.get(station.icao)
+        if ctx is None:
+            continue
+        day_tables: list[tuple] = []
+        for day_label, date in (("Hoje", ctx["d0"]), ("Amanhã", ctx["d1"])):
+            slug = polymarket.event_slug(station.icao, date)
+            if not slug:
                 continue
-            if float(p.get("currentValue") or 0) < polymarket.DUST_USD:
-                continue
-            if not polymarket.parse_temp_market(p.get("title")):
-                continue
-            slug = p.get("eventSlug") or p.get("slug")
-            if slug and slug not in seen_slugs:
-                seen_slugs.append(slug)
-        for slug in seen_slugs:
             try:
                 event = polymarket.fetch_event(slug)
-                msg = polymarket.odds_table_message(event, yes_prob)
-                if msg:
-                    notify.send_message(token, chat_id, msg)
-                    print(f"[polymarket] tabela de odds enviada ({slug}).")
             except Exception as exc:  # noqa: BLE001 — tabela é acessória
-                print(f"[polymarket] ERRO tabela {slug}: {exc}",
-                      file=sys.stderr)
+                print(f"[polymarket] ERRO evento {slug}: {exc}", file=sys.stderr)
+                continue
+            rows = polymarket.odds_rows(event, yes_prob)
+            if rows:
+                day_tables.append((day_label, date, rows))
+        if not day_tables:
+            print(f"[{station.icao}] sem mercado de odds relevante.")
+            continue
+        try:
+            notify.send_photo(token, chat_id,
+                              notify.odds_table_png(station, day_tables),
+                              notify.odds_caption(station))
+            print(f"[{station.icao}] tabela de odds enviada "
+                  f"({len(day_tables)} dia(s)).")
+        except Exception as exc:  # noqa: BLE001 — tabela é acessória
+            print(f"[{station.icao}] ERRO ao enviar tabela: {exc}",
+                  file=sys.stderr)
 
     return 1 if len(errors) == len(stations) else 0
 

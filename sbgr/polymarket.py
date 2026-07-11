@@ -32,6 +32,17 @@ _MARKET_CITY_TO_ICAO = {
     "são paulo": "SBGR",
 }
 
+# ICAO da estação → fatia de cidade usada no slug do evento na Gamma API.
+# Slug observado: highest-temperature-in-<cidade>-on-<mês>-<dia>-<ano>.
+_ICAO_TO_CITY_SLUG = {
+    "SBGR": "sao-paulo",
+    "SAEZ": "buenos-aires",
+    "UUWW": "moscow",
+}
+
+_MONTHS = ("january", "february", "march", "april", "may", "june", "july",
+           "august", "september", "october", "november", "december")
+
 # "Will the highest temperature in <cidade> be <N>°C [or higher/lower] on ...?"
 _TEMP_RE = re.compile(
     r"highest temperature in (?P<city>.+?) be (?P<temp>-?\d+)\s*°?\s*c"
@@ -135,42 +146,39 @@ def fetch_event(slug: str, timeout: int = 30) -> dict:
             "end": ev.get("endDate"), "rows": rows}
 
 
-def _pct(v: float | None) -> str:
-    return "—" if v is None else f"{v * 100:.0f}%"
+def event_slug(icao: str, date) -> str | None:
+    """Slug do evento de máxima de uma estação num dado dia (`datetime.date`).
+
+    Determinístico a partir do padrão observado na Gamma API. None se a estação
+    não tem cidade mapeada."""
+    city = _ICAO_TO_CITY_SLUG.get(icao)
+    if not city:
+        return None
+    return (f"highest-temperature-in-{city}-on-"
+            f"{_MONTHS[date.month - 1]}-{date.day}-{date.year}")
 
 
-def odds_table_message(event: dict, prob_fn=None) -> str:
-    """Tabela (HTML do Telegram) das faixas de um evento: preço de Yes/No do
-    mercado vs. a nossa probabilidade de o Yes acontecer.
+def odds_rows(event: dict, prob_fn=None) -> list[dict]:
+    """Faixas relevantes de um evento, já com mercado vs. nossa previsão.
 
     `prob_fn(question, end) -> float | None` devolve a nossa prob. do Yes; None
-    quando não sabemos casar com uma estação/dia. String vazia se não há nada
-    relevante a mostrar."""
+    quando não sabemos casar com uma estação/dia. Cada item:
+    {label, yes, no, mp, mp_no} (0..1 ou None). Lista vazia se nada relevante."""
     prob_fn = prob_fn or (lambda _q, _e: None)
     end = event.get("end")
-    lines = []
+    rows = []
     for r in event.get("rows", []):
         yes, no = r.get("yes"), r.get("no")
         mp = prob_fn(r.get("question"), end)
         # Corta as faixas irrelevantes (mercado ~0 e nossa previsão ~0).
         if (yes or 0) < 0.01 and (mp or 0) < 0.01:
             continue
-        lines.append((str(r.get("label") or "?"), yes, no, mp))
-    if not lines:
-        return ""
-
-    width = max(len(lbl) for lbl, *_ in lines)
-    body = (f"{'Faixa':<{width}} {'Yes':>5} {'No':>5} "
-            f"{'Sim':>5} {'Não':>5}\n")
-    for lbl, yes, no, mp in lines:
-        mp_no = None if mp is None else 1.0 - mp
-        body += (f"{lbl:<{width}} {_pct(yes):>5} {_pct(no):>5} "
-                 f"{_pct(mp):>5} {_pct(mp_no):>5}\n")
-
-    head = (f"📊 <b>{html.escape(str(event.get('title', '?')))}</b>\n"
-            "<i>Yes/No = preço do mercado (prob. implícita) · "
-            "Sim/Não = nossa previsão de o resultado acontecer.</i>")
-    return f"{head}\n<pre>{html.escape(body)}</pre>"
+        rows.append({
+            "label": str(r.get("label") or "?"),
+            "yes": yes, "no": no,
+            "mp": mp, "mp_no": None if mp is None else 1.0 - mp,
+        })
+    return rows
 
 
 def _fmt_money(v: float) -> str:
