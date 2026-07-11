@@ -105,6 +105,11 @@ TMAX_LOCK_HOURS = 3
 # Estado do último digest enviado (para omitir estações sem novidade)
 DIGEST_STATE_FILE = DATA_DIR / "digest_state.json"
 
+# Sinal de edge: divergência mínima |projetado − mercado| numa faixa do D0
+# que dispara a mensagem de alerta. Cada faixa avisa uma vez ao cruzar o
+# corte e re-arma quando cai abaixo dele (ou na virada do dia).
+EDGE_ALERT_MIN = 0.05
+
 # Inflação de incerteza para D+1 (erro cresce com o horizonte)
 D1_STD_INFLATION = 1.15
 

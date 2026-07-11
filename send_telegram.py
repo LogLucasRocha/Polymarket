@@ -11,7 +11,9 @@ token e o chat_id guardados como *secrets* do repositório.
 Estrutura do envio:
   1. Resumo geral das posições da Polymarket (todas as cidades) + probabilidade
      de cada uma dar certo.
-  2. Um bloco por estação: posições daquela cidade, tabela mercado × projetado
+  2. Sinais: faixas do D0 em que projetado e mercado divergem ≥ EDGE_ALERT_MIN
+     (avisado uma vez por faixa, ao cruzar o corte).
+  3. Um bloco por estação: posições daquela cidade, tabela mercado × projetado
      e o gráfico (nowcast + distribuições) com o hora a hora.
 
 Estações sem novidade desde o último envio (mesmo observado e mesma projeção,
@@ -31,6 +33,7 @@ except Exception:
 
 import argparse
 import datetime as dt
+import html
 import json
 import os
 import sys
@@ -125,15 +128,32 @@ def main() -> int:
     notify.send_message(
         token, chat_id, notify.digest_header(now.strftime("%d/%m/%Y %H:%M")))
 
-    # 3) Um bloco por estação: divisor, posições da cidade, tabela mercado ×
+    state = _load_digest_state()
+
+    # 3) Sinais: faixas do D0 em que projetado e mercado divergem o suficiente
+    # para interessar. Cada faixa avisa UMA vez ao cruzar o corte (o estado
+    # guarda as que já estão acima; a virada do dia re-arma tudo, porque a
+    # data faz parte da chave).
+    edges_now = _collect_d0_edges(stations, contexts, yes_prob)
+    prev_edges = state.get("edges", {})
+    new_edges = {k: v for k, v in edges_now.items() if k not in prev_edges}
+    if new_edges:
+        try:
+            notify.send_message(token, chat_id, _edges_message(new_edges))
+            print(f"[sinais] {len(new_edges)} sinal(is) enviado(s).")
+        except Exception as exc:  # noqa: BLE001 — sinal é acessório
+            print(f"[sinais] ERRO ao enviar: {exc}", file=sys.stderr)
+            edges_now = prev_edges  # não marca como avisado; tenta na próxima
+
+    # 4) Um bloco por estação: divisor, posições da cidade, tabela mercado ×
     # projetado e, por fim, gráfico (nowcast) + hora a hora. Falha de uma
     # parte/estação não derruba o resto. Estação sem novidade (mesma assinatura
     # do último envio bem-sucedido) é omitida.
-    state = _load_digest_state()
+    station_state = state.get("stations", {})
     for station in stations:
         ctx = contexts.get(station.icao)
         fp = _station_fingerprint(ctx) if ctx is not None else None
-        if fp is not None and state.get(station.icao) == fp:
+        if fp is not None and station_state.get(station.icao) == fp:
             print(f"[{station.icao}] sem novidade na projeção; bloco omitido.")
             continue
         try:
@@ -144,10 +164,54 @@ def main() -> int:
             print(f"[{station.icao}] ERRO no bloco: {exc}", file=sys.stderr)
         else:
             if fp is not None:
-                state[station.icao] = fp
-    _save_digest_state(state)
+                station_state[station.icao] = fp
+    _save_digest_state({"stations": station_state, "edges": edges_now})
 
     return 1 if len(errors) == len(stations) else 0
+
+
+def _collect_d0_edges(stations, contexts, yes_prob) -> dict:
+    """Faixas do D0 com |projetado − mercado| ≥ EDGE_ALERT_MIN, indexadas por
+    "icao:data:faixa" (a data na chave re-arma os sinais na virada do dia).
+    Cada valor: {icao, label, yes, mp}. Normalizado via JSON para comparar com
+    o estado salvo em disco."""
+    edges: dict = {}
+    for station in stations:
+        ctx = contexts.get(station.icao)
+        if ctx is None:
+            continue
+        slug = polymarket.event_slug(station.icao, ctx["d0"])
+        if not slug:
+            continue
+        try:
+            event = polymarket.fetch_event(slug)
+        except Exception as exc:  # noqa: BLE001 — sinal é acessório
+            print(f"[sinais] ERRO evento {slug}: {exc}", file=sys.stderr)
+            continue
+        for r in polymarket.odds_rows(event, yes_prob):
+            if r["yes"] is None or r["mp"] is None:
+                continue
+            if abs(r["mp"] - r["yes"]) < config.EDGE_ALERT_MIN:
+                continue
+            key = f"{station.icao}:{ctx['d0'].isoformat()}:{r['label']}"
+            edges[key] = {"icao": station.icao, "label": r["label"],
+                          "yes": r["yes"], "mp": r["mp"]}
+    return json.loads(json.dumps(edges))
+
+
+def _edges_message(edges: dict) -> str:
+    """Mensagem de sinais (HTML do Telegram): uma linha por faixa divergente."""
+    lines = [f"🚨 <b>Sinais — hoje (D0)</b> · divergência ≥ "
+             f"{config.EDGE_ALERT_MIN * 100:.0f} p.p. entre mercado e projetado"]
+    for e in edges.values():
+        st = config.STATIONS[e["icao"]]
+        diff = (e["mp"] - e["yes"]) * 100
+        side = "Yes barato" if diff > 0 else "Yes caro"
+        lines.append(
+            f"{st.flag} {st.city} · <b>{html.escape(e['label'])}</b>: "
+            f"mercado {e['yes'] * 100:.0f}% vs projetado {e['mp'] * 100:.0f}% "
+            f"({diff:+.0f} p.p. → {side})")
+    return "\n".join(lines)
 
 
 def _station_fingerprint(ctx: dict) -> dict:
@@ -186,7 +250,7 @@ def _send_station_block(token, chat_id, station, ctx, positions,
     odds, gráfico e hora a hora). Levanta na primeira falha de envio."""
     notify.send_message(token, chat_id, notify.station_divider(station))
 
-    # 3a) posições abertas desta cidade, com a chance de dar certo
+    # 4a) posições abertas desta cidade, com a chance de dar certo
     if positions:
         msg = polymarket.station_positions_message(
             station, positions, position_success_prob)
@@ -200,7 +264,7 @@ def _send_station_block(token, chat_id, station, ctx, positions,
             f"({errors.get(station.icao, '')}).")
         return
 
-    # 3b) tabela: probabilidade real vs. preço do mercado (hoje e amanhã)
+    # 4b) tabela: probabilidade real vs. preço do mercado (hoje e amanhã)
     day_tables: list[tuple] = []
     for day_label, date in (("Hoje", ctx["d0"]), ("Amanhã", ctx["d1"])):
         slug = polymarket.event_slug(station.icao, date)
@@ -227,7 +291,7 @@ def _send_station_block(token, chat_id, station, ctx, positions,
     else:
         print(f"[{station.icao}] sem mercado de odds relevante.")
 
-    # 3c) gráfico com nowcast + distribuições e o hora a hora
+    # 4c) gráfico com nowcast + distribuições e o hora a hora
     notify.send_photo(token, chat_id, notify.station_chart_png(ctx),
                       notify.station_lines(ctx))
     notify.send_message(token, chat_id, notify.station_hourly_lines(ctx))
