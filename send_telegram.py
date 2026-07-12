@@ -144,8 +144,21 @@ def main() -> int:
                 if fps[s.icao] is None
                 or station_state.get(s.icao) != fps[s.icao]}
 
+    # Sinais são computados cedo porque também decidem o que mais é enviado:
+    # um sinal NOVO (não estava na rodada anterior) puxa junto o resumo de
+    # posições e o bloco completo da cidade; as repetições vêm sozinhas.
+    signal_rows = _collect_signal_rows(stations, contexts, yes_prob)
+    prev_probs = state.get("signal_probs", {})
+    edges_now = {k: v for k, v in signal_rows.items() if _is_edge(v)}
+    new_edges = {k: v for k, v in edges_now.items()
+                 if _in_signal_window(v["icao"])}
+    prev_edges = state.get("edges", {})
+    fresh_icaos = {v["icao"] for k, v in new_edges.items()
+                   if k not in prev_edges}
+
     # 2) Posições: buscadas TODA rodada (o stop loss precisa do preço atual);
-    # o resumo geral só é enviado quando alguma estação tem novidade.
+    # o resumo geral é enviado quando há novidade no observado OU quando um
+    # sinal novo apareceu (contexto para decidir a entrada).
     positions: list[dict] = []
     wallet = os.environ.get("POLYMARKET_WALLET")
     if wallet and not args.no_positions:
@@ -153,7 +166,7 @@ def main() -> int:
             positions = polymarket.fetch_positions(wallet)
         except Exception as exc:  # noqa: BLE001 — leitura da carteira é acessório
             print(f"[polymarket] ERRO ao ler posições: {exc}", file=sys.stderr)
-        if positions and novidade:
+        if positions and (novidade or fresh_icaos):
             try:
                 notify.send_message(
                     token, chat_id,
@@ -174,20 +187,9 @@ def main() -> int:
         except Exception as exc:  # noqa: BLE001
             print(f"[stop] ERRO: {exc}", file=sys.stderr)
 
-    # 3) Sinais, uma mensagem por cidade: faixas do dia operável (D0, ou D+1
-    # quando a máxima de hoje travou) em que projetado e mercado divergem o
-    # suficiente E o lado indicado tem confiança alta. Cada faixa avisa UMA
-    # vez ao cruzar o corte (o estado guarda as que já estão acima; a data na
-    # chave re-arma tudo na virada do dia). O estado também guarda o projetado
-    # de TODAS as faixas da rodada anterior, para mostrar de onde veio.
-    signal_rows = _collect_signal_rows(stations, contexts, yes_prob)
-    prev_probs = state.get("signal_probs", {})
-    edges_now = {k: v for k, v in signal_rows.items() if _is_edge(v)}
-    # Pedido explícito: o sinal REPETE a cada rodada enquanto o gap existir
-    # (sem deduplicação) — some só quando a divergência fecha, a máxima trava
-    # ou a hora local sai da janela de envio.
-    new_edges = {k: v for k, v in edges_now.items()
-                 if _in_signal_window(v["icao"])}
+    # 3) Sinais, uma mensagem por cidade. O sinal REPETE a cada rodada
+    # enquanto o gap existir — some só quando a divergência fecha, a máxima
+    # trava ou a hora local sai da janela de envio.
     for icao, text in _edges_messages(new_edges, prev_probs):
         try:
             notify.send_message(token, chat_id, text)
@@ -199,10 +201,10 @@ def main() -> int:
     # projetado e, por fim, gráfico (nowcast) + hora a hora. Falha de uma
     # parte/estação não derruba o resto. Estação sem novidade (mesma assinatura
     # do último envio bem-sucedido) é omitida.
-    # Decisão do Lucas: atualizações no Telegram SÓ quando (1) tem posição
-    # colocada na cidade, (2) alerta de entrada ou (3) alerta de stop. O
-    # bloco completo, portanto, só vai para cidades com POSIÇÃO aberta; as
-    # demais são monitoradas em silêncio (sinais e stop cobrem todas).
+    # Bloco completo (tabela + gráfico + hora a hora) vai para: cidades com
+    # POSIÇÃO aberta (quando há novidade no observado) e cidades com sinal
+    # NOVO nesta rodada (ignorando novidade — o gráfico é o contexto da
+    # decisão de entrada). Repetições de sinal não re-enviam o bloco.
     pos_icaos = set()
     for p in positions:
         if p.get("redeemable"):
@@ -214,12 +216,13 @@ def main() -> int:
     for station in stations:
         ctx = contexts.get(station.icao)
         fp = fps[station.icao]
-        if station.icao not in novidade:
+        fresh_signal = station.icao in fresh_icaos
+        if station.icao not in novidade and not fresh_signal:
             print(f"[{station.icao}] sem novidade na projeção; bloco omitido.")
             continue
         if (config.FULL_BLOCK_ONLY_WITH_ACTIVITY
-                and station.icao not in pos_icaos):
-            continue  # sem posição na cidade: monitorada em silêncio
+                and station.icao not in pos_icaos and not fresh_signal):
+            continue  # sem posição nem sinal novo: monitorada em silêncio
         try:
             _send_station_block(token, chat_id, station, ctx, positions,
                                 errors, yes_prob, position_success_prob)
