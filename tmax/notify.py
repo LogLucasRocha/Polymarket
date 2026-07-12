@@ -43,7 +43,7 @@ plt.rcParams.update({
 def _draw_hourly(ax, ctx) -> None:
     times, p10, p50, p90, _raw = hourly_percentiles(
         ctx["ens"]["time"], ctx["ens"]["members"], ctx["bias"],
-        ctx["shift"], ctx["now"], days={ctx["d0"], ctx["d1"]})
+        ctx["shift"], ctx["now"], days={ctx["d0"]})
     ax.fill_between(times, p10, p90, color=BLUE, alpha=0.18, label="P10–P90")
     ax.plot(times, p50, color=BLUE, lw=1.8, label="Mediana (corrigida)")
     if ctx["obs_today"]:
@@ -86,25 +86,16 @@ def _draw_dist(ax, dist, title, det_points, taf_tx) -> None:
 
 
 def station_chart_png(ctx: dict) -> bytes:
-    """Um único PNG por estação: trajetória horária no topo e as distribuições
-    embaixo (D0 e D+1; só D+1 quando a máxima de hoje já travou)."""
+    """Um único PNG por estação, só o D0: trajetória horária de hoje no topo
+    e a distribuição da máxima de hoje embaixo."""
     fig = plt.figure(figsize=(9, 8))
-    gs = fig.add_gridspec(2, 2, height_ratios=[1.05, 1], hspace=0.35, wspace=0.2)
-    _draw_hourly(fig.add_subplot(gs[0, :]), ctx)
+    gs = fig.add_gridspec(2, 1, height_ratios=[1.05, 1], hspace=0.35)
+    _draw_hourly(fig.add_subplot(gs[0, 0]), ctx)
 
     det0 = {m: v["corrected"] for m, v in ctx["det_corrected"]["d0"].items()}
-    det1 = {m: v["corrected"] for m, v in ctx["det_corrected"]["d1"].items()}
-    if ctx.get("tmax_locked"):
-        _draw_dist(fig.add_subplot(gs[1, :]), ctx["dist_d1"],
-                   f"Amanhã ({ctx['d1'].strftime('%d/%m')})", det1,
-                   ctx["taf_tx_d1"])
-    else:
-        _draw_dist(fig.add_subplot(gs[1, 0]), ctx["dist_d0"],
-                   f"Hoje ({ctx['d0'].strftime('%d/%m')})", det0,
-                   ctx["taf_tx_d0"])
-        _draw_dist(fig.add_subplot(gs[1, 1]), ctx["dist_d1"],
-                   f"Amanhã ({ctx['d1'].strftime('%d/%m')})", det1,
-                   ctx["taf_tx_d1"])
+    _draw_dist(fig.add_subplot(gs[1, 0]), ctx["dist_d0"],
+               f"Hoje ({ctx['d0'].strftime('%d/%m')})", det0,
+               ctx["taf_tx_d0"])
 
     station = ctx["station"]
     # Sem a bandeira: emojis não existem na fonte do matplotlib (viram tofu).
@@ -215,7 +206,7 @@ def station_lines(ctx: dict) -> str:
     """Legenda (HTML do Telegram) do gráfico de uma estação. Cada tópico é um
     parágrafo separado por linha em branco, para não se perder na leitura."""
     s = ctx["station"]
-    q0, q1 = ctx["dist_d0"]["quantiles"], ctx["dist_d1"]["quantiles"]
+    q0 = ctx["dist_d0"]["quantiles"]
 
     head = [f"{s.flag} <b>{html.escape(s.city)} ({s.icao})</b>"]
     if ctx["latest_metar"]:
@@ -225,12 +216,11 @@ def station_lines(ctx: dict) -> str:
         head.append(agora)
     blocks = ["\n".join(head)]
 
-    # Máxima de hoje travada: nowcast e resumo do D0 viram ruído — o foco do
-    # bloco passa a ser amanhã.
+    # Máxima de hoje travada: nowcast e resumo viram ruído — só o fato.
     if ctx.get("tmax_locked"):
         blocks.append(
-            f"🔒 <b>Máx. de hoje já definida: {ctx['obs_max_today']:.0f} °C</b> "
-            "— foco em amanhã.")
+            f"🔒 <b>Máx. de hoje já definida: "
+            f"{ctx['obs_max_today']:.0f} °C</b> — mercado resolvido.")
     else:
         if ctx["nowcast"]:
             nc = ctx["nowcast"]
@@ -248,12 +238,6 @@ def station_lines(ctx: dict) -> str:
             f"(P10–P90 {q0[10]:.1f}–{q0[90]:.1f}){taf0}\n"
             f"{_exceed_summary(ctx['dist_d0'])}")
 
-    taf1 = f" · TAF {ctx['taf_tx_d1']:.0f}" if ctx["taf_tx_d1"] is not None else ""
-    blocks.append(
-        f"Amanhã {ctx['d1'].strftime('%d/%m')}: <b>{q1[50]:.1f} °C</b> "
-        f"(P10–P90 {q1[10]:.1f}–{q1[90]:.1f}){taf1}\n"
-        f"{_exceed_summary(ctx['dist_d1'])}")
-
     return "\n\n".join(blocks)
 
 
@@ -264,7 +248,7 @@ def station_hourly_lines(ctx: dict) -> str:
     s = ctx["station"]
     times, p10, p50, p90, _raw = hourly_percentiles(
         ctx["ens"]["time"], ctx["ens"]["members"], ctx["bias"],
-        ctx["shift"], ctx["now"], days={ctx["d0"], ctx["d1"]})
+        ctx["shift"], ctx["now"], days={ctx["d0"]})
 
     # Observado por hora, para marcar as horas já decorridas de hoje.
     obs_by_hour = {
@@ -274,13 +258,13 @@ def station_hourly_lines(ctx: dict) -> str:
     head = (f"{s.flag} <b>{html.escape(s.city)} ({s.icao})</b> — hora a hora\n"
             "<i>mediana corrigida · faixa P10–P90 · obs = METAR observado</i>")
 
-    # Máxima de hoje já travada: o D0 inteiro sai de cena — o mercado de hoje
-    # está resolvido e o que interessa é o dia seguinte.
+    # Máxima de hoje já travada: as horas restantes viram ruído — mantém só
+    # as já observadas e avisa.
     locked = bool(ctx.get("tmax_locked"))
     if locked:
         head += (f"\n🔒 <i>máx. de hoje já definida "
-                 f"(<b>{ctx['obs_max_today']:.0f} °C</b>) — mostrando só "
-                 "amanhã</i>")
+                 f"(<b>{ctx['obs_max_today']:.0f} °C</b>) — horas restantes "
+                 "omitidas</i>")
     blocks = [head]
 
     current_day = None
@@ -288,14 +272,13 @@ def station_hourly_lines(ctx: dict) -> str:
     for t, lo, md, hi in zip(times, p10, p50, p90):
         if md is None:
             continue
-        if locked and t.date() == ctx["d0"]:
+        if locked and t > ctx["now"]:
             continue
         if t.date() != current_day:
             if day_lines:
                 blocks.append("\n".join(day_lines))
             current_day = t.date()
-            label = "Hoje" if current_day == ctx["d0"] else "Amanhã"
-            day_lines = [f"<b>{label} {current_day.strftime('%d/%m')}</b>"]
+            day_lines = [f"<b>Hoje {current_day.strftime('%d/%m')}</b>"]
         obs = obs_by_hour.get(t.replace(minute=0, second=0, microsecond=0))
         line = f"{t.strftime('%Hh')}  <b>{md:.1f}°</b> (P10–P90 {lo:.0f}–{hi:.0f})"
         if obs is not None:

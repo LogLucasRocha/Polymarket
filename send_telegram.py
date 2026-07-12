@@ -8,18 +8,19 @@ Uso local:
 Na nuvem roda pelo GitHub Actions (.github/workflows/main.yml), com o
 token e o chat_id guardados como *secrets* do repositório.
 
-Estrutura do envio:
+Estrutura do envio (foco exclusivo no D0 — o D+1 não aparece no digest):
   1. Resumo geral das posições da Polymarket (todas as cidades) + probabilidade
      de cada uma dar certo — só quando alguma estação tem novidade no
      observado; rodada parada não repete o resumo.
-  2. Sinais, uma mensagem POR CIDADE: faixas do dia operável em que projetado e
-     mercado divergem ≥ EDGE_ALERT_MIN e o lado indicado tem mais de
-     EDGE_MIN_CONFIDENCE de chance de acertar (avisado uma vez por faixa).
+  2. Sinais, uma mensagem POR CIDADE: faixas de HOJE em que a Probabilidade
+     Real (modelo calibrado, a mesma da tabela) e o mercado divergem ≥
+     EDGE_ALERT_MIN e o lado indicado tem mais de EDGE_MIN_CONFIDENCE de
+     chance (avisado uma vez por faixa).
   3. Um bloco por estação: posições daquela cidade, tabela mercado × projetado
-     e o gráfico (nowcast + distribuições) com o hora a hora.
+     de hoje e o gráfico (nowcast + distribuição de hoje) com o hora a hora.
 
-Quando a máxima de hoje já travou (TMAX_LOCK_HOURS), o D0 sai de cena na
-estação: sinais, tabela, distribuição e hora a hora focam no dia seguinte.
+Quando a máxima de hoje já travou (TMAX_LOCK_HOURS), o mercado do dia está
+resolvido: sinais e tabela somem e o hora a hora corta as horas restantes.
 
 Estações sem novidade desde o último envio (mesmo observado e mesma projeção,
 comparados via data/digest_state.json) são omitidas do digest.
@@ -109,12 +110,11 @@ def main() -> int:
         return calibration.apply(p, hour)
 
     def position_success_prob(p: dict) -> float | None:
-        """P(a posição dar certo): P(Yes) se apostou Yes, senão 1−P(Yes).
-        Usa o posterior (modelo calibrado + preço atual do mercado)."""
+        """P(a posição dar certo): P(Yes) se apostou Yes, senão 1−P(Yes) —
+        a mesma Probabilidade Real (modelo calibrado) da tabela de odds."""
         p_yes = yes_prob(p.get("title"), p.get("endDate"))
         if p_yes is None:
             return None
-        p_yes = calibration.posterior(p_yes, float(p.get("curPrice") or 0))
         outcome = str(p.get("outcome") or "").strip().lower()
         if outcome == "yes":
             return p_yes
@@ -196,22 +196,17 @@ def main() -> int:
 
 
 def _collect_signal_rows(stations, contexts, yes_prob) -> dict:
-    """Todas as faixas do dia operável de cada estação (D0; D+1 quando a
-    máxima de hoje já travou), com preço e projeção, indexadas por
+    """Todas as faixas do D0 de cada estação (nada quando a máxima de hoje já
+    travou — mercado resolvido), com preço e projeção, indexadas por
     "icao:data:faixa" (a data na chave re-arma os sinais na virada do dia).
     Cada valor: {icao, day_label, label, yes, mp}. Normalizado via JSON para
     comparar com o estado salvo em disco."""
     rows: dict = {}
     for station in stations:
         ctx = contexts.get(station.icao)
-        if ctx is None:
+        if ctx is None or ctx["tmax_locked"]:
             continue
-        if ctx["tmax_locked"]:
-            day, day_label = ctx["d1"], "amanhã"
-            hour = None  # D+1: período menos informado na calibração
-        else:
-            day, day_label = ctx["d0"], "hoje"
-            hour = ctx["now"].hour
+        day = ctx["d0"]
         slug = polymarket.event_slug(station.icao, day)
         if not slug:
             continue
@@ -225,23 +220,20 @@ def _collect_signal_rows(stations, contexts, yes_prob) -> dict:
                 continue
             key = f"{station.icao}:{day.isoformat()}:{r['label']}"
             rows[key] = {"icao": station.icao, "label": r["label"],
-                         "day_label": f"{day_label} {day.strftime('%d/%m')}",
-                         "yes": r["yes"], "mp": r["mp"],
-                         # melhor estimativa: modelo calibrado + preço
-                         "post": calibration.posterior(r["mp"], r["yes"],
-                                                       hour=hour)}
+                         "day_label": f"hoje {day.strftime('%d/%m')}",
+                         "yes": r["yes"], "mp": r["mp"]}
     return json.loads(json.dumps(rows))
 
 
 def _is_edge(row: dict) -> bool:
     """Sinal acionável: divergência mínima E o lado indicado (comprar Yes se
-    está barato, No se está caro) com mais de EDGE_MIN_CONFIDENCE de chance de
-    acertar segundo o POSTERIOR (modelo calibrado + preço do mercado)."""
-    post = row.get("post", row["mp"])
-    diff = post - row["yes"]
+    está barato, No se está caro) com mais de EDGE_MIN_CONFIDENCE de chance
+    segundo a Probabilidade Real (modelo calibrado) — o MESMO número exibido
+    na tabela de odds, para o alerta e a tabela nunca discordarem."""
+    diff = row["mp"] - row["yes"]
     if abs(diff) < config.EDGE_ALERT_MIN:
         return False
-    side_prob = post if diff > 0 else 1.0 - post
+    side_prob = row["mp"] if diff > 0 else 1.0 - row["mp"]
     return side_prob > config.EDGE_MIN_CONFIDENCE
 
 
@@ -251,19 +243,15 @@ def _edges_messages(edges: dict, prev_probs: dict) -> list[tuple[str, str]]:
     COMPRADO — mercado × modelo — e o modelo da rodada anterior."""
     by_icao: dict[str, list[str]] = {}
     for key, e in edges.items():
-        post = e.get("post", e["mp"])
-        prev = prev_probs.get(key, {})
-        prev_post = prev.get("post")
-        if prev_post is None and prev.get("mp") is not None:
-            prev_post = calibration.posterior(prev["mp"], prev.get("yes"))
-        if post > e["yes"]:              # Yes subvalorizado pelo mercado
+        prev_mp = prev_probs.get(key, {}).get("mp")
+        if e["mp"] > e["yes"]:           # Yes subvalorizado pelo mercado
             dot, acao = "🟢", "Comprar SIM"
-            mkt, mdl = e["yes"], post
-            prev_side = prev_post
+            mkt, mdl = e["yes"], e["mp"]
+            prev_side = prev_mp
         else:                            # Yes sobrevalorizado → comprar o Não
             dot, acao = "🔴", "Comprar NÃO"
-            mkt, mdl = 1.0 - e["yes"], 1.0 - post
-            prev_side = None if prev_post is None else 1.0 - prev_post
+            mkt, mdl = 1.0 - e["yes"], 1.0 - e["mp"]
+            prev_side = None if prev_mp is None else 1.0 - prev_mp
         antes = ("antes —" if prev_side is None
                  else f"antes {prev_side * 100:.0f}%")
         by_icao.setdefault(e["icao"], []).append(
@@ -291,7 +279,6 @@ def _station_fingerprint(ctx: dict) -> dict:
         "obs_max": ctx["obs_max_today"],
         "latest_temp": lm["temp"] if lm else None,
         "q_d0": ctx["dist_d0"]["quantiles"],
-        "q_d1": ctx["dist_d1"]["quantiles"],
     }
     return json.loads(json.dumps(fp))
 
@@ -331,11 +318,10 @@ def _send_station_block(token, chat_id, station, ctx, positions,
             f"({errors.get(station.icao, '')}).")
         return
 
-    # 4b) tabela: probabilidade real vs. preço do mercado. Com a máxima de
-    # hoje travada o mercado do D0 está resolvido — mostra só o de amanhã.
-    days = ((("Amanhã", ctx["d1"]),) if ctx["tmax_locked"]
-            else (("Hoje", ctx["d0"]), ("Amanhã", ctx["d1"])))
+    # 4b) tabela: probabilidade real vs. preço do mercado — só o D0; com a
+    # máxima travada o mercado de hoje está resolvido e não há o que comparar.
     day_tables: list[tuple] = []
+    days = () if ctx["tmax_locked"] else (("Hoje", ctx["d0"]),)
     for day_label, date in days:
         slug = polymarket.event_slug(station.icao, date)
         if not slug:

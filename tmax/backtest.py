@@ -441,9 +441,9 @@ def fit_calibration(log=lambda m: None) -> dict:
 
 
 def simulate(log=lambda m: None) -> dict:
-    """Roda a regra de sinais sobre o arquivo inteiro, com o POSTERIOR
-    (modelo calibrado + preço do mercado), igual à produção. Retorna
-    estatísticas e as apostas."""
+    """Roda a regra de sinais sobre o arquivo inteiro, com a Probabilidade
+    Real (modelo calibrado), igual à produção. Retorna estatísticas e as
+    apostas."""
     rows, days_seen, res_mismatch = _collect_rows(log)
     signals = []
     done: set = set()
@@ -454,14 +454,13 @@ def simulate(log=lambda m: None) -> dict:
         yes = r["yes"]
         if yes is None:
             continue
-        post = calibration.posterior(
-            calibration.apply(r["mp"], r["hour"]), yes, hour=r["hour"])
-        if (yes or 0) < 0.01 and post < 0.01:
+        mp = calibration.apply(r["mp"], r["hour"])
+        if (yes or 0) < 0.01 and mp < 0.01:
             continue
-        diff = post - yes
+        diff = mp - yes
         if abs(diff) < config.EDGE_ALERT_MIN:
             continue
-        side_prob = post if diff > 0 else 1.0 - post
+        side_prob = mp if diff > 0 else 1.0 - mp
         if side_prob <= config.EDGE_MIN_CONFIDENCE:
             continue
         side = "SIM" if diff > 0 else "NAO"
@@ -474,7 +473,8 @@ def simulate(log=lambda m: None) -> dict:
             icao=r["icao"], day=r["day"], hour=r["hour"], label=r["label"],
             side=side, price=price, model=side_prob, won=won,
             bet_ts=r["ts"], settle=r["settle"]))
-    log(f"{days_seen} dias simulados, {len(signals)} sinais (posterior).")
+    log(f"{days_seen} dias simulados, {len(signals)} sinais "
+        "(modelo calibrado).")
     return _stats(signals, res_mismatch, days_seen)
 
 
