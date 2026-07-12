@@ -187,6 +187,33 @@ def main() -> int:
         except Exception as exc:  # noqa: BLE001
             print(f"[stop] ERRO: {exc}", file=sys.stderr)
 
+    # 2c) Alertas de condição observada — platô de 2h e fuga do envelope do
+    # ensemble. Cada episódio avisa UMA vez (chave no estado; re-arma quando
+    # a condição muda) e puxa o bloco completo da cidade junto.
+    cond_state = state.get("cond_alerts", {})
+    alert_icaos = set()
+    for station in stations:
+        ctx = contexts.get(station.icao)
+        if ctx is None:
+            continue
+        for kind, res in (("flat", _flat_alert(ctx)),
+                          ("ens", _ens_escape_alert(ctx))):
+            skey = f"{station.icao}:{kind}"
+            if res is None:
+                cond_state.pop(skey, None)
+                continue
+            key, texto = res
+            if cond_state.get(skey) == key:
+                continue  # mesmo episódio já avisado
+            try:
+                notify.send_message(token, chat_id, texto)
+                cond_state[skey] = key
+                alert_icaos.add(station.icao)
+                print(f"[{station.icao}] alerta de condição ({kind}).")
+            except Exception as exc:  # noqa: BLE001 — alerta é acessório
+                print(f"[{station.icao}] ERRO no alerta {kind}: {exc}",
+                      file=sys.stderr)
+
     # 3) Sinais, uma mensagem por cidade. O sinal REPETE a cada rodada
     # enquanto o gap existir — some só quando a divergência fecha, a máxima
     # trava ou a hora local sai da janela de envio.
@@ -216,7 +243,8 @@ def main() -> int:
     for station in stations:
         ctx = contexts.get(station.icao)
         fp = fps[station.icao]
-        fresh_signal = station.icao in fresh_icaos
+        fresh_signal = (station.icao in fresh_icaos
+                        or station.icao in alert_icaos)
         if station.icao not in novidade and not fresh_signal:
             print(f"[{station.icao}] sem novidade na projeção; bloco omitido.")
             continue
@@ -233,7 +261,8 @@ def main() -> int:
             if fp is not None:
                 station_state[station.icao] = fp
     _save_digest_state({"stations": station_state, "edges": edges_now,
-                        "signal_probs": signal_rows})
+                        "signal_probs": signal_rows,
+                        "cond_alerts": cond_state})
 
     return 1 if len(errors) == len(stations) else 0
 
@@ -296,6 +325,70 @@ def _stop_alerts(positions: list) -> str | None:
             "abaixo da sua entrada\n" + "\n".join(linhas) +
             f"\n<i>referência de saída usada no backtest: "
             f"−{config.STOP_EXIT_FRAC:.0%}</i>")
+
+
+def _flat_alert(ctx) -> tuple[str, str] | None:
+    """(chave, texto) se o observado está de lado — mesma temperatura — há
+    pelo menos 2 horas. A chave (dia+temp+início) evita repetir o aviso do
+    mesmo platô; um platô novo re-arma."""
+    obs = ctx["obs_today"]
+    if len(obs) < 3:
+        return None
+    last = obs[-1]
+    start = last["time"]
+    for o in reversed(obs):
+        if o["temp"] != last["temp"]:
+            break
+        start = o["time"]
+    horas = (last["time"] - start).total_seconds() / 3600.0
+    if horas < 2.0:
+        return None
+    s = ctx["station"]
+    key = f"{ctx['d0'].isoformat()}:{last['temp']:g}:{start:%H%M}"
+    texto = (f"⏸️ <b>{html.escape(s.city)} ({s.icao})</b>: observado de lado "
+             f"em <b>{last['temp']:.0f} °C</b> há {horas:.1f}h "
+             f"(desde {start:%H:%M}) · máx. do dia "
+             f"{ctx['obs_max_today']:.0f} °C.")
+    return key, texto
+
+
+def _ens_escape_alert(ctx) -> tuple[str, str] | None:
+    """(chave, texto) se a última observação saiu do envelope do ensemble
+    corrigido (média ± 1 desvio entre os membros na hora correspondente).
+    Avisa na entrada (ou troca de lado) e re-arma quando volta para dentro."""
+    lm = ctx["latest_metar"]
+    if not lm or lm["time"].date() != ctx["d0"]:
+        return None
+    hour = lm["time"].replace(minute=0, second=0, microsecond=0)
+    try:
+        i = ctx["ens"]["time"].index(hour)
+    except ValueError:
+        return None
+    vals = []
+    for (model, _mid), series in ctx["ens"]["members"].items():
+        v = series[i]
+        if v is None:
+            continue
+        fam = config.ENS_MODELS.get(model)
+        b = ctx["bias"].get(fam, {}).get("bias", 0.0) if fam else 0.0
+        vals.append(v - b)
+    if len(vals) < 10:
+        return None
+    mean = sum(vals) / len(vals)
+    var = sum((v - mean) ** 2 for v in vals) / max(len(vals) - 1, 1)
+    std = max(var ** 0.5, 0.1)
+    dev = (lm["temp"] - mean) / std
+    if abs(dev) <= 1.0:
+        return None
+    lado = "acima" if dev > 0 else "abaixo"
+    s = ctx["station"]
+    key = f"{ctx['d0'].isoformat()}:{lado}"
+    texto = (f"{'📈' if dev > 0 else '📉'} <b>{html.escape(s.city)} "
+             f"({s.icao})</b>: observado <b>fora do envelope do ensemble</b> — "
+             f"{lm['temp']:.0f} °C às {lm['time']:%H:%M} vs "
+             f"{mean:.1f} ± {std:.1f} °C previsto ({dev:+.1f}σ {lado}). "
+             "A projeção tende a se mover.")
+    return key, texto
 
 
 def _in_signal_window(icao: str) -> bool:
