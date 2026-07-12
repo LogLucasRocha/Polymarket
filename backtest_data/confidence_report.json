@@ -1,0 +1,39 @@
+{
+ "min_conf": 0.9,
+ "days": 244,
+ "por_faixa_dia": {
+  "SAEZ": {
+   "n": 809,
+   "acerto": 0.864,
+   "conf_media": 0.9943
+  },
+  "SBGR": {
+   "n": 842,
+   "acerto": 0.861,
+   "conf_media": 0.9951
+  },
+  "UUWW": {
+   "n": 837,
+   "acerto": 0.865,
+   "conf_media": 0.9914
+  }
+ },
+ "por_avaliacao": {
+  "SAEZ": {
+   "n": 5185,
+   "acerto": 0.8879,
+   "conf_media": 0.9938
+  },
+  "SBGR": {
+   "n": 6962,
+   "acerto": 0.895,
+   "conf_media": 0.9945
+  },
+  "UUWW": {
+   "n": 5474,
+   "acerto": 0.897,
+   "conf_media": 0.9902
+  }
+ },
+ "gerado_em": "2026-07-12T08:22:28"
+}

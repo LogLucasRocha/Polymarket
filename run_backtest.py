@@ -47,7 +47,14 @@ def main() -> int:
     # (e a produção) usam a probabilidade calibrada.
     cal = backtest.fit_calibration(log)
     stats = backtest.simulate(log)
+    conf = backtest.confidence_report(log=log)
     text = backtest.report_text(stats)
+    if conf.get("por_faixa_dia"):
+        partes = [f"{icao} {g['acerto']:.0%} (n={g['n']}, "
+                  f"declarado {g['conf_media']:.0%})"
+                  for icao, g in conf["por_faixa_dia"].items()]
+        text += (f"\n📏 <b>Confiança ≥ {conf['min_conf']:.0%} no D0</b> — "
+                 "acerto por cidade (faixa-dia): " + " · ".join(partes))
     if cal:
         partes = [f"{nome} {s['brier_raw']:.3f}→{s['brier_cal']:.3f}"
                   for nome, s in sorted(cal.items()) if "brier_raw" in s]

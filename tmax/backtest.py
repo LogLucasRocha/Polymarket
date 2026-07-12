@@ -440,6 +440,68 @@ def fit_calibration(log=lambda m: None) -> dict:
     return summary
 
 
+def confidence_report(min_conf: float | None = None,
+                      log=lambda m: None) -> dict:
+    """Acerto do modelo no D0 quando a confiança (Probabilidade Real,
+    calibrada) esteve acima do corte, POR CIDADE.
+
+    Duas contagens, porque horas do mesmo dia são correlacionadas:
+      - por faixa-dia: cada faixa conta UMA vez, no primeiro momento em que a
+        confiança cruzou o corte (o mais parecido com "recebi um número
+        confiante no Telegram");
+      - por avaliação: cada rodada horária conta (mostra persistência).
+
+    Grava backtest_data/confidence_report.json (o workflow commita) e
+    retorna o mesmo dicionário."""
+    min_conf = min_conf if min_conf is not None else config.EDGE_MIN_CONFIDENCE
+    rows, days, _ = _collect_rows(log)
+
+    def novo():
+        return {"n": 0, "acertos": 0, "conf_soma": 0.0}
+
+    per_band: dict[str, dict] = {}
+    per_eval: dict[str, dict] = {}
+    seen: set = set()
+    for r in rows:
+        p = calibration.apply(r["mp"], r["hour"])
+        if p >= min_conf:
+            side_yes, conf = True, p
+        elif p <= 1.0 - min_conf:
+            side_yes, conf = False, 1.0 - p
+        else:
+            continue
+        hit = r["yes_won"] == side_yes
+        g = per_eval.setdefault(r["icao"], novo())
+        g["n"] += 1
+        g["acertos"] += 1 if hit else 0
+        g["conf_soma"] += conf
+        key = (r["icao"], r["day"], r["bi"])
+        if key not in seen:
+            seen.add(key)
+            g = per_band.setdefault(r["icao"], novo())
+            g["n"] += 1
+            g["acertos"] += 1 if hit else 0
+            g["conf_soma"] += conf
+
+    def fecha(d):
+        return {icao: {"n": g["n"],
+                       "acerto": round(g["acertos"] / g["n"], 4),
+                       "conf_media": round(g["conf_soma"] / g["n"], 4)}
+                for icao, g in sorted(d.items()) if g["n"]}
+
+    out = {"min_conf": min_conf, "days": days,
+           "por_faixa_dia": fecha(per_band),
+           "por_avaliacao": fecha(per_eval),
+           "gerado_em": dt.datetime.now().isoformat(timespec="seconds")}
+    ARCHIVE.mkdir(parents=True, exist_ok=True)
+    (ARCHIVE / "confidence_report.json").write_text(
+        json.dumps(out, indent=1), encoding="utf-8")
+    for icao, g in out["por_faixa_dia"].items():
+        log(f"confiança ≥{min_conf:.0%} {icao}: {g['n']} faixas-dia, "
+            f"acerto {g['acerto']:.1%} (declarado {g['conf_media']:.1%})")
+    return out
+
+
 def simulate(log=lambda m: None) -> dict:
     """Roda a regra de sinais sobre o arquivo inteiro, com a Probabilidade
     Real (modelo calibrado), igual à produção. Retorna estatísticas e as
