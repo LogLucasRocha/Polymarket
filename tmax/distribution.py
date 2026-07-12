@@ -194,22 +194,29 @@ def dist_cdf(dist: dict, x: float) -> float | None:
     return sum(_norm_cdf(x, mu, s) for mu, s in comps) / len(comps)
 
 
-def market_prob(dist: dict | None, threshold: float, mode: str) -> float | None:
-    """Probabilidade do YES de um mercado de máxima resolver, dada a distribuição.
+def market_prob(dist: dict | None, lo: float, hi: float, mode: str,
+                unit: str = "C") -> float | None:
+    """Probabilidade do YES de um mercado de máxima resolver, dada a
+    distribuição (que é sempre em °C).
 
-    Convenção do Polymarket "highest temperature be N°C": a máxima reportada é
-    arredondada ao inteiro, então a faixa exata de N é [N-0.5, N+0.5).
-      - 'exact'   → P(N-0.5 ≤ Tmax < N+0.5)
-      - 'atleast' → P(Tmax ≥ N-0.5)   ("N°C or higher")
-      - 'atmost'  → P(Tmax < N+0.5)    ("N°C or lower")
+    Convenção do Polymarket: a máxima reportada é arredondada ao inteiro NA
+    UNIDADE DO MERCADO, então a faixa [lo, hi] cobre [lo-0.5, hi+0.5) nessa
+    unidade (lo == hi para faixa de 1 grau; EUA usam faixas de 2 °F).
+      - 'exact'   → P(lo-0.5 ≤ Tmax < hi+0.5)
+      - 'atleast' → P(Tmax ≥ lo-0.5)   ("N° or higher")
+      - 'atmost'  → P(Tmax < hi+0.5)   ("N° or lower")
     Retorna None se a distribuição não permite o cálculo."""
     if dist is None:
         return None
+    if unit.upper() == "F":
+        conv = lambda f: (f - 32.0) * 5.0 / 9.0  # noqa: E731
+    else:
+        conv = lambda c: c  # noqa: E731
     if mode == "atleast":
-        c = dist_cdf(dist, threshold - 0.5)
+        c = dist_cdf(dist, conv(lo - 0.5))
         return None if c is None else 1.0 - c
     if mode == "atmost":
-        return dist_cdf(dist, threshold + 0.5)
-    hi = dist_cdf(dist, threshold + 0.5)
-    lo = dist_cdf(dist, threshold - 0.5)
-    return None if hi is None or lo is None else max(0.0, hi - lo)
+        return dist_cdf(dist, conv(hi + 0.5))
+    p_hi = dist_cdf(dist, conv(hi + 0.5))
+    p_lo = dist_cdf(dist, conv(lo - 0.5))
+    return None if p_hi is None or p_lo is None else max(0.0, p_hi - p_lo)

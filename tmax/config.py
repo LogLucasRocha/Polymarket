@@ -20,6 +20,7 @@ class Station:
     lat: float
     lon: float
     timezone: str
+    unit: str = "C"   # unidade em que o mercado da cidade resolve (C ou F)
 
     @property
     def tz(self) -> ZoneInfo:
@@ -34,26 +35,69 @@ class Station:
         return DATA_DIR / f"bias_cache_{self.icao}.json"
 
 
+# A estação de cada cidade vem da DESCRIÇÃO oficial do mercado no Polymarket
+# (todas citam o ICAO na URL de resolução — Wunderground ou NOAA timeseries).
+# check_resolution_sources() no backtest confere periodicamente se o ICAO
+# ainda aparece na descrição. Hong Kong ficou de fora de propósito: resolve
+# pelo Observatório de HK, que não é estação METAR.
 STATIONS = {
-    "SBGR": Station(
-        icao="SBGR", city="Guarulhos",
-        airport="Aeroporto Internacional de São Paulo/Guarulhos",
-        flag="🇧🇷", lat=-23.4356, lon=-46.4731,
-        timezone="America/Sao_Paulo"),
-    # Mercado do Polymarket de Buenos Aires resolve pela estação de Ezeiza
-    # (Wunderground "Minister Pistarini Intl Airport" = METAR de SAEZ)
-    "SAEZ": Station(
-        icao="SAEZ", city="Buenos Aires",
-        airport="Aeroporto Ministro Pistarini (Ezeiza)",
-        flag="🇦🇷", lat=-34.8222, lon=-58.5358,
-        timezone="America/Argentina/Buenos_Aires"),
-    # Mercado do Polymarket de Moscou resolve pela coluna "Temp" de
-    # weather.gov/wrh/timeseries?site=UUWW (NOAA) = METAR de Vnukovo, em °C
-    "UUWW": Station(
-        icao="UUWW", city="Moscou",
-        airport="Aeroporto Internacional de Moscou/Vnukovo",
-        flag="🇷🇺", lat=55.5915, lon=37.2615,
-        timezone="Europe/Moscow"),
+    "SBGR": Station("SBGR", "Guarulhos", "São Paulo/Guarulhos Intl",
+                    "🇧🇷", -23.4356, -46.4731, "America/Sao_Paulo"),
+    "SAEZ": Station("SAEZ", "Buenos Aires", "Ministro Pistarini (Ezeiza)",
+                    "🇦🇷", -34.8222, -58.5358,
+                    "America/Argentina/Buenos_Aires"),
+    "UUWW": Station("UUWW", "Moscou", "Moscou/Vnukovo Intl",
+                    "🇷🇺", 55.5915, 37.2615, "Europe/Moscow"),
+    "KLGA": Station("KLGA", "Nova York", "LaGuardia",
+                    "🇺🇸", 40.7772, -73.8726, "America/New_York", unit="F"),
+    "KORD": Station("KORD", "Chicago", "O'Hare Intl",
+                    "🇺🇸", 41.9786, -87.9048, "America/Chicago", unit="F"),
+    "KMIA": Station("KMIA", "Miami", "Miami Intl",
+                    "🇺🇸", 25.7932, -80.2906, "America/New_York", unit="F"),
+    "KLAX": Station("KLAX", "Los Angeles", "Los Angeles Intl",
+                    "🇺🇸", 33.9425, -118.4081, "America/Los_Angeles",
+                    unit="F"),
+    "KDAL": Station("KDAL", "Dallas", "Dallas Love Field",
+                    "🇺🇸", 32.8471, -96.8518, "America/Chicago", unit="F"),
+    "KATL": Station("KATL", "Atlanta", "Hartsfield-Jackson Intl",
+                    "🇺🇸", 33.6367, -84.4281, "America/New_York", unit="F"),
+    "KBKF": Station("KBKF", "Denver", "Buckley SFB (Aurora)",
+                    "🇺🇸", 39.7017, -104.7517, "America/Denver", unit="F"),
+    "KHOU": Station("KHOU", "Houston", "William P. Hobby",
+                    "🇺🇸", 29.6454, -95.2789, "America/Chicago", unit="F"),
+    "KSEA": Station("KSEA", "Seattle", "Seattle-Tacoma Intl",
+                    "🇺🇸", 47.4489, -122.3094, "America/Los_Angeles",
+                    unit="F"),
+    "CYYZ": Station("CYYZ", "Toronto", "Toronto Pearson Intl",
+                    "🇨🇦", 43.6772, -79.6306, "America/Toronto"),
+    "MMMX": Station("MMMX", "Cidade do México", "Benito Juárez Intl",
+                    "🇲🇽", 19.4363, -99.0721, "America/Mexico_City"),
+    "EGLC": Station("EGLC", "Londres", "London City",
+                    "🇬🇧", 51.5053, 0.0553, "Europe/London"),
+    "LFPB": Station("LFPB", "Paris", "Paris-Le Bourget",
+                    "🇫🇷", 48.9694, 2.4414, "Europe/Paris"),
+    "LEMD": Station("LEMD", "Madri", "Adolfo Suárez Madrid-Barajas",
+                    "🇪🇸", 40.4719, -3.5626, "Europe/Madrid"),
+    "EHAM": Station("EHAM", "Amsterdã", "Schiphol",
+                    "🇳🇱", 52.3086, 4.7639, "Europe/Amsterdam"),
+    "EPWA": Station("EPWA", "Varsóvia", "Warsaw Chopin",
+                    "🇵🇱", 52.1657, 20.9671, "Europe/Warsaw"),
+    "LTFM": Station("LTFM", "Istambul", "Istanbul Airport",
+                    "🇹🇷", 41.2753, 28.7519, "Europe/Istanbul"),
+    "LTAC": Station("LTAC", "Ancara", "Esenboğa Intl",
+                    "🇹🇷", 40.1281, 32.9951, "Europe/Istanbul"),
+    "RKSI": Station("RKSI", "Seul", "Incheon Intl",
+                    "🇰🇷", 37.4692, 126.4505, "Asia/Seoul"),
+    "RJTT": Station("RJTT", "Tóquio", "Haneda",
+                    "🇯🇵", 35.5533, 139.7811, "Asia/Tokyo"),
+    "ZBAA": Station("ZBAA", "Pequim", "Beijing Capital Intl",
+                    "🇨🇳", 40.0801, 116.5846, "Asia/Shanghai"),
+    "ZSPD": Station("ZSPD", "Xangai", "Shanghai Pudong Intl",
+                    "🇨🇳", 31.1434, 121.8052, "Asia/Shanghai"),
+    "WSSS": Station("WSSS", "Singapura", "Changi",
+                    "🇸🇬", 1.3502, 103.9944, "Asia/Singapore"),
+    "NZWN": Station("NZWN", "Wellington", "Wellington Intl",
+                    "🇳🇿", -41.3272, 174.8053, "Pacific/Auckland"),
 }
 
 DEFAULT_STATION = STATIONS["SBGR"]
@@ -121,6 +165,17 @@ EDGE_MIN_CONFIDENCE = 0.90
 # ilusório: cruzamentos fora da janela são consumidos em silêncio — não
 # ficam represados esperando a janela abrir.
 SIGNAL_HOURS = (6, 23)
+
+# Stop loss: alerta quando o mercado precifica a posição este percentual (ou
+# mais) abaixo do preço médio de entrada — repetido a cada rodada enquanto
+# durar. No backtest, a saída simulada acontece a STOP_EXIT_FRAC de perda.
+STOP_ALERT_FRAC = 0.10
+STOP_EXIT_FRAC = 0.15
+
+# Com 25 cidades, o bloco completo (posições+tabela+gráfico+hora a hora) só
+# é enviado para cidades com ATIVIDADE (posição aberta ou sinal na rodada);
+# as demais são monitoradas em silêncio. False = comportamento antigo.
+FULL_BLOCK_ONLY_WITH_ACTIVITY = True
 
 # Inflação de incerteza para D+1 (erro cresce com o horizonte)
 D1_STD_INFLATION = 1.15

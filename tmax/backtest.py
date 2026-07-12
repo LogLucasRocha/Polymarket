@@ -354,17 +354,19 @@ def _collect_rows(log=lambda m: None) -> tuple[list, int, int]:
                 hist = rec["prices"].get(str(bi))
                 if not hist:
                     continue
-                bands.append(dict(bi=bi, threshold=pm["threshold"],
-                                  mode=pm["mode"], yes_won=yes_won,
-                                  hist=hist, label=m["question"]))
+                bands.append(dict(bi=bi, lo=pm["lo"], hi=pm["hi"],
+                                  mode=pm["mode"], unit=pm["unit"],
+                                  yes_won=yes_won, hist=hist,
+                                  label=m["question"]))
             if not bands:
                 continue
 
-            mx = round(day_max_obs)
             for b in bands:
-                met = (mx == b["threshold"] if b["mode"] == "exact"
-                       else mx >= b["threshold"] if b["mode"] == "atleast"
-                       else mx <= b["threshold"])
+                mx = (round(day_max_obs * 9 / 5 + 32) if b["unit"] == "F"
+                      else round(day_max_obs))
+                met = (b["lo"] <= mx <= b["hi"] if b["mode"] == "exact"
+                       else mx >= b["lo"] if b["mode"] == "atleast"
+                       else mx <= b["hi"])
                 if met != b["yes_won"]:
                     res_mismatch += 1
 
@@ -401,7 +403,7 @@ def _collect_rows(log=lambda m: None) -> tuple[list, int, int]:
                     tzinfo=tz).timestamp()
                 for b in bands:
                     mp = distribution.market_prob(
-                        dist, b["threshold"], b["mode"])
+                        dist, b["lo"], b["hi"], b["mode"], b["unit"])
                     if mp is None:
                         continue
                     pts = [p for ts, p in b["hist"]
@@ -410,7 +412,7 @@ def _collect_rows(log=lambda m: None) -> tuple[list, int, int]:
                         icao=icao, day=day.isoformat(), hour=t.hour,
                         ts=t_epoch, settle=settle, bi=b["bi"],
                         label=b["label"], yes_won=b["yes_won"], mp=mp,
-                        yes=pts[-1] if pts else None))
+                        yes=pts[-1] if pts else None, hist=b["hist"]))
     log(f"{days_seen} dias reconstruídos, {len(rows)} pares "
         "probabilidade × desfecho.")
     return rows, days_seen, res_mismatch
@@ -438,6 +440,35 @@ def fit_calibration(log=lambda m: None) -> dict:
             log(f"calibração {name}: n={s['n']} Brier {s['brier_raw']:.4f} -> "
                 f"{s['brier_cal']:.4f} ({s['points']} pontos)")
     return summary
+
+
+def check_resolution_sources(log=lambda m: None) -> list[str]:
+    """Confere se a descrição do mercado de HOJE de cada cidade ainda cita o
+    ICAO da estação que usamos. Fonte trocada em silêncio (especialmente as
+    que dependem de página de terceiro — Wunderground, NOAA timeseries) é
+    risco direto de resolução. Retorna a lista de avisos."""
+    avisos = []
+    today = dt.date.today()
+    for icao, station in config.STATIONS.items():
+        slug = polymarket.event_slug(icao, today)
+        if not slug:
+            continue
+        try:
+            data = _get("https://gamma-api.polymarket.com/events",
+                        {"slug": slug}, tries=2, timeout=30).json()
+        except Exception as exc:  # noqa: BLE001 — checagem é acessória
+            log(f"[fonte] {icao}: erro ao buscar evento ({exc})")
+            continue
+        ev = data[0] if isinstance(data, list) and data else None
+        if not isinstance(ev, dict):
+            continue  # sem evento hoje (mercado pode ainda não existir)
+        descs = " ".join(str(m.get("description") or "")
+                         for m in ev.get("markets", []))
+        if descs and icao.lower() not in descs.lower():
+            avisos.append(f"{station.city} ({icao})")
+            log(f"[fonte] ⚠️ {icao}: descrição do mercado não cita mais a "
+                "estação esperada!")
+    return avisos
 
 
 def confidence_report(min_conf: float | None = None,
@@ -538,10 +569,23 @@ def simulate(log=lambda m: None, hour_min: int | None = None,
         if price <= 0.005 or price >= 0.995:
             continue
         won = r["yes_won"] if side == "SIM" else not r["yes_won"]
+        # Stop loss: se, depois da entrada, o preço do LADO COMPRADO cair a
+        # STOP_EXIT_FRAC abaixo do preço pago, sai realizando a perda fixa.
+        stopped = False
+        stop_ts = None
+        stop_level = price * (1.0 - config.STOP_EXIT_FRAC)
+        for ts, p in r["hist"]:
+            if ts <= r["ts"] or ts >= r["settle"]:
+                continue
+            side_p = p if side == "SIM" else 1.0 - p
+            if side_p <= stop_level:
+                stopped, stop_ts = True, ts
+                break
         signals.append(dict(
             icao=r["icao"], day=r["day"], hour=r["hour"], label=r["label"],
             side=side, price=price, model=side_prob, won=won,
-            bet_ts=r["ts"], settle=r["settle"]))
+            stopped=stopped, bet_ts=r["ts"],
+            settle=stop_ts if stopped else r["settle"]))
     log(f"{days_seen} dias simulados, {len(signals)} sinais "
         "(modelo calibrado).")
     return _stats(signals, res_mismatch, days_seen)
@@ -553,8 +597,15 @@ def _stats(signals: list, res_mismatch: int, days_seen: int) -> dict:
                 "res_mismatch": res_mismatch}
     n = len(signals)
     wins = sum(1 for s in signals if s["won"])
-    flat = sum((STAKE_FRAC * (1 / s["price"] - 1)) if s["won"] else -STAKE_FRAC
-               for s in signals)
+    n_stopped = sum(1 for s in signals if s.get("stopped"))
+
+    def pnl_flat(s):
+        """P&L (fração do capital inicial) de uma aposta com stake fixo."""
+        if s.get("stopped"):
+            return -STAKE_FRAC * config.STOP_EXIT_FRAC
+        return (STAKE_FRAC * (1 / s["price"] - 1)) if s["won"] else -STAKE_FRAC
+
+    flat = sum(pnl_flat(s) for s in signals)
 
     evs = sorted([(s["bet_ts"], 0, i) for i, s in enumerate(signals)]
                  + [(s["settle"], 1, i) for i, s in enumerate(signals)])
@@ -567,7 +618,9 @@ def _stats(signals: list, res_mismatch: int, days_seen: int) -> dict:
             cap -= stake
         else:
             stake = open_stake.pop(i, 0.0)
-            if s["won"]:
+            if s.get("stopped"):
+                cap += stake * (1.0 - config.STOP_EXIT_FRAC)
+            elif s["won"]:
                 cap += stake / s["price"]
             equity = cap + sum(open_stake.values())
             peak = max(peak, equity)
@@ -580,12 +633,12 @@ def _stats(signals: list, res_mismatch: int, days_seen: int) -> dict:
             k = keyfn(s)
             g[k][0] += 1
             g[k][1] += 1 if s["won"] else 0
-            g[k][2] += ((STAKE_FRAC * (1 / s["price"] - 1)) if s["won"]
-                        else -STAKE_FRAC)
+            g[k][2] += pnl_flat(s)
         return dict(g)
 
     return {
         "n": n, "days": days_seen, "wins": wins, "hit": wins / n,
+        "n_stopped": n_stopped,
         "avg_model": sum(s["model"] for s in signals) / n,
         "avg_price": sum(s["price"] for s in signals) / n,
         "flat": flat, "compounded": cap, "maxdd": maxdd,
@@ -611,7 +664,9 @@ def report_text(st: dict) -> str:
         f"{st['avg_price']:.2f}",
         f"P&amp;L flat: <b>{st['flat']:+.2f}x</b> o capital inicial · "
         f"composto: <b>{st['compounded']:.2f}x</b> · "
-        f"drawdown máx {st['maxdd']:.0%}",
+        f"drawdown máx {st['maxdd']:.0%} · "
+        f"{st.get('n_stopped', 0)} stopada(s) a "
+        f"−{config.STOP_EXIT_FRAC:.0%}",
     ]
     if st["res_mismatch"]:
         lines.append(f"⚠️ {st['res_mismatch']} faixa(s) com resolução "

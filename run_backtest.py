@@ -48,7 +48,12 @@ def main() -> int:
     cal = backtest.fit_calibration(log)
     stats = backtest.simulate(log)
     conf = backtest.confidence_report(log=log)
+    fontes = backtest.check_resolution_sources(log)
     text = backtest.report_text(stats)
+    if fontes:
+        text += ("\n🚨 <b>FONTE DE RESOLUÇÃO MUDOU</b> — a descrição do "
+                 "mercado não cita mais a estação esperada: "
+                 + ", ".join(fontes) + ". Confira antes de operar!")
     if conf.get("por_faixa_dia"):
         partes = [f"{icao} {g['acerto']:.0%} (n={g['n']}, "
                   f"declarado {g['conf_media']:.0%})"

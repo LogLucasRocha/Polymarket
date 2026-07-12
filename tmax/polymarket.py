@@ -24,37 +24,52 @@ DATA_API = "https://data-api.polymarket.com"
 GAMMA_API = "https://gamma-api.polymarket.com"
 
 # Cidade no título do mercado (em inglês) → ICAO da estação que resolve o
-# mercado. Cidades fora deste mapa (ex.: Seoul) ficam sem probabilidade.
+# mercado (a estação vem da descrição oficial de cada mercado).
 _MARKET_CITY_TO_ICAO = {
-    "moscow": "UUWW",
-    "buenos aires": "SAEZ",
-    "sao paulo": "SBGR",
-    "são paulo": "SBGR",
+    "moscow": "UUWW", "buenos aires": "SAEZ",
+    "sao paulo": "SBGR", "são paulo": "SBGR",
+    "new york city": "KLGA", "nyc": "KLGA", "chicago": "KORD",
+    "miami": "KMIA", "los angeles": "KLAX", "dallas": "KDAL",
+    "atlanta": "KATL", "denver": "KBKF", "houston": "KHOU",
+    "seattle": "KSEA", "toronto": "CYYZ", "mexico city": "MMMX",
+    "london": "EGLC", "paris": "LFPB", "madrid": "LEMD",
+    "amsterdam": "EHAM", "warsaw": "EPWA", "istanbul": "LTFM",
+    "ankara": "LTAC", "seoul": "RKSI", "tokyo": "RJTT",
+    "beijing": "ZBAA", "shanghai": "ZSPD", "singapore": "WSSS",
+    "wellington": "NZWN",
 }
 
 # ICAO da estação → fatia de cidade usada no slug do evento na Gamma API.
 # Slug observado: highest-temperature-in-<cidade>-on-<mês>-<dia>-<ano>.
 _ICAO_TO_CITY_SLUG = {
-    "SBGR": "sao-paulo",
-    "SAEZ": "buenos-aires",
-    "UUWW": "moscow",
+    "SBGR": "sao-paulo", "SAEZ": "buenos-aires", "UUWW": "moscow",
+    "KLGA": "nyc", "KORD": "chicago", "KMIA": "miami", "KLAX": "los-angeles",
+    "KDAL": "dallas", "KATL": "atlanta", "KBKF": "denver", "KHOU": "houston",
+    "KSEA": "seattle", "CYYZ": "toronto", "MMMX": "mexico-city",
+    "EGLC": "london", "LFPB": "paris", "LEMD": "madrid", "EHAM": "amsterdam",
+    "EPWA": "warsaw", "LTFM": "istanbul", "LTAC": "ankara", "RKSI": "seoul",
+    "RJTT": "tokyo", "ZBAA": "beijing", "ZSPD": "shanghai", "WSSS": "singapore",
+    "NZWN": "wellington",
 }
 
 _MONTHS = ("january", "february", "march", "april", "may", "june", "july",
            "august", "september", "october", "november", "december")
 
-# "Will the highest temperature in <cidade> be <N>°C [or higher/lower] on ...?"
+# "Will the highest temperature in <cidade> be [between] <N>[-<M>]°C|°F
+#  [or higher/lower] on ...?" — EUA usam °F e faixas de 2 °F.
 _TEMP_RE = re.compile(
-    r"highest temperature in (?P<city>.+?) be (?P<temp>-?\d+)\s*°?\s*c"
+    r"highest temperature in (?P<city>.+?) be (?:between\s+)?"
+    r"(?P<t1>-?\d+)(?:\s*-\s*(?P<t2>-?\d+))?\s*°?\s*(?P<unit>[cf])"
     r"(?P<mod>\s+or\s+(?:higher|above|more|lower|below|less))?",
     re.IGNORECASE)
 
 
 def parse_temp_market(title: str | None) -> dict | None:
-    """Extrai {icao, threshold, mode} de um título de mercado de máxima.
+    """Extrai {icao, lo, hi, mode, unit} de um título de mercado de máxima.
 
-    `mode` ∈ {'exact','atleast','atmost'}. Retorna None se não for um mercado de
-    temperatura de uma cidade que acompanhamos."""
+    `lo`/`hi` são os inteiros da faixa NA UNIDADE DO MERCADO (lo == hi para
+    faixa de 1 grau); `mode` ∈ {'exact','atleast','atmost'}; `unit` ∈ {C,F}.
+    Retorna None se não for um mercado de cidade que acompanhamos."""
     m = _TEMP_RE.search(title or "")
     if not m:
         return None
@@ -68,7 +83,10 @@ def parse_temp_market(title: str | None) -> dict | None:
         mode = "atmost"
     else:
         mode = "exact"
-    return {"icao": icao, "threshold": int(m.group("temp")), "mode": mode}
+    lo = int(m.group("t1"))
+    hi = int(m.group("t2")) if m.group("t2") else lo
+    return {"icao": icao, "lo": min(lo, hi), "hi": max(lo, hi),
+            "mode": mode, "unit": m.group("unit").upper()}
 
 # Posições com valor atual abaixo disso são tratadas como poeira e omitidas do
 # resumo (evita listar restos de dust de mercados já resolvidos).

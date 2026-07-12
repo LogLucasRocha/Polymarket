@@ -39,6 +39,7 @@ except Exception:
     pass
 
 import argparse
+import concurrent.futures as cf
 import datetime as dt
 import html
 import json
@@ -77,15 +78,23 @@ def main() -> int:
     # chance de cada aposta dar certo.
     contexts: dict[str, dict] = {}
     errors: dict[str, str] = {}
-    for station in stations:
+
+    def _build(station):
         def log(msg: str, _s=station) -> None:
             print(f"[{_s.icao}] {msg}")
-        try:
-            contexts[station.icao] = pipeline.build_context(
-                station, force_bias=args.force_bias, log=log)
-        except Exception as exc:  # noqa: BLE001 — falha de uma estação não derruba o resto
-            errors[station.icao] = str(exc)
-            print(f"[{station.icao}] ERRO: {exc}", file=sys.stderr)
+        return pipeline.build_context(station, force_bias=args.force_bias,
+                                      log=log)
+
+    # Paralelo: com ~25 estações, sequencial estouraria o timeout do job.
+    with cf.ThreadPoolExecutor(max_workers=6) as ex:
+        futs = {ex.submit(_build, s): s for s in stations}
+        for fut in cf.as_completed(futs):
+            s = futs[fut]
+            try:
+                contexts[s.icao] = fut.result()
+            except Exception as exc:  # noqa: BLE001 — falha de uma estação não derruba o resto
+                errors[s.icao] = str(exc)
+                print(f"[{s.icao}] ERRO: {exc}", file=sys.stderr)
 
     def yes_prob(title: str | None, end_iso) -> float | None:
         """Nossa P(o Yes acontecer) para um mercado de máxima, pela previsão
@@ -103,7 +112,8 @@ def main() -> int:
             return None
         dist = (ctx["dist_d0"] if end_date == ctx["d0"]
                 else ctx["dist_d1"] if end_date == ctx["d1"] else None)
-        p = distribution.market_prob(dist, ev["threshold"], ev["mode"])
+        p = distribution.market_prob(dist, ev["lo"], ev["hi"], ev["mode"],
+                                     ev["unit"])
         # Probabilidade CALIBRADA (curva empírica do backtest): D0 usa o
         # período do dia local; D+1 usa o período menos informado, porque a
         # projeção de amanhã sabe ainda menos que a madrugada de hoje.
@@ -134,21 +144,35 @@ def main() -> int:
                 if fps[s.icao] is None
                 or station_state.get(s.icao) != fps[s.icao]}
 
-    # 2) Bloco geral: posição consolidada na Polymarket (todas as cidades), já
-    # com a chance de cada aposta dar certo. Só quando alguma estação tem
-    # novidade no observado — rodada parada não repete o resumo. Uma falha
-    # aqui não impede o resto.
+    # 2) Posições: buscadas TODA rodada (o stop loss precisa do preço atual);
+    # o resumo geral só é enviado quando alguma estação tem novidade.
     positions: list[dict] = []
     wallet = os.environ.get("POLYMARKET_WALLET")
-    if wallet and not args.no_positions and novidade:
+    if wallet and not args.no_positions:
         try:
             positions = polymarket.fetch_positions(wallet)
-            notify.send_message(
-                token, chat_id,
-                polymarket.positions_message(positions, position_success_prob))
-            print("[polymarket] posições enviadas.")
         except Exception as exc:  # noqa: BLE001 — leitura da carteira é acessório
             print(f"[polymarket] ERRO ao ler posições: {exc}", file=sys.stderr)
+        if positions and novidade:
+            try:
+                notify.send_message(
+                    token, chat_id,
+                    polymarket.positions_message(positions,
+                                                 position_success_prob))
+                print("[polymarket] posições enviadas.")
+            except Exception as exc:  # noqa: BLE001
+                print(f"[polymarket] ERRO no resumo: {exc}", file=sys.stderr)
+
+    # 2b) Stop loss: mercado precificando a posição STOP_ALERT_FRAC (ou mais)
+    # abaixo da entrada → alerta em TODA rodada enquanto persistir (pedido
+    # explícito: não parar de mandar até sumir).
+    stop_msg = _stop_alerts(positions)
+    if stop_msg:
+        try:
+            notify.send_message(token, chat_id, stop_msg)
+            print("[stop] alerta de stop loss enviado.")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[stop] ERRO: {exc}", file=sys.stderr)
 
     # 3) Sinais, uma mensagem por cidade: faixas do dia operável (D0, ou D+1
     # quando a máxima de hoje travou) em que projetado e mercado divergem o
@@ -159,33 +183,44 @@ def main() -> int:
     signal_rows = _collect_signal_rows(stations, contexts, yes_prob)
     prev_probs = state.get("signal_probs", {})
     edges_now = {k: v for k, v in signal_rows.items() if _is_edge(v)}
-    prev_edges = state.get("edges", {})
-    # Só cruzamentos NOVOS dentro da janela local (config.SIGNAL_HOURS) são
-    # enviados. Cruzamentos fora dela entram no estado mesmo assim — são
-    # consumidos em silêncio, não ficam represados esperando a janela abrir
-    # (o backtest mostrou que edge represado da madrugada não é executável).
+    # Pedido explícito: o sinal REPETE a cada rodada enquanto o gap existir
+    # (sem deduplicação) — some só quando a divergência fecha, a máxima trava
+    # ou a hora local sai da janela de envio.
     new_edges = {k: v for k, v in edges_now.items()
-                 if k not in prev_edges and _in_signal_window(v["icao"])}
+                 if _in_signal_window(v["icao"])}
     for icao, text in _edges_messages(new_edges, prev_probs):
         try:
             notify.send_message(token, chat_id, text)
             print(f"[sinais] {icao}: sinal(is) enviado(s).")
         except Exception as exc:  # noqa: BLE001 — sinal é acessório
             print(f"[sinais] {icao}: ERRO ao enviar: {exc}", file=sys.stderr)
-            # não marca as faixas dessa cidade como avisadas; tenta na próxima
-            for k in [k for k, v in new_edges.items() if v["icao"] == icao]:
-                edges_now.pop(k, None)
 
     # 4) Um bloco por estação: divisor, posições da cidade, tabela mercado ×
     # projetado e, por fim, gráfico (nowcast) + hora a hora. Falha de uma
     # parte/estação não derruba o resto. Estação sem novidade (mesma assinatura
     # do último envio bem-sucedido) é omitida.
+    # Com muitas cidades, o bloco completo só vai para onde há ATIVIDADE:
+    # posição aberta na cidade ou sinal disparado nesta rodada. As demais são
+    # monitoradas em silêncio (sinais e stop loss continuam cobrindo todas).
+    pos_icaos = set()
+    for p in positions:
+        if p.get("redeemable"):
+            continue
+        pm = polymarket.parse_temp_market(p.get("title"))
+        if pm:
+            pos_icaos.add(pm["icao"])
+    signal_icaos = {v["icao"] for v in new_edges.values()}
+
     for station in stations:
         ctx = contexts.get(station.icao)
         fp = fps[station.icao]
         if station.icao not in novidade:
             print(f"[{station.icao}] sem novidade na projeção; bloco omitido.")
             continue
+        if (config.FULL_BLOCK_ONLY_WITH_ACTIVITY
+                and station.icao not in pos_icaos
+                and station.icao not in signal_icaos):
+            continue  # cidade sem posição nem sinal: monitorada em silêncio
         try:
             _send_station_block(token, chat_id, station, ctx, positions,
                                 errors, yes_prob, position_success_prob)
@@ -229,6 +264,36 @@ def _collect_signal_rows(stations, contexts, yes_prob) -> dict:
                          "day_label": f"hoje {day.strftime('%d/%m')}",
                          "yes": r["yes"], "mp": r["mp"]}
     return json.loads(json.dumps(rows))
+
+
+def _stop_alerts(positions: list) -> str | None:
+    """Mensagem de stop loss (ou None): posições abertas cujo preço atual está
+    STOP_ALERT_FRAC (ou mais) abaixo do preço médio de entrada."""
+    linhas = []
+    for p in positions:
+        if p.get("redeemable"):
+            continue
+        try:
+            avg = float(p.get("avgPrice") or 0)
+            cur = float(p.get("curPrice") or 0)
+            val = float(p.get("currentValue") or 0)
+        except (TypeError, ValueError):
+            continue
+        if avg <= 0 or val < polymarket.DUST_USD:
+            continue
+        dd = 1.0 - cur / avg
+        if dd < config.STOP_ALERT_FRAC:
+            continue
+        linhas.append(
+            f"• {html.escape(str(p.get('title', '?'))[:80])} — "
+            f"<b>{html.escape(str(p.get('outcome', '?')))}</b>: entrada "
+            f"${avg:.3f} → agora ${cur:.3f} (<b>−{dd * 100:.0f}%</b>)")
+    if not linhas:
+        return None
+    return (f"🛑 <b>STOP LOSS</b> — mercado ≥ {config.STOP_ALERT_FRAC:.0%} "
+            "abaixo da sua entrada\n" + "\n".join(linhas) +
+            f"\n<i>referência de saída usada no backtest: "
+            f"−{config.STOP_EXIT_FRAC:.0%}</i>")
 
 
 def _in_signal_window(icao: str) -> bool:

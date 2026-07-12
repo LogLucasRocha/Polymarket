@@ -1,7 +1,12 @@
 {
  "min_conf": 0.9,
- "days": 244,
+ "days": 327,
  "por_faixa_dia": {
+  "KLGA": {
+   "n": 826,
+   "acerto": 0.8753,
+   "conf_media": 0.9952
+  },
   "SAEZ": {
    "n": 809,
    "acerto": 0.864,
@@ -19,21 +24,26 @@
   }
  },
  "por_avaliacao": {
+  "KLGA": {
+   "n": 4542,
+   "acerto": 0.8974,
+   "conf_media": 0.9941
+  },
   "SAEZ": {
    "n": 5185,
    "acerto": 0.8879,
-   "conf_media": 0.9938
+   "conf_media": 0.9934
   },
   "SBGR": {
    "n": 6962,
    "acerto": 0.895,
-   "conf_media": 0.9945
+   "conf_media": 0.9939
   },
   "UUWW": {
-   "n": 5474,
-   "acerto": 0.897,
-   "conf_media": 0.9902
+   "n": 5473,
+   "acerto": 0.8969,
+   "conf_media": 0.9895
   }
  },
- "gerado_em": "2026-07-12T08:22:28"
+ "gerado_em": "2026-07-12T13:08:09"
 }

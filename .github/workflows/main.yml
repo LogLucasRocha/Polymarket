@@ -12,7 +12,7 @@ concurrency:
 jobs:
   enviar:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
     steps:
       - name: Checkout do repositório
         uses: actions/checkout@v5
