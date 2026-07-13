@@ -1,12 +1,12 @@
 name: Compilar documentação (PDF)
 
-# Compila docs/tmax.tex quando o .tex ou os números gerados mudam (o backtest
-# atualiza generated_numbers.tex a cada 3 dias) e commita o PDF. O filtro de
-# paths ignora o próprio PDF, evitando laço; o commit usa [skip ci] por garantia.
+# Compila docs/tmax.tex quando algo em docs/ muda (o backtest atualiza
+# generated_numbers.tex a cada 3 dias) e commita o PDF. O commit do PDF usa
+# [skip ci], então recompilar o próprio PDF não dispara o workflow de novo.
 on:
   push:
     paths:
-      - "docs/**.tex"
+      - "docs/**"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
