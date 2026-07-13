@@ -4,3 +4,4 @@ truststore>=0.10
 streamlit>=1.36
 plotly>=5.22
 pandas>=2.0
+openpyxl>=3.1

@@ -23,6 +23,8 @@ Ou abra `tmax.tex` no [Overleaf](https://overleaf.com) (envie junto o
 
 ## Resultados brutos
 
-Os números vêm de [`backtest_results/`](../backtest_results/) — um JSON por
-estratégia (`edge`, `harvest_12h/14h/16h`, `combined`, `confidence`,
-`calibration`, `meta`) com o resultado da última execução do backtest.
+Os números vêm de
+[`backtest_results/resultados_backtest.xlsx`](../backtest_results/resultados_backtest.xlsx)
+— planilha Excel com o resultado da última execução do backtest, em abas:
+**Resumo** (todas as estratégias), **Por cidade**, **Confiança ≥90%**,
+**Calibração** e **Meta**. Regenerada a cada rodada do backtest.
