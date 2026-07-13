@@ -8,23 +8,21 @@ Uso local:
 Na nuvem roda pelo GitHub Actions (.github/workflows/main.yml), com o
 token e o chat_id guardados como *secrets* do repositório.
 
-Estrutura do envio (foco exclusivo no D0 — o D+1 não aparece no digest):
-  1. Resumo geral das posições da Polymarket (todas as cidades) + probabilidade
-     de cada uma dar certo — só quando alguma estação tem novidade no
-     observado; rodada parada não repete o resumo.
-  2. Sinais, uma mensagem POR CIDADE: faixas de HOJE em que a Probabilidade
-     Real (modelo calibrado, a mesma da tabela) e o mercado divergem ≥
-     EDGE_ALERT_MIN e o lado indicado tem mais de EDGE_MIN_CONFIDENCE de
-     chance (avisado uma vez por faixa). Só cruzamentos novos dentro da
-     janela local SIGNAL_HOURS; edge de madrugada é consumido em silêncio.
-  3. Um bloco por estação: posições daquela cidade, tabela mercado × projetado
-     de hoje e o gráfico (nowcast + distribuição de hoje) com o hora a hora.
+Modo silencioso (decisão do Lucas, 12/07) — o Telegram só recebe:
+  1. Resumo geral das posições (PnL) quando alguma estação tem novidade.
+  2. Bloco completo (sinais/alertas da rodada, posições, tabela mercado ×
+     projetado, gráfico com nowcast, hora a hora) APENAS das cidades com
+     posição aberta — incluindo os alertas de platô (2h de lado) e de fuga
+     do envelope do ensemble, que só são computados para essas cidades.
+  3. Alertas de compra: sinais de edge (só NÃO, preço ≥ NAO_MIN_PRICE,
+     repetindo enquanto o gap durar, janela SIGNAL_HOURS) e colheita de
+     favoritos (HARVEST_*, uma vez por faixa/dia) — em cidade sem posição,
+     chegam como mensagem única, sem gráficos.
+  4. Stop loss: mercado ≥ STOP_ALERT_FRAC abaixo da entrada, toda rodada.
 
-Quando a máxima de hoje já travou (TMAX_LOCK_HOURS), o mercado do dia está
-resolvido: sinais e tabela somem e o hora a hora corta as horas restantes.
-
-Estações sem novidade desde o último envio (mesmo observado e mesma projeção,
-comparados via data/digest_state.json) são omitidas do digest.
+Tudo D0 (o D+1 não aparece); com a máxima travada (TMAX_LOCK_HOURS), sinais
+e tabela somem e o hora a hora corta as horas restantes. Estações sem
+novidade (data/digest_state.json) são omitidas.
 """
 from __future__ import annotations
 
@@ -166,7 +164,7 @@ def main() -> int:
             positions = polymarket.fetch_positions(wallet)
         except Exception as exc:  # noqa: BLE001 — leitura da carteira é acessório
             print(f"[polymarket] ERRO ao ler posições: {exc}", file=sys.stderr)
-        if positions and (novidade or fresh_icaos):
+        if positions and novidade:
             try:
                 notify.send_message(
                     token, chat_id,
@@ -187,15 +185,25 @@ def main() -> int:
         except Exception as exc:  # noqa: BLE001
             print(f"[stop] ERRO: {exc}", file=sys.stderr)
 
+    # Cidades onde há posição aberta — o centro do modo silencioso: só elas
+    # recebem bloco completo e alertas de condição.
+    pos_icaos = set()
+    for p in positions:
+        if p.get("redeemable"):
+            continue
+        pm = polymarket.parse_temp_market(p.get("title"))
+        if pm:
+            pos_icaos.add(pm["icao"])
+
     # 2c) Alertas de condição observada — platô de 2h e fuga do envelope do
-    # ensemble. Computados aqui; a ENTREGA é junto do bloco da cidade (não
-    # separada). Cada episódio avisa uma vez (chave no estado; re-arma quando
-    # a condição muda).
+    # ensemble — APENAS para cidades com posição. Computados aqui; a ENTREGA
+    # é junto do bloco da cidade. Cada episódio avisa uma vez (chave no
+    # estado; re-arma quando a condição muda).
     cond_state = state.get("cond_alerts", {})
     cond_pending: dict[str, list] = {}
     for station in stations:
         ctx = contexts.get(station.icao)
-        if ctx is None:
+        if ctx is None or station.icao not in pos_icaos:
             continue
         for kind, res in (("flat", _flat_alert(ctx)),
                           ("ens", _ens_escape_alert(ctx))):
@@ -260,27 +268,20 @@ def main() -> int:
     # projetado e, por fim, gráfico (nowcast) + hora a hora. Falha de uma
     # parte/estação não derruba o resto. Estação sem novidade (mesma assinatura
     # do último envio bem-sucedido) é omitida.
-    # Bloco completo (tabela + gráfico + hora a hora) vai para: cidades com
-    # POSIÇÃO aberta (quando há novidade no observado) e cidades com sinal
-    # NOVO nesta rodada (ignorando novidade — o gráfico é o contexto da
-    # decisão de entrada). Repetições de sinal não re-enviam o bloco.
-    pos_icaos = set()
-    for p in positions:
-        if p.get("redeemable"):
-            continue
-        pm = polymarket.parse_temp_market(p.get("title"))
-        if pm:
-            pos_icaos.add(pm["icao"])
-
+    # Bloco completo (tabela + gráfico + hora a hora) SÓ para cidades com
+    # POSIÇÃO aberta — quando há novidade no observado, alerta de condição
+    # ou sinal novo nelas. Sinal em cidade sem posição sai como mensagem
+    # única, sem gráficos (modo silencioso, decisão do Lucas 12/07).
     for station in stations:
         icao = station.icao
         ctx = contexts.get(icao)
         fp = fps[icao]
         fresh_signal = icao in fresh_icaos or icao in alert_icaos
-        has_block = not (
-            (icao not in novidade and not fresh_signal)
-            or (config.FULL_BLOCK_ONLY_WITH_ACTIVITY
-                and icao not in pos_icaos and not fresh_signal))
+        if config.FULL_BLOCK_ONLY_WITH_ACTIVITY:
+            has_block = (icao in pos_icaos
+                         and (icao in novidade or fresh_signal))
+        else:
+            has_block = icao in novidade or fresh_signal
         if not has_block:
             # repetição de sinal em cidade sem bloco: só a mensagem do sinal
             if icao in sig_msgs:
