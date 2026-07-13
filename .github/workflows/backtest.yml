@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write           # para commitar os dias novos de backtest_data/
+  actions: read             # guarda anti-duplicata consulta execuções do dia
 
 concurrency:
   group: backtest-tmax
@@ -17,19 +18,44 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
+      # O agendador do GitHub pode disparar com horas de atraso DEPOIS de o
+      # watchdog do digest já ter rodado o backtest (aconteceu em 13/07:
+      # watchdog às 09:40, agendado atrasado às 11:47 → relatório duplicado).
+      # Se já houve execução bem-sucedida hoje, esta se retira em silêncio.
+      - name: Guarda anti-duplicata
+        id: guard
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          hoje=$(date -u +%F)
+          n=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$REPO/actions/workflows/backtest.yml/runs?status=success&created=$hoje..$hoje&per_page=1" \
+            | python3 -c "import json,sys; print(json.load(sys.stdin).get('total_count',0))")
+          if [ "$n" -gt 0 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "já houve backtest bem-sucedido hoje — pulando duplicata"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout do repositório
+        if: steps.guard.outputs.skip != 'true'
         uses: actions/checkout@v5
 
       - name: Instalar Python
+        if: steps.guard.outputs.skip != 'true'
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
 
       - name: Instalar dependências
+        if: steps.guard.outputs.skip != 'true'
         run: pip install -r requirements.txt
 
       - name: Coletar dias novos, simular e enviar relatório
+        if: steps.guard.outputs.skip != 'true'
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -38,6 +64,7 @@ jobs:
       # O arquivo é append-only: cada rodada acrescenta os dias novos e o
       # commit preserva os dados além das janelas de retenção das fontes.
       - name: Commitar dias novos do arquivo
+        if: steps.guard.outputs.skip != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
