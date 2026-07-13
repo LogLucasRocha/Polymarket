@@ -101,11 +101,11 @@ O workflow `backtest.yml` reconstrói a projeção hora a hora de cada dia
 arquivado (`backtest_data/`), aplica a regra de sinais de produção e simula
 apostar 10% do capital em cada sinal. Linha a linha do relatório:
 
-- **"N dias-cidade · M apostas simuladas"** — dias de arquivo (dias × 3
-  cidades) e quantos sinais a regra teria disparado (1 aposta por faixa/dia,
-  no primeiro cruzamento de edge ≥ 5 p.p. com confiança > 90%, dentro da
-  janela local `SIGNAL_HOURS` — cruzamentos da madrugada são descartados,
-  não represados).
+- **"Estratégia Edge — simulação histórica · N dias-cidade · M entradas"**
+  — NÃO é contagem de alertas recebidos: é quantas entradas a regra TERIA
+  feito reencenando o arquivo inteiro (1 aposta por faixa/dia, no primeiro
+  cruzamento de edge ≥ 5 p.p. com confiança > 90%, só NÃO com preço ≥
+  NAO_MIN_PRICE, dentro da janela local `SIGNAL_HOURS`).
 - **"Acerto: X%"** — fração das apostas que resolveram a favor.
 - **"modelo médio Y%"** — confiança média que o modelo DECLAROU no lado
   comprado. Compare com o acerto: se declara 99% e acerta 77%, o modelo é

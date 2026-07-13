@@ -706,11 +706,13 @@ def _stats(signals: list, res_mismatch: int, days_seen: int) -> dict:
 def report_text(st: dict) -> str:
     """Relatório compacto (HTML do Telegram)."""
     if st["n"] == 0:
-        return (f"🧪 <b>Backtest de sinais</b> — {st['days']} dias no arquivo, "
-                "nenhum sinal no período.")
+        return (f"🧪 <b>Estratégia Edge — simulação histórica</b> · "
+                f"{st['days']} dias-cidade no arquivo, nenhuma entrada "
+                "no período.")
     lines = [
-        f"🧪 <b>Backtest de sinais</b> · {st['days']} dias-cidade · "
-        f"{st['n']} apostas simuladas (10% do capital cada)",
+        f"🧪 <b>Estratégia Edge — simulação histórica</b> · "
+        f"{st['days']} dias-cidade de arquivo · {st['n']} entradas que a "
+        "regra teria feito (10% do capital cada)",
         f"Acerto: <b>{st['hit']:.0%}</b> ({st['wins']}/{st['n']}) · "
         f"modelo médio {st['avg_model']:.0%} · preço médio "
         f"{st['avg_price']:.2f}",
