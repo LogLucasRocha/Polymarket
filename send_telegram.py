@@ -378,20 +378,18 @@ def _ens_escape_alert(ctx) -> tuple[str, str] | None:
         vals.append(v - b)
     if len(vals) < 10:
         return None
-    mean = sum(vals) / len(vals)
-    var = sum((v - mean) ** 2 for v in vals) / max(len(vals) - 1, 1)
-    std = max(var ** 0.5, 0.1)
-    dev = (lm["temp"] - mean) / std
-    if abs(dev) <= 1.0:
+    piso, teto = min(vals), max(vals)
+    if piso <= lm["temp"] <= teto:
         return None
-    lado = "acima" if dev > 0 else "abaixo"
+    acima = lm["temp"] > teto
+    lado = "acima do TETO" if acima else "abaixo do PISO"
     s = ctx["station"]
-    key = f"{ctx['d0'].isoformat()}:{lado}"
-    texto = (f"{'📈' if dev > 0 else '📉'} <b>{html.escape(s.city)} "
-             f"({s.icao})</b>: observado <b>fora do envelope do ensemble</b> — "
-             f"{lm['temp']:.0f} °C às {lm['time']:%H:%M} vs "
-             f"{mean:.1f} ± {std:.1f} °C previsto ({dev:+.1f}σ {lado}). "
-             "A projeção tende a se mover.")
+    key = f"{ctx['d0'].isoformat()}:{'acima' if acima else 'abaixo'}"
+    texto = (f"{'📈' if acima else '📉'} <b>{html.escape(s.city)} "
+             f"({s.icao})</b>: observado <b>{lado} do ensemble</b> — "
+             f"{lm['temp']:.0f} °C às {lm['time']:%H:%M} vs envelope "
+             f"[{piso:.1f}, {teto:.1f}] °C dos {len(vals)} membros. "
+             "Nenhum membro previu isso: a projeção tende a se mover.")
     return key, texto
 
 
@@ -408,6 +406,9 @@ def _is_edge(row: dict) -> bool:
     na tabela de odds, para o alerta e a tabela nunca discordarem."""
     diff = row["mp"] - row["yes"]
     if abs(diff) < config.EDGE_ALERT_MIN:
+        return False
+    side = "SIM" if diff > 0 else "NAO"
+    if side not in config.SIGNAL_SIDES:
         return False
     side_prob = row["mp"] if diff > 0 else 1.0 - row["mp"]
     return side_prob > config.EDGE_MIN_CONFIDENCE

@@ -565,6 +565,8 @@ def simulate(log=lambda m: None, hour_min: int | None = None,
         if not (hour_min <= r["hour"] <= hour_max):
             continue   # cruzamento fora da janela: sem aposta
         side = "SIM" if diff > 0 else "NAO"
+        if side not in config.SIGNAL_SIDES:
+            continue   # lado fora de operação (decisão: só NÃO)
         price = yes if side == "SIM" else 1.0 - yes
         if price <= 0.005 or price >= 0.995:
             continue

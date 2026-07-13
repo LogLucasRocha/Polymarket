@@ -171,6 +171,10 @@ EDGE_MIN_CONFIDENCE = 0.90
 # ficam represados esperando a janela abrir.
 SIGNAL_HOURS = (6, 23)
 
+# Lados operados nos sinais de entrada: o backtest de 18 cidades mostrou 90%
+# de acerto no NÃO contra 41% no SIM (perfil de loteria) — só o NÃO notifica.
+SIGNAL_SIDES = ("NAO",)
+
 # Stop loss: alerta quando o mercado precifica a posição este percentual (ou
 # mais) abaixo do preço médio de entrada — repetido a cada rodada enquanto
 # durar. No backtest, a saída simulada acontece a STOP_EXIT_FRAC de perda.
