@@ -16,8 +16,9 @@ Modo silencioso (decisão do Lucas, 12/07) — o Telegram só recebe:
      do envelope do ensemble, que só são computados para essas cidades.
   3. Alertas de compra: sinais de edge (só NÃO, preço ≥ NAO_MIN_PRICE,
      repetindo enquanto o gap durar, janela SIGNAL_HOURS) e colheita de
-     favoritos (HARVEST_*, uma vez por faixa/dia) — em cidade sem posição,
-     chegam como mensagem única, sem gráficos.
+     favoritos (HARVEST_*, uma vez por faixa/dia) — um alerta NOVO chega
+     com o bloco completo da cidade (contexto da decisão); repetições de
+     sinal vêm sozinhas.
   4. Stop loss: mercado ≥ STOP_ALERT_FRAC abaixo da entrada, toda rodada.
 
 Tudo D0 (o D+1 não aparece); com a máxima travada (TMAX_LOCK_HOURS), sinais
@@ -220,10 +221,10 @@ def main() -> int:
 
     # 2d) Colheita de favoritos: NÃO quase-certo (preço na faixa
     # HARVEST_PRICE_*), após a hora local mínima, com o modelo concordando.
-    # Uma mensagem compacta, UMA vez por faixa/dia (sem repetição).
+    # UMA vez por faixa/dia; a entrega é DENTRO do bloco da cidade.
     harvest_seen = set(state.get("harvest", []))
-    harvest_lines = []
-    harvest_sent_keys = []
+    harvest_pending: dict[str, list] = {}
+    harvest_keep = []
     for k, v in signal_rows.items():
         if v["yes"] is None or v["mp"] is None:
             continue
@@ -237,27 +238,12 @@ def main() -> int:
         if not (config.HARVEST_MIN_HOUR <= h <= config.SIGNAL_HOURS[1]):
             continue
         if k in harvest_seen:
-            harvest_sent_keys.append(k)  # mantém no estado enquanto vigente
+            harvest_keep.append(k)  # mantém no estado enquanto vigente
             continue
-        st_ = config.STATIONS[v["icao"]]
-        harvest_lines.append(
-            f"{st_.flag} {html.escape(st_.city)} · Comprar NÃO "
-            f"<b>{html.escape(v['label'])}</b> @ ${price:.3f} "
-            f"(modelo {conc:.0%}, {h:02d}h local)")
-        harvest_sent_keys.append(k)
-    if harvest_lines:
-        msg = ("🌾 <b>Colheita de favoritos</b> · NÃO quase-certo "
-               f"(${config.HARVEST_PRICE_MIN:.2f}–"
-               f"{config.HARVEST_PRICE_MAX:.3f}, após "
-               f"{config.HARVEST_MIN_HOUR}h local, stop −15%)\n"
-               + "\n".join(harvest_lines))
-        try:
-            notify.send_message(token, chat_id, msg)
-            print(f"[colheita] {len(harvest_lines)} alerta(s) enviado(s).")
-        except Exception as exc:  # noqa: BLE001 — colheita é acessória
-            print(f"[colheita] ERRO: {exc}", file=sys.stderr)
-            harvest_sent_keys = [k for k in harvest_sent_keys
-                                 if k in harvest_seen]
+        linha = (f"🌾 <b>Colheita</b> · Comprar NÃO "
+                 f"<b>{html.escape(v['label'])}</b> @ ${price:.3f} "
+                 f"(modelo {conc:.0%}, {h:02d}h local, stop −15%)")
+        harvest_pending.setdefault(v["icao"], []).append((k, linha))
 
     # 3) Sinais: as mensagens são entregues DENTRO do bloco da cidade quando
     # há bloco nesta rodada; repetição de sinal em cidade sem bloco sai
@@ -268,20 +254,22 @@ def main() -> int:
     # projetado e, por fim, gráfico (nowcast) + hora a hora. Falha de uma
     # parte/estação não derruba o resto. Estação sem novidade (mesma assinatura
     # do último envio bem-sucedido) é omitida.
-    # Bloco completo (tabela + gráfico + hora a hora) SÓ para cidades com
-    # POSIÇÃO aberta — quando há novidade no observado, alerta de condição
-    # ou sinal novo nelas. Sinal em cidade sem posição sai como mensagem
-    # única, sem gráficos (modo silencioso, decisão do Lucas 12/07).
+    # Bloco completo (tabela + gráfico + hora a hora) vai para: qualquer
+    # cidade com ALERTA DE COMPRA novo (sinal de edge ou colheita — o bloco
+    # é o contexto da decisão) e cidades com POSIÇÃO (quando há novidade ou
+    # alerta de condição). Repetições de sinal continuam sozinhas.
     for station in stations:
         icao = station.icao
         ctx = contexts.get(icao)
         fp = fps[icao]
-        fresh_signal = icao in fresh_icaos or icao in alert_icaos
+        buy_alert = icao in fresh_icaos or icao in harvest_pending
         if config.FULL_BLOCK_ONLY_WITH_ACTIVITY:
-            has_block = (icao in pos_icaos
-                         and (icao in novidade or fresh_signal))
+            has_block = buy_alert or (
+                icao in pos_icaos
+                and (icao in novidade or icao in alert_icaos))
         else:
-            has_block = icao in novidade or fresh_signal
+            has_block = (icao in novidade or buy_alert
+                         or icao in alert_icaos)
         if not has_block:
             # repetição de sinal em cidade sem bloco: só a mensagem do sinal
             if icao in sig_msgs:
@@ -291,8 +279,9 @@ def main() -> int:
                 except Exception as exc:  # noqa: BLE001
                     print(f"[sinais] {icao}: ERRO: {exc}", file=sys.stderr)
             continue
-        # sinal + alertas de condição entram no TOPO do bloco da cidade
+        # sinal + colheita + alertas de condição no TOPO do bloco da cidade
         pre = ([sig_msgs[icao]] if icao in sig_msgs else [])
+        pre += [linha for _k, linha in harvest_pending.get(icao, [])]
         pre += [texto for _sk, _k, texto in cond_pending.get(icao, [])]
         try:
             _send_station_block(token, chat_id, station, ctx, positions,
@@ -306,10 +295,11 @@ def main() -> int:
                 station_state[icao] = fp
             for skey, key, _texto in cond_pending.get(icao, []):
                 cond_state[skey] = key
+            harvest_keep += [k for k, _l in harvest_pending.get(icao, [])]
     _save_digest_state({"stations": station_state, "edges": edges_now,
                         "signal_probs": signal_rows,
                         "cond_alerts": cond_state,
-                        "harvest": harvest_sent_keys})
+                        "harvest": harvest_keep})
 
     return 1 if len(errors) == len(stations) else 0
 
