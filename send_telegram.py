@@ -10,16 +10,17 @@ token e o chat_id guardados como *secrets* do repositório.
 
 Modo silencioso (decisão do Lucas, 12/07) — o Telegram só recebe:
   1. Resumo geral das posições (PnL) quando alguma estação tem novidade.
-  2. Bloco completo (sinais/alertas da rodada, posições, tabela mercado ×
-     projetado, gráfico com nowcast, hora a hora) APENAS das cidades com
-     posição aberta — incluindo os alertas de platô (2h de lado) e de fuga
-     do envelope do ensemble, que só são computados para essas cidades.
-  3. Alertas de compra: sinais de edge (só NÃO, preço ≥ NAO_MIN_PRICE,
+  2. Alertas de compra: sinais de edge (só NÃO, preço ≥ NAO_MIN_PRICE,
      repetindo enquanto o gap durar, janela SIGNAL_HOURS) e colheita de
-     favoritos (HARVEST_*, uma vez por faixa/dia) — um alerta NOVO chega
-     com o bloco completo da cidade (contexto da decisão); repetições de
-     sinal vêm sozinhas.
-  4. Stop loss: mercado ≥ STOP_ALERT_FRAC abaixo da entrada, toda rodada.
+     favoritos (HARVEST_*, uma vez por faixa/dia). Um alerta NOVO chega com
+     o bloco completo da cidade (tabela, gráfico, hora a hora — o contexto
+     da decisão de entrada); repetições de sinal vêm sozinhas. É o ÚNICO
+     caso em que blocos/gráficos são enviados.
+  3. Para cidades com posição aberta: SEM bloco (gera ansiedade) — apenas
+     avisos pontuais em texto de platô (2h de lado) e fuga do envelope do
+     ensemble, uma vez por episódio.
+  4. Stop loss: claro e urgente, texto puro, toda rodada enquanto o mercado
+     estiver ≥ STOP_ALERT_FRAC abaixo da entrada.
 
 Tudo D0 (o D+1 não aparece); com a máxima travada (TMAX_LOCK_HOURS), sinais
 e tabela somem e o hora a hora corta as horas restantes. Estações sem
@@ -197,11 +198,10 @@ def main() -> int:
             pos_icaos.add(pm["icao"])
 
     # 2c) Alertas de condição observada — platô de 2h e fuga do envelope do
-    # ensemble — APENAS para cidades com posição. Computados aqui; a ENTREGA
-    # é junto do bloco da cidade. Cada episódio avisa uma vez (chave no
-    # estado; re-arma quando a condição muda).
+    # ensemble — APENAS para cidades com posição, como MENSAGEM AVULSA em
+    # texto puro (sem bloco/gráficos: geram ansiedade; decisão do Lucas).
+    # Cada episódio avisa uma vez (chave no estado; re-arma quando muda).
     cond_state = state.get("cond_alerts", {})
-    cond_pending: dict[str, list] = {}
     for station in stations:
         ctx = contexts.get(station.icao)
         if ctx is None or station.icao not in pos_icaos:
@@ -215,9 +215,13 @@ def main() -> int:
             key, texto = res
             if cond_state.get(skey) == key:
                 continue  # mesmo episódio já avisado
-            cond_pending.setdefault(station.icao, []).append(
-                (skey, key, texto))
-    alert_icaos = set(cond_pending)
+            try:
+                notify.send_message(token, chat_id, texto)
+                cond_state[skey] = key
+                print(f"[{station.icao}] alerta de condição ({kind}).")
+            except Exception as exc:  # noqa: BLE001 — alerta é acessório
+                print(f"[{station.icao}] ERRO no alerta {kind}: {exc}",
+                      file=sys.stderr)
 
     # 2d) Colheita de favoritos: NÃO quase-certo (preço na faixa
     # HARVEST_PRICE_*), após a hora local mínima, com o modelo concordando.
@@ -254,22 +258,16 @@ def main() -> int:
     # projetado e, por fim, gráfico (nowcast) + hora a hora. Falha de uma
     # parte/estação não derruba o resto. Estação sem novidade (mesma assinatura
     # do último envio bem-sucedido) é omitida.
-    # Bloco completo (tabela + gráfico + hora a hora) vai para: qualquer
-    # cidade com ALERTA DE COMPRA novo (sinal de edge ou colheita — o bloco
-    # é o contexto da decisão) e cidades com POSIÇÃO (quando há novidade ou
-    # alerta de condição). Repetições de sinal continuam sozinhas.
+    # Bloco completo (tabela + gráfico + hora a hora) SOMENTE para cidades
+    # com ALERTA DE COMPRA novo (sinal de edge ou colheita) — o bloco é o
+    # contexto da decisão de entrada. Posições existentes NÃO recebem bloco
+    # (gera ansiedade): ficam com o PnL geral, os avisos de condição em
+    # texto e o stop loss. Repetições de sinal continuam sozinhas.
     for station in stations:
         icao = station.icao
         ctx = contexts.get(icao)
         fp = fps[icao]
-        buy_alert = icao in fresh_icaos or icao in harvest_pending
-        if config.FULL_BLOCK_ONLY_WITH_ACTIVITY:
-            has_block = buy_alert or (
-                icao in pos_icaos
-                and (icao in novidade or icao in alert_icaos))
-        else:
-            has_block = (icao in novidade or buy_alert
-                         or icao in alert_icaos)
+        has_block = icao in fresh_icaos or icao in harvest_pending
         if not has_block:
             # repetição de sinal em cidade sem bloco: só a mensagem do sinal
             if icao in sig_msgs:
@@ -279,10 +277,9 @@ def main() -> int:
                 except Exception as exc:  # noqa: BLE001
                     print(f"[sinais] {icao}: ERRO: {exc}", file=sys.stderr)
             continue
-        # sinal + colheita + alertas de condição no TOPO do bloco da cidade
+        # sinal + colheita no TOPO do bloco da cidade
         pre = ([sig_msgs[icao]] if icao in sig_msgs else [])
         pre += [linha for _k, linha in harvest_pending.get(icao, [])]
-        pre += [texto for _sk, _k, texto in cond_pending.get(icao, [])]
         try:
             _send_station_block(token, chat_id, station, ctx, positions,
                                 errors, yes_prob, position_success_prob,
@@ -293,8 +290,6 @@ def main() -> int:
         else:
             if fp is not None:
                 station_state[icao] = fp
-            for skey, key, _texto in cond_pending.get(icao, []):
-                cond_state[skey] = key
             harvest_keep += [k for k, _l in harvest_pending.get(icao, [])]
     _save_digest_state({"stations": station_state, "edges": edges_now,
                         "signal_probs": signal_rows,
@@ -358,10 +353,10 @@ def _stop_alerts(positions: list) -> str | None:
             f"${avg:.3f} → agora ${cur:.3f} (<b>−{dd * 100:.0f}%</b>)")
     if not linhas:
         return None
-    return (f"🛑 <b>STOP LOSS</b> — mercado ≥ {config.STOP_ALERT_FRAC:.0%} "
-            "abaixo da sua entrada\n" + "\n".join(linhas) +
-            f"\n<i>referência de saída usada no backtest: "
-            f"−{config.STOP_EXIT_FRAC:.0%}</i>")
+    return ("🛑🛑🛑 <b>STOP LOSS — AÇÃO NECESSÁRIA</b> 🛑🛑🛑\n"
+            + "\n".join(linhas)
+            + f"\n<b>Saída de referência: −{config.STOP_EXIT_FRAC:.0%} da "
+            "entrada.</b> Este alerta repete a cada rodada até você agir.")
 
 
 def _flat_alert(ctx) -> tuple[str, str] | None:
