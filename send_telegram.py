@@ -172,7 +172,7 @@ def main() -> int:
     for s in stations:
         c = contexts.get(s.icao)
         if c is not None:
-            _capture_context(s, c)
+            _cap(_capture_context, s, c)
 
     # 2) Posições: buscadas TODA rodada (o stop loss precisa do preço atual);
     # o resumo geral é enviado quando há novidade no observado OU quando um
@@ -201,8 +201,8 @@ def main() -> int:
     # 2b) Stop loss: mercado precificando a posição STOP_ALERT_FRAC (ou mais)
     # abaixo da entrada → alerta em TODA rodada enquanto persistir (pedido
     # explícito: não parar de mandar até sumir).
-    _cap(capture.record_stops, dt.datetime.now(dt.timezone.utc),
-         _stop_rows(positions))
+    _cap(lambda: capture.record_stops(dt.datetime.now(dt.timezone.utc),
+                                      _stop_rows(positions)))
     stop_msg = _stop_alerts(positions)
     if stop_msg:
         try:
@@ -321,13 +321,14 @@ def main() -> int:
                 station_state[icao] = fp
             harvest_keep += [k for k, _l in harvest_pending.get(icao, [])]
             if ctx is not None:
-                _cap(capture.record_report, ctx["now"], icao, ctx["d0"],
-                     _report_snapshot(station, ctx))
+                _cap(lambda st=station, c=ctx: capture.record_report(
+                    c["now"], st.icao, c["d0"], _report_snapshot(st, c)))
 
     # Captura dos alertas de estratégia desta rodada (entrada e repetições).
-    _cap(capture.record_alerts, dt.datetime.now(dt.timezone.utc),
-         _alert_rows(new_edges, prev_edges, harvest_pending, harvest_seen,
-                     signal_rows))
+    _cap(lambda: capture.record_alerts(
+        dt.datetime.now(dt.timezone.utc),
+        _alert_rows(new_edges, prev_edges, harvest_pending, harvest_seen,
+                    signal_rows)))
 
     # 4) Comandos e cliques de botão recebidos desde a última rodada
     # (getUpdates). É aqui que o relatório completo sai, sob demanda —
@@ -589,6 +590,7 @@ def _capture_context(station, ctx) -> None:
     mm = distribution.member_maxima_for_day(
         d0, ctx["ens"]["time"], ctx["ens"]["members"], ctx["bias"],
         now=now, shift=ctx["shift"], obs_max=ctx["obs_max_today"])
+    mm_vals = [m["tmax"] for m in mm]   # máxima diária corrigida por membro
     times, _p10, p50, _p90, _raw = pipeline.hourly_percentiles(
         ctx["ens"]["time"], ctx["ens"]["members"], ctx["bias"],
         ctx["shift"], now, days={d0})
@@ -596,8 +598,8 @@ def _capture_context(station, ctx) -> None:
     pico_hora = max(valid, key=lambda tv: tv[1])[0].hour if valid else None
     _cap(capture.record_forecast, now, station.icao, d0,
          media=round(media, 2), mediana=q.get(50),
-         piso_ens=(round(min(mm), 2) if mm else None),
-         teto_ens=(round(max(mm), 2) if mm else None),
+         piso_ens=(round(min(mm_vals), 2) if mm_vals else None),
+         teto_ens=(round(max(mm_vals), 2) if mm_vals else None),
          p10=q.get(10), p90=q.get(90), pico_hora=pico_hora,
          obs_max=ctx["obs_max_today"], nowcast_shift=ctx["shift"],
          travada=ctx["tmax_locked"])
