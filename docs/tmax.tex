@@ -266,12 +266,14 @@ que chega ao Telegram segue regras de \emph{entrega} diferentes:
 \begin{itemize}
   \item \textbf{Modo silencioso:} o chat recebe só alertas (compra, colheita,
   condição, stop) e o resumo de posições no máximo $1\times$ por hora.
-  \item \textbf{Alerta de compra novo:} vai enxuto, com um botão
-  ``Ver relatório completo''. O bloco pesado (tabela, gráfico, hora a hora) só
-  é enviado sob demanda (botão ou \texttt{/relatorio}), para não poluir o chat.
+  \item \textbf{Alerta de compra novo:} chega com o \emph{bloco completo} da
+  cidade (tabela, gráfico, hora a hora) --- o contexto da decisão de entrada.
+  Você também pode pedir o relatório de qualquer cidade a qualquer momento por
+  \texttt{/relatorio}.
   \item \textbf{Repetição:} \emph{edge} e colheita repetem a cada rodada
-  ($\sim$10\,min) enquanto a oportunidade durar --- uma entrada equivale a
-  muitas mensagens.
+  ($\sim$10\,min) enquanto a oportunidade durar; as repetições vêm sozinhas em
+  texto curto (sem repetir os gráficos). Uma entrada equivale a muitas
+  mensagens.
   \item \textbf{Alertas de condição} (só cidades com posição aberta): platô de
   2h de lado e fuga do envelope do \emph{ensemble} --- uma vez por episódio.
   \item \textbf{Stop:} dispara a $-10\%$ do preço de entrada e repete toda
