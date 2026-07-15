@@ -96,12 +96,17 @@ de mandar os alertas, agora **lê os comandos e cliques de botão** (getUpdates)
 na mesma rodada — então a resposta chega com latência de **até ~10 min** (não
 há servidor sempre ligado; foi a opção escolhida para não exigir infra nova).
 
-Um **alerta de compra novo** (edge ou colheita) chega com o **bloco completo**
-da cidade — tabela mercado × modelo, gráfico e hora a hora, o contexto da
-decisão de entrada. As **repetições** (a cada rodada, enquanto a oportunidade
-dura) vêm sozinhas em texto curto, para não repetir gráficos. Além disso, você
-pode pedir o relatório de qualquer cidade a qualquer momento pelo comando
-abaixo.
+Estratégia ativa: **Ceifa** (a única no momento — Edge pausado, Colheita
+aposentada). Compra o **NÃO** quando `CEIFA_PRICE_MIN < preço do NÃO <
+CEIFA_PRICE_MAX` (só o preço decide). O alerta **repete até você ter posição**
+no contrato; ao detectar a entrada na carteira (`POLYMARKET_WALLET`), para de
+alertar aquele contrato. A 1ª aparição vem com um **bloco enxuto**: gráfico da
+distribuição (ensemble + TAF + mediana) e texto com o **pico previsto** e a
+**mediana (P10/P90)** — sem tabela de probabilidades e sem hora a hora; as
+repetições vêm em texto curto. O **desempenho da Ceifa** (testes,
+assertividade, rendimento, drawdown) é enviado **todo dia às 06:00 de Brasília**
+(`run_ceifa.py` / workflow `ceifa_report.yml`). Você também pode pedir o
+relatório completo de qualquer cidade pelo comando abaixo.
 
 Comandos (também no menu “/” do Telegram):
 

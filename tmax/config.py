@@ -199,14 +199,22 @@ NAO_MIN_PRICE = 0.30
 STOP_ALERT_FRAC = 0.10
 STOP_EXIT_FRAC = 0.15
 
-# Colheita de favoritos (estratégia complementar, escolha do Lucas 12/07):
-# comprar o NÃO quando o mercado já está quase certo, dentro desta faixa de
-# preço, a partir desta hora local, com concordância mínima do modelo
-# calibrado. REPETE a cada rodada enquanto a oportunidade existir (pedido
-# do Lucas: continuar disparando até ele entrar ou a condição sumir).
-# Variante 16h — a mais segura do backtest (85d/18 cidades): 150 apostas,
-# 100% de acerto, 1.14x composto, dd 1.5%, 2 stops, zero perdas cheias.
-# (Mais volume: 12h → 595 apostas, 99.3%, 1.52x, dd 6.2%.)
+# ---------------------------------------------------------------- Ceifa
+# Estratégia ATIVA (decisão do Lucas, 15/07) e a ÚNICA no momento: comprar o
+# NÃO quando o mercado já está quase-certo, com o preço do NÃO nesta faixa —
+# a análise da base de mercado mostrou o mercado ~100% assertivo aí. Critério
+# é SÓ o preço (sem filtro de hora nem de modelo). O alerta REPETE a cada
+# rodada até você ter posição naquele contrato; assim que a carteira mostra a
+# entrada, para de alertar aquele contrato. Assertividade = preço do NÃO
+# convergindo para 1,0 (o NÃO resolveu).
+CEIFA_ENABLED = True
+CEIFA_PRICE_MIN = 0.95      # exclusivo: preço do NÃO > 0,95
+CEIFA_PRICE_MAX = 0.995     # exclusivo: preço do NÃO < 0,995
+
+# Colheita de favoritos: APOSENTADA (decisão do Lucas 15/07 — substituída pela
+# Ceifa). Mantida no código, desligada por HARVEST_ENABLED. Parâmetros antigos
+# preservados só para o backtest histórico de comparação.
+HARVEST_ENABLED = False
 HARVEST_PRICE_MIN = 0.97
 HARVEST_PRICE_MAX = 0.995
 HARVEST_MIN_HOUR = 16
