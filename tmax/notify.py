@@ -109,6 +109,22 @@ def station_chart_png(ctx: dict) -> bytes:
     return buf.getvalue()
 
 
+def distribution_png(ctx: dict) -> bytes:
+    """PNG SÓ com a distribuição da máxima de hoje: barras (ensemble) + mediana
+    do ensemble + TAF. Sem hora a hora e sem os determinísticos — o gráfico da
+    estratégia Ceifa."""
+    fig, ax = plt.subplots(figsize=(9, 5))
+    _draw_dist(ax, ctx["dist_d0"], f"Hoje ({ctx['d0'].strftime('%d/%m')})",
+               det_points=None, taf_tx=ctx["taf_tx_d0"])
+    station = ctx["station"]
+    fig.suptitle(f"{station.city} — {station.icao}",
+                 fontsize=13, fontweight="bold")
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=110, bbox_inches="tight")
+    plt.close(fig)
+    return buf.getvalue()
+
+
 # --------------------------------------------------------- tabela de odds PNG
 
 # Divergência (nossa prob. − preço do mercado) a partir da qual destacamos a

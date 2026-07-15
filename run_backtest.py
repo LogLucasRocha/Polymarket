@@ -50,7 +50,10 @@ def main() -> int:
     stats = backtest.simulate(log, data=data)
     conf = backtest.confidence_report(log=log, data=data)
     fontes = backtest.check_resolution_sources(log)
-    text = backtest.report_text(stats)
+    # Ceifa é a estratégia ATIVA — vai em destaque no topo; Edge e Colheita
+    # abaixo, como benchmark do que está pausado/aposentado.
+    ceifa = backtest.simulate_ceifa(log, data=data)
+    text = backtest.ceifa_report_text(ceifa) + "\n\n" + backtest.report_text(stats)
     # Colheita: a variante ATIVA + as alternativas 14h e 12h, para comparar.
     harvests: dict[int, dict] = {}
     for h in sorted({config.HARVEST_MIN_HOUR, 14, 12}, reverse=True):

@@ -643,6 +643,63 @@ def simulate_harvest(log=lambda m: None, hour_min: int | None = None,
     return _stats(signals, 0, days_seen)
 
 
+def simulate_ceifa(log=lambda m: None, data=None) -> dict:
+    """Estratégia Ceifa (a ativa): comprar o NÃO quando o preço do NÃO está
+    entre CEIFA_PRICE_MIN e CEIFA_PRICE_MAX — critério SÓ de preço, sem filtro
+    de hora nem de modelo. Uma aposta por faixa/dia, no primeiro momento em que
+    o preço entra na faixa; stop a STOP_EXIT_FRAC. Acerto = o NÃO resolveu (o
+    preço do NÃO convergiu para 1,0)."""
+    rows, days_seen, _ = (data if data is not None else _collect_rows(log))
+    signals = []
+    done: set = set()
+    for r in rows:
+        key = (r["icao"], r["day"], r["bi"])
+        if key in done:
+            continue
+        yes = r["yes"]
+        if yes is None:
+            continue
+        price = 1.0 - yes                       # preço do NÃO
+        if not (config.CEIFA_PRICE_MIN < price < config.CEIFA_PRICE_MAX):
+            continue
+        done.add(key)                            # primeiro cruzamento na faixa
+        stopped, st_ts = False, None
+        stop_lv = price * (1.0 - config.STOP_EXIT_FRAC)
+        for ts, p in r["hist"]:
+            if ts <= r["ts"] or ts >= r["settle"]:
+                continue
+            if (1.0 - p) <= stop_lv:
+                stopped, st_ts = True, ts
+                break
+        signals.append(dict(
+            icao=r["icao"], day=r["day"], hour=r["hour"], label=r["label"],
+            side="NAO", price=price,
+            model=1.0 - calibration.apply(r["mp"], r["hour"]),
+            won=not r["yes_won"], stopped=stopped, bet_ts=r["ts"],
+            settle=st_ts if stopped else r["settle"]))
+    log(f"ceifa: {len(signals)} apostas simuladas.")
+    return _stats(signals, 0, days_seen)
+
+
+def ceifa_report_text(st: dict) -> str:
+    """Relatório da Ceifa (HTML do Telegram) com os 4 números: quantidade de
+    testes, assertividade, rendimento e drawdown."""
+    faixa = f"{config.CEIFA_PRICE_MIN:.3f}–{config.CEIFA_PRICE_MAX:.3f}"
+    if st["n"] == 0:
+        return (f"🌾 <b>Ceifa — backtest</b> · {st['days']} dias-cidade · "
+                f"nenhuma entrada (NÃO no preço {faixa}) no período.")
+    return (
+        f"🌾 <b>Ceifa — desempenho (backtest)</b>\n"
+        f"Comprar NÃO com preço entre <b>{faixa}</b> · "
+        f"{st['days']} dias-cidade de arquivo\n"
+        f"• <b>Testes:</b> {st['n']}\n"
+        f"• <b>Assertividade:</b> {st['hit']:.1%} ({st['wins']}/{st['n']})\n"
+        f"• <b>Rendimento:</b> composto <b>{st['compounded']:.2f}x</b> "
+        f"(flat {st['flat']:+.2f}x, preço médio {st['avg_price']:.3f})\n"
+        f"• <b>Drawdown máx:</b> {st['maxdd']:.1%} · "
+        f"{st.get('n_stopped', 0)} stop(s) a −{config.STOP_EXIT_FRAC:.0%}")
+
+
 def _stats(signals: list, res_mismatch: int, days_seen: int) -> dict:
     if not signals:
         return {"n": 0, "days": days_seen, "signals": [],

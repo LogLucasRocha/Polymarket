@@ -11,13 +11,14 @@ token e o chat_id guardados como *secrets* do repositório.
 Modo silencioso (decisão do Lucas, 12/07) — o Telegram só recebe:
   1. Resumo geral das posições (PnL): no máximo UMA vez por hora, quando
      alguma estação tem novidade.
-  2. Alertas de compra: colheita de favoritos (HARVEST_*). REPETE a cada
-     rodada enquanto a oportunidade existir; um alerta NOVO chega com o bloco
-     completo da cidade (tabela, gráfico, hora a hora — o contexto da decisão
-     de entrada), repetições vêm sozinhas em texto. A estratégia Edge está
-     PAUSADA (config.EDGE_ENABLED=False, decisão do Lucas 14/07) — foco só na
-     colheita; a captura de mercado/previsão segue e permite reconstruir o
-     edge depois.
+  2. Alertas de compra — estratégia CEIFA (a única ativa; Edge e Colheita
+     desligadas). Compra o NÃO quando CEIFA_PRICE_MIN < preço do NÃO <
+     CEIFA_PRICE_MAX (só o preço decide). O alerta REPETE a cada rodada ATÉ
+     você ter posição no contrato (a carteira mostra a entrada → para). A 1ª
+     aparição leva o bloco enxuto: gráfico da distribuição (ensemble + TAF +
+     mediana) e texto com o pico previsto e a mediana (P10/P90) — SEM tabela
+     de probabilidades e SEM hora a hora; as repetições vêm em texto curto.
+     O desempenho da Ceifa vai num relatório diário às 06:00 (run_ceifa.py).
   3. Para cidades com posição aberta: SEM bloco — apenas avisos pontuais em
      texto de platô (2h de lado) e fuga do envelope do ensemble, uma vez por
      episódio.
@@ -52,6 +53,7 @@ import datetime as dt
 import html
 import json
 import os
+import re
 import sys
 import time
 import unicodedata
@@ -251,88 +253,61 @@ def main() -> int:
                 print(f"[{station.icao}] ERRO no alerta {kind}: {exc}",
                       file=sys.stderr)
 
-    # 2d) Colheita de favoritos: NÃO quase-certo (preço na faixa
-    # HARVEST_PRICE_*), após a hora local mínima, com o modelo concordando.
-    # REPETE a cada rodada enquanto a oportunidade existir (igual ao edge);
-    # a PRIMEIRA aparição vem com o bloco da cidade, repetições vêm sozinhas.
-    harvest_seen = set(state.get("harvest", []))
-    harvest_pending: dict[str, list] = {}   # todas as vigentes nesta rodada
-    harvest_fresh: set = set()              # cidades com oportunidade NOVA
-    harvest_keep = []
-    for k, v in signal_rows.items():
-        if v["yes"] is None or v["mp"] is None:
-            continue
-        price = 1.0 - v["yes"]
-        if not (config.HARVEST_PRICE_MIN <= price < config.HARVEST_PRICE_MAX):
-            continue
-        conc = 1.0 - v["mp"]
-        if conc < config.HARVEST_MIN_CONF:
-            continue
-        h = dt.datetime.now(config.STATIONS[v["icao"]].tz).hour
-        if not (config.HARVEST_MIN_HOUR <= h <= config.SIGNAL_HOURS[1]):
-            continue
-        stn = config.STATIONS[v["icao"]]
-        linha = (f"🌾 <b>Colheita — {stn.flag} {html.escape(stn.city)} "
-                 f"({v['icao']})</b> · Comprar NÃO "
-                 f"<b>{html.escape(v['label'])}</b> @ ${price:.3f} "
-                 f"(modelo {conc:.0%}, {h:02d}h local, stop −15%)")
-        harvest_pending.setdefault(v["icao"], []).append((k, linha))
-        if k not in harvest_seen:
-            harvest_fresh.add(v["icao"])
+    # 2d) Ceifa (estratégia ATIVA e única): comprar o NÃO quando
+    # CEIFA_PRICE_MIN < preço do NÃO < CEIFA_PRICE_MAX — só o preço decide. O
+    # alerta REPETE a cada rodada ATÉ você ter posição no contrato (a carteira
+    # mostra a entrada → para de alertar aquele contrato).
+    held = _cap(_held_nao, positions) or []
+    ceifa_seen = set(state.get("ceifa", []))
+    ceifa_pending: dict[str, list] = {}     # icao -> [(chave, faixa, preço)]
+    ceifa_fresh: set = set()                # cidades com oportunidade NOVA
+    ceifa_keep: list = []
+    if config.CEIFA_ENABLED:
+        for k, v in signal_rows.items():
+            if v["yes"] is None:
+                continue
+            price = 1.0 - v["yes"]           # preço do NÃO
+            if not (config.CEIFA_PRICE_MIN < price < config.CEIFA_PRICE_MAX):
+                continue
+            if _is_held(held, v["icao"], v["label"]):
+                continue                     # já tenho posição → não alerta
+            ceifa_pending.setdefault(v["icao"], []).append(
+                (k, v["label"], price))
+            ceifa_keep.append(k)
+            if k not in ceifa_seen:
+                ceifa_fresh.add(v["icao"])
 
-    # 3) Um bloco COMPLETO por cidade com ALERTA DE COMPRA novo (edge ou
-    # colheita) — tabela + gráfico + hora a hora, o contexto da decisão de
-    # entrada. Repetições de sinal/colheita em cidade sem bloco saem sozinhas
-    # em texto. Posições existentes NÃO recebem bloco (ficam com o PnL, os
-    # avisos de condição em texto e o stop). Decisão do Lucas (14/07).
-    sig_msgs = dict(_edges_messages(new_edges, prev_probs))
+    # 3) Um alerta por cidade com oportunidade de Ceifa. A PRIMEIRA aparição
+    # leva o bloco enxuto (gráfico da distribuição do ensemble + TAF + mediana,
+    # texto com pico e mediana P10/P90); as repetições vêm em texto curto, até
+    # você ter posição. Sem tabela de probabilidades e sem hora a hora.
     for station in stations:
         icao = station.icao
+        contratos = ceifa_pending.get(icao)
+        if not contratos:
+            continue
         ctx = contexts.get(icao)
         fp = fps[icao]
-        has_block = icao in fresh_icaos or icao in harvest_fresh
-        if not has_block:
-            # repetições (sinal e colheita) em cidade sem bloco: só o alerta
-            partes = []
-            if icao in sig_msgs:
-                partes.append(sig_msgs[icao])
-            linhas_hv = [linha for _k, linha
-                         in harvest_pending.get(icao, [])]
-            if linhas_hv:
-                partes.append("\n".join(linhas_hv))
-            for texto in partes:
-                try:
-                    notify.send_message(token, chat_id, texto)
-                    print(f"[alertas] {icao}: repetição enviada.")
-                except Exception as exc:  # noqa: BLE001
-                    print(f"[alertas] {icao}: ERRO: {exc}", file=sys.stderr)
-            if linhas_hv:
-                harvest_keep += [k for k, _l
-                                 in harvest_pending.get(icao, [])]
-            continue
-        # sinal + colheita no TOPO do bloco da cidade
-        pre = ([sig_msgs[icao]] if icao in sig_msgs else [])
-        pre += [linha for _k, linha in harvest_pending.get(icao, [])]
         try:
-            _send_station_block(token, chat_id, station, ctx, positions,
-                                errors, yes_prob, position_success_prob,
-                                pre_msgs=pre)
-        except Exception as exc:  # noqa: BLE001 — falha de uma cidade não derruba as demais
-            errors[icao] = str(exc)
-            print(f"[{icao}] ERRO no bloco: {exc}", file=sys.stderr)
-        else:
-            if fp is not None:
-                station_state[icao] = fp
-            harvest_keep += [k for k, _l in harvest_pending.get(icao, [])]
-            if ctx is not None:
+            if icao in ceifa_fresh and ctx is not None:
+                _send_ceifa_block(token, chat_id, station, ctx, contratos)
                 _cap(lambda st=station, c=ctx: capture.record_report(
                     c["now"], st.icao, c["d0"], _report_snapshot(st, c)))
+                marca = "bloco"
+            else:
+                notify.send_message(
+                    token, chat_id, _ceifa_repeat_text(station, contratos))
+                marca = "repetição"
+            if fp is not None:
+                station_state[icao] = fp
+            print(f"[ceifa] {icao}: {len(contratos)} contrato(s) ({marca}).")
+        except Exception as exc:  # noqa: BLE001 — falha de uma cidade não derruba as demais
+            print(f"[ceifa] {icao}: ERRO: {exc}", file=sys.stderr)
 
-    # Captura dos alertas de estratégia desta rodada (entrada e repetições).
+    # Captura dos alertas de estratégia desta rodada (Ceifa).
     _cap(lambda: capture.record_alerts(
         dt.datetime.now(dt.timezone.utc),
-        _alert_rows(new_edges, prev_edges, harvest_pending, harvest_seen,
-                    signal_rows)))
+        _ceifa_alert_rows(ceifa_pending, ceifa_seen, signal_rows)))
 
     # 4) Comandos e cliques de botão recebidos desde a última rodada
     # (getUpdates). É aqui que o relatório completo sai, sob demanda —
@@ -348,7 +323,7 @@ def main() -> int:
     _save_digest_state({"stations": station_state, "edges": edges_now,
                         "signal_probs": signal_rows,
                         "cond_alerts": cond_state,
-                        "harvest": harvest_keep,
+                        "ceifa": ceifa_keep,
                         "pnl_sent_at": state.get("pnl_sent_at", 0),
                         "commands_set": state.get("commands_set", False),
                         "tg_offset": tg_offset})
@@ -691,6 +666,102 @@ def _alert_rows(new_edges, prev_edges, harvest_pending, harvest_seen,
                 "modelo": round(1.0 - v["mp"], 4), "edge_pp": None,
                 "hora_local": dt.datetime.now(st.tz).hour,
                 "repeticao": k in harvest_seen})
+    return rows
+
+
+# --------------------------------------------------------------- Ceifa (ativa)
+
+def _held_nao(positions) -> list:
+    """Bandas onde já tenho posição NÃO (para parar de alertar): lista de
+    (icao, lo, hi). Ignora posições irrisórias (poeira)."""
+    held = []
+    for p in positions or []:
+        if str(p.get("outcome") or "").strip().lower() != "no":
+            continue
+        try:
+            if float(p.get("currentValue") or 0) < polymarket.DUST_USD:
+                continue
+        except (TypeError, ValueError):
+            continue
+        pm = polymarket.parse_temp_market(p.get("title"))
+        if pm:
+            held.append((pm["icao"], pm["lo"], pm["hi"]))
+    return held
+
+
+def _is_held(held, icao: str, faixa_label: str) -> bool:
+    """Já tenho posição NÃO nesta faixa? Casa o grau da faixa com as bandas
+    da carteira (mesma cidade). Melhor-esforço (unidade em °C)."""
+    graus = [int(x) for x in re.findall(r"-?\d+", faixa_label or "")]
+    if not graus:
+        return False
+    d = graus[0]
+    return any(ic == icao and lo <= d <= hi for ic, lo, hi in (held or []))
+
+
+def _peak_hour(ctx):
+    """Hora local do pico previsto (máximo da mediana horária corrigida)."""
+    times, _p10, p50, _p90, _raw = pipeline.hourly_percentiles(
+        ctx["ens"]["time"], ctx["ens"]["members"], ctx["bias"],
+        ctx["shift"], ctx["now"], days={ctx["d0"]})
+    valid = [(t, v) for t, v in zip(times, p50) if v is not None]
+    return max(valid, key=lambda tv: tv[1])[0].hour if valid else None
+
+
+def _ceifa_text(station, ctx, contratos) -> str:
+    """Texto do alerta de Ceifa: as compras + pico previsto + mediana P10/P90."""
+    q = ctx["dist_d0"]["quantiles"]
+    pico = _peak_hour(ctx)
+    linhas = [f"🌾 <b>Ceifa — {station.flag} {html.escape(station.city)} "
+              f"({station.icao})</b>"]
+    for _k, faixa, price in contratos:
+        linhas.append(f"• Comprar <b>NÃO {html.escape(str(faixa))}</b> "
+                      f"@ ${price:.3f}")
+    pico_txt = f"{pico:02d}h" if pico is not None else "—"
+    linhas.append(f"📈 Pico previsto: <b>{pico_txt}</b> · Mediana: "
+                  f"<b>{q.get(50):.1f} °C</b> "
+                  f"(P10 {q.get(10):.1f} · P90 {q.get(90):.1f})")
+    return "\n".join(linhas)
+
+
+def _ceifa_repeat_text(station, contratos) -> str:
+    """Repetição enxuta (sem gráfico) até haver posição."""
+    linhas = [f"🌾 <b>Ceifa — {station.flag} {html.escape(station.city)} "
+              f"({station.icao})</b> <i>(ainda vale — entre para parar de "
+              "receber)</i>"]
+    for _k, faixa, price in contratos:
+        linhas.append(f"• Comprar <b>NÃO {html.escape(str(faixa))}</b> "
+                      f"@ ${price:.3f}")
+    return "\n".join(linhas)
+
+
+def _send_ceifa_block(token, chat_id, station, ctx, contratos) -> None:
+    """Bloco enxuto da Ceifa: divisor, texto (compra + pico + mediana) e o
+    gráfico da distribuição (ensemble + TAF + mediana). Sem tabela de
+    probabilidades e sem hora a hora."""
+    notify.send_message(token, chat_id, notify.station_divider(station))
+    notify.send_message(token, chat_id, _ceifa_text(station, ctx, contratos))
+    notify.send_photo(
+        token, chat_id, notify.distribution_png(ctx),
+        f"📊 <b>{html.escape(station.city)}</b> — distribuição da máxima de "
+        "hoje (ensemble · TAF · mediana)")
+
+
+def _ceifa_alert_rows(ceifa_pending, ceifa_seen, signal_rows) -> list:
+    """Linhas estruturadas dos alertas de Ceifa desta rodada (para a captura),
+    com a flag repeticao separando a entrada das repetições."""
+    rows = []
+    for icao, contratos in ceifa_pending.items():
+        hloc = dt.datetime.now(config.STATIONS[icao].tz).hour
+        for k, faixa, price in contratos:
+            v = signal_rows.get(k, {})
+            mp = v.get("mp")
+            rows.append({
+                "icao": icao, "dia": k.split(":")[1], "estrategia": "ceifa",
+                "faixa": faixa, "lado": "NAO", "preco": round(price, 4),
+                "modelo": (round(1.0 - mp, 4) if mp is not None else None),
+                "edge_pp": None, "hora_local": hloc,
+                "repeticao": k in ceifa_seen})
     return rows
 
 
