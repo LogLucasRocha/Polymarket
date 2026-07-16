@@ -54,12 +54,12 @@ jobs:
         if: steps.guard.outputs.skip != 'true'
         run: pip install -r requirements.txt
 
-      - name: Coletar dias novos, simular e enviar relatório
+      # Roda em SILÊNCIO (--no-telegram): mantém o arquivo e recalibra o modelo
+      # (usado pelo resumo de posições), mas NÃO manda mais o relatório de
+      # Edge/Colheita — estratégias mortas (decisão do Lucas, 16/07).
+      - name: Coletar dias novos e recalibrar (sem relatório no Telegram)
         if: steps.guard.outputs.skip != 'true'
-        env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python run_backtest.py
+        run: python run_backtest.py --no-telegram
 
       # O arquivo é append-only: cada rodada acrescenta os dias novos e o
       # commit preserva os dados além das janelas de retenção das fontes.
