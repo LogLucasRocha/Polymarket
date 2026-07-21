@@ -1,12 +1,13 @@
-"""Relatório diário da estratégia Ceifa no Telegram.
+"""Relatório diário SEPARADO da Ceifa nas cidades americanas (°F), em modo
+MONITORAMENTO — só para acompanhar a performance, sem apostar.
 
-Roda pelo .github/workflows/ceifa_report.yml (cron 09:00 UTC = 06:00 em
-Brasília). Simula a Ceifa sobre o arquivo histórico (backtest_data/) e manda os
-quatro números pedidos: quantidade de testes, assertividade, rendimento e
-drawdown. Não coleta dados novos nem recalibra — só lê o arquivo atual.
+Mesma mecânica do run_ceifa.py (entrada em H-1, banda 0,95–0,995, stop fiel à
+execução, banca de 10% sem alavancar), mas restrito a config.STATIONS_FAHRENHEIT
+e com cabeçalho próprio. Roda pelo mesmo cron do relatório das ativas, mandando
+uma segunda mensagem apartada.
 
 Uso local:
-    python run_ceifa.py [--no-telegram]
+    python run_ceifa_f.py [--no-telegram]
 """
 from __future__ import annotations
 
@@ -26,6 +27,10 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 
 from tmax import backtest, ceifa, config, notify
 
+TITULO = "🇺🇸 <b>Ceifa °F — monitoramento (nossos snapshots)</b>"
+NOTA = ("<i>Cidades americanas em °F, em observação — ainda NÃO apostamos "
+        "nelas. Acompanhando a assertividade antes de decidir se entram.</i>")
+
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
@@ -34,11 +39,8 @@ def main() -> int:
     args = ap.parse_args()
 
     log = lambda msg: print(msg, flush=True)  # noqa: E731
-    # Backtest SÓ nos nossos snapshots capturados (dados/), como pedido —
-    # nada do arquivo reconstruído de APIs. Restrito às cidades ATIVAS (°C);
-    # as cidades °F em monitoramento saem no relatório separado (run_ceifa_f).
-    st = ceifa.simulate(log, icaos=set(config.STATIONS))
-    text = backtest.ceifa_report_text(st)
+    st = ceifa.simulate(log, icaos=set(config.STATIONS_FAHRENHEIT))
+    text = backtest.ceifa_report_text(st, titulo=TITULO, nota=NOTA)
     if st["n"]:
         parts = [f"{k} {v[1] / v[0]:.0%} (n={v[0]})"
                  for k, v in sorted(st["by_city"].items(),
@@ -56,10 +58,10 @@ def main() -> int:
             try:
                 notify.send_photo(
                     token, chat_id, notify.equity_chart_png(st["per_day"]),
-                    "📈 Evolução patrimonial da Ceifa (base R$100, sem alavancar)")
+                    "📈 Evolução (simulada) da Ceifa °F — monitoramento, base R$100")
             except Exception as exc:  # noqa: BLE001 — gráfico é acessório
                 print(f"[telegram] falha no gráfico: {exc}", file=sys.stderr)
-        print("[telegram] relatório da Ceifa enviado.")
+        print("[telegram] relatório da Ceifa °F enviado.")
     return 0
 
 

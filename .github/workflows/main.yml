@@ -49,6 +49,14 @@ jobs:
           POLYMARKET_WALLET: ${{ vars.POLYMARKET_WALLET }}
         run: python send_telegram.py
 
+      # Captura ao vivo das cidades americanas (°F) em modo OBSERVAÇÃO: grava
+      # mercado/previsão/ensemble delas em dados/ (sem mandar nada no Telegram),
+      # para avaliar a Ceifa nelas antes de apostar. Compartilha o mesmo buffer
+      # do digest. É acessório: nunca derruba o job (continue-on-error).
+      - name: Capturar cidades °F (observação)
+        continue-on-error: true
+        run: python capture_fahrenheit.py
+
       # Arquivo de dados ao vivo: o send_telegram acumula num buffer no cache
       # (data/capture) e, quando o dia UTC fecha, consolida em dados/*.parquet.
       # Este passo commita dados/ só quando há novidade — na prática 1x/dia,

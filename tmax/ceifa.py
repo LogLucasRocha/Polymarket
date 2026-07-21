@@ -34,17 +34,34 @@ def _load(base: str) -> pd.DataFrame:
     return df.sort_values("ts")
 
 
+def _tz(icao: str):
+    """Fuso da estação, procurando tanto nas ativas (°C) quanto nas de
+    monitoramento em °F — senão UTC. Sem isto, as cidades °F cairiam em UTC e
+    a hora H-1 sairia errada."""
+    if icao in config.STATIONS:
+        return config.STATIONS[icao].tz
+    if icao in config.STATIONS_FAHRENHEIT:
+        return config.STATIONS_FAHRENHEIT[icao].tz
+    return dt.timezone.utc
+
+
 def _local_hour(g: pd.DataFrame) -> pd.Series:
-    tz = (config.STATIONS[g.name].tz if g.name in config.STATIONS
-          else dt.timezone.utc)
-    return g["ts"].dt.tz_convert(tz).dt.hour
+    return g["ts"].dt.tz_convert(_tz(g.name)).dt.hour
 
 
-def simulate(log=lambda m: None) -> dict:
+def simulate(log=lambda m: None, icaos=None) -> dict:
     """Roda a Ceifa (entrada em H-1) nos snapshots e devolve estatísticas no
-    formato que backtest.ceifa_report_text espera."""
+    formato que backtest.ceifa_report_text espera.
+
+    icaos: se dado, restringe a análise a esse conjunto de estações (para
+    separar o relatório das ativas em °C do das cidades °F em monitoramento).
+    """
     mkt = _load("mercado")
     prev = _load("previsao")
+    if icaos is not None:
+        icaos = set(icaos)
+        mkt = mkt[mkt["icao"].isin(icaos)] if not mkt.empty else mkt
+        prev = prev[prev["icao"].isin(icaos)] if not prev.empty else prev
     if mkt.empty or prev.empty:
         log("ceifa (snapshots): sem dados capturados suficientes ainda.")
         return {"n": 0, "days": 0, "signals": []}

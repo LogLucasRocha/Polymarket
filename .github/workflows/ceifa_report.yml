@@ -29,11 +29,20 @@ jobs:
       - name: Instalar dependências
         run: pip install -r requirements.txt
 
-      - name: Enviar relatório da Ceifa
+      - name: Enviar relatório da Ceifa (cidades ativas °C)
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python run_ceifa.py
+
+      # Segunda mensagem, apartada: monitoramento das cidades americanas (°F).
+      # Acessório — se falhar, não bloqueia o relatório principal.
+      - name: Enviar relatório da Ceifa °F (monitoramento)
+        continue-on-error: true
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python run_ceifa_f.py
 
       - name: Avisar falha no Telegram
         if: failure()

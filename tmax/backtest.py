@@ -681,13 +681,20 @@ def simulate_ceifa(log=lambda m: None, data=None) -> dict:
     return _stats(signals, 0, days_seen)
 
 
-def ceifa_report_text(st: dict) -> str:
+def ceifa_report_text(st: dict, titulo: str | None = None,
+                      nota: str | None = None) -> str:
     """Relatório da Ceifa (HTML do Telegram) com os 4 números: quantidade de
-    testes, assertividade, rendimento (realista, sem alavancar) e drawdown."""
+    testes, assertividade, rendimento (realista, sem alavancar) e drawdown.
+
+    titulo: cabeçalho alternativo (ex.: relatório separado das cidades °F).
+    nota: linha extra logo abaixo do cabeçalho (ex.: aviso de monitoramento).
+    """
+    cab = titulo or "🌾 <b>Ceifa — desempenho (nossos snapshots)</b>"
     faixa = f"{config.CEIFA_PRICE_MIN:.3f}–{config.CEIFA_PRICE_MAX:.3f}"
     if st["n"] == 0:
-        return (f"🌾 <b>Ceifa — desempenho</b> · {st.get('days', 0)} dia(s) · "
+        base = (f"{cab} · {st.get('days', 0)} dia(s) · "
                 f"nenhuma entrada (NÃO em {faixa}, na H-1) ainda.")
+        return f"{base}\n{nota}" if nota else base
     real = st.get("real_mult", 1.0)
     dd_max = st.get("real_dd", st.get("maxdd", 0.0))
     per_day = st.get("per_day", [])
@@ -695,8 +702,9 @@ def ceifa_report_text(st: dict) -> str:
     ret_med = (sum(d["ret"] for d in per_day) / len(per_day)) if per_day else 0.0
     dd_med = (sum(d["dd"] for d in per_day) / len(per_day)) if per_day else 0.0
 
-    return "\n".join([
-        "🌾 <b>Ceifa — desempenho (nossos snapshots)</b>",
+    linhas = [
+        cab,
+        *([nota] if nota else []),
         f"Comprar NÃO em <b>{faixa}</b>, na hora antes do pico (H-1) · "
         f"{ndias} dia(s) com apostas",
         f"• <b>Testes:</b> {st['n']} · <b>Assertividade:</b> "
@@ -710,7 +718,8 @@ def ceifa_report_text(st: dict) -> str:
         "a banca liquida no fim do dia e compõe dia a dia. Stop fiel à "
         "execução: só conta se persistir na rodada seguinte ao alarme, com "
         "saída pelo preço dela. Sem alavancar.</i>",
-    ])
+    ]
+    return "\n".join(linhas)
 
 
 def _ceifa_stops_line(st: dict) -> str:
