@@ -27,8 +27,9 @@ import requests
 GAMMA = "https://gamma-api.polymarket.com"
 CLOB = "https://clob.polymarket.com"
 SOCCER_TAG = "100350"
-MAX_GAMES_PER_LEAGUE = 60
-MAX_TOTAL_GAMES = 600
+MAX_GAMES_PER_LEAGUE = 40
+MAX_TOTAL_GAMES = 400
+BAND_LO, BAND_HI = 0.95, 0.995    # banda "quase-certeza" (Ceifa)
 # ligas grandes primeiro (mais líquidas / mais relevantes pro Lucas)
 PRIORIDADE = ["bra", "epl", "lal", "bun", "sea", "fl1", "mls", "por", "arg",
               "mex", "ucl", "uel", "uref", "jap", "kor", "ere", "efl"]
@@ -63,9 +64,9 @@ def is_base(slug: str) -> bool:
     return bool(re.search(r"-\d{4}-\d{2}-\d{2}$", slug or ""))
 
 
-def series(token: str, st: int, en: int):
+def series(token: str, st: int, en: int, fidelity: int = 60):
     d = get(f"{CLOB}/prices-history", market=token, startTs=st, endTs=en,
-            fidelity=60)
+            fidelity=fidelity)
     pts = d.get("history") if isinstance(d, dict) else d
     return [(p["t"], float(p["p"])) for p in (pts or []) if "t" in p and "p" in p]
 
@@ -129,15 +130,24 @@ def main() -> int:
             reg = []
             try:
                 for j, t in enumerate(times):
-                    ser = series(t["yes"], st, en)
+                    ser = series(t["yes"], st, en)               # pré-apito (60min)
                     if len(ser) < 3:
                         reg = []
                         break
+                    # IN-PLAY: janela do jogo em resolução fina (10 min), do
+                    # apito até ~4h depois (cobre a partida + liquidação).
+                    ip = series(t["yes"], en, en + 4 * 3600, fidelity=10)
+                    ip = [(tt, pp) for tt, pp in ip if tt > en]
+                    banda_ip = [pp for _, pp in ip if BAND_LO <= pp < BAND_HI]
                     reg.append({"liga": liga.get("sport"), "slug": e.get("slug"),
                                 "p_open": ser[0][1],
                                 "p_24h": at_or_before(ser, en - 24 * 3600),
                                 "p_kick": ser[-1][1],
                                 "p_max": max(p for _, p in ser),  # pico pré-apito
+                                "ip_pts": len(ip),
+                                "ip_max": (max(pp for _, pp in ip) if ip else None),
+                                "ip_banda": bool(banda_ip),       # entrou na banda?
+                                "ip_banda_1a": (banda_ip[0] if banda_ip else None),
                                 "won": t["won"],
                                 "home": j == 0})   # ordem "home" (sports/ordering)
             except Exception:  # noqa: BLE001
@@ -245,6 +255,42 @@ def main() -> int:
             print(f"  pico >= {thr:.2f}: n={len(sub):>4} em {jogos} jogos · "
                   f"venceu {wr:.1%} · breakeven {thr:.0%} · "
                   f"EV comprando a {thr:.2f}: {ev:+.2%}")
+
+    # ---- IN-PLAY: a banda [0,95;0,995) DURANTE o jogo ----
+    com_ip = [r for r in obs if r["ip_pts"] > 0]
+    print("\n" + "=" * 64)
+    print("IN-PLAY (durante o jogo, resolução 10 min)")
+    print(f"lados com dados in-play: {len(com_ip)}/{len(obs)} "
+          f"(média {statistics.mean(r['ip_pts'] for r in obs):.1f} pts/lado)")
+    print("=" * 64)
+    if not com_ip:
+        print("SEM dados in-play — o prices-history para no apito; "
+              "precisaríamos de captura ao vivo durante os jogos.")
+        return 0
+    naband = [r for r in com_ip if r["ip_banda"]]
+    print(f"\nLados que entraram na banda [0,95;0,995) DURANTE o jogo: "
+          f"{len(naband)} (em {len({r['slug'] for r in naband})} jogos)")
+    if naband:
+        wr = statistics.mean(1.0 if r["won"] else 0.0 for r in naband)
+        buy = statistics.mean(r["ip_banda_1a"] for r in naband)
+        # compra na 1ª vez que toca a banda, segura até liquidar
+        ev = statistics.mean((1.0 if r["won"] else 0.0) / r["ip_banda_1a"] - 1.0
+                             for r in naband)
+        perdeu = [r for r in naband if not r["won"]]
+        print(f"  venceram: {wr:.1%}  ·  preço médio de entrada: {buy:.3f}")
+        print(f"  EV comprando na 1ª entrada da banda (hold até liquidar): "
+              f"{ev:+.2%}")
+        print(f"  VIRADAS (entrou na banda in-play e PERDEU): "
+              f"{len(perdeu)} ({len(perdeu)/len(naband):.1%})")
+        # por faixa de entrada
+        print("  por preço de entrada na banda:")
+        for lo, hi in [(0.95, 0.97), (0.97, 0.99), (0.99, 0.995)]:
+            s = [r for r in naband if lo <= r["ip_banda_1a"] < hi]
+            if s:
+                w = statistics.mean(1.0 if r["won"] else 0.0 for r in s)
+                ev2 = w / lo - 1.0
+                print(f"    {lo:.2f}–{hi:.3f}: n={len(s):>4} venceu {w:.1%} "
+                      f"EV a {lo:.2f} {ev2:+.2%}")
     return 0
 
 
