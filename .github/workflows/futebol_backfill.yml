@@ -1,0 +1,28 @@
+name: Backfill Futebol (Polymarket)
+
+# Testa a hipótese abertura→evento nos jogos de futebol já resolvidos.
+# Só leitura de dado público; não grava nem aposta.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout do repositório
+        uses: actions/checkout@v5
+
+      - name: Instalar Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Instalar requests
+        run: pip install requests
+
+      - name: Rodar backfill
+        run: python -m futebol.backfill
