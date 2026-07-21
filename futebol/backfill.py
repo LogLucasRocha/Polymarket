@@ -136,7 +136,9 @@ def main() -> int:
                     reg.append({"liga": liga.get("sport"), "slug": e.get("slug"),
                                 "p_open": ser[0][1],
                                 "p_24h": at_or_before(ser, en - 24 * 3600),
-                                "p_kick": ser[-1][1], "won": t["won"],
+                                "p_kick": ser[-1][1],
+                                "p_max": max(p for _, p in ser),  # pico pré-apito
+                                "won": t["won"],
                                 "home": j == 0})   # ordem "home" (sports/ordering)
             except Exception:  # noqa: BLE001
                 continue
@@ -219,6 +221,30 @@ def main() -> int:
         pm = statistics.mean(r["p_kick"] for r in grp)
         print(f"  {nome:<10} n={len(grp):>4}  venceu {wr:.1%}  "
               f"preço médio apito {pm:.1%}  gap {wr - pm:+.1%}")
+
+    # QUASE-CERTEZA (Ceifa no futebol): o lado chegou a >=X em ALGUM momento
+    # pré-apito -> venceu de fato? EV = comprar no piso e segurar até liquidar.
+    print("\n-- QUASE-CERTEZA: pico do preço pré-apito × vitória real --")
+    print(f"  {'faixa do pico':<14}{'n':>6}{'venceu':>9}{'buy':>7}"
+          f"{'EV/aposta':>11}")
+    faixas = [(0.90, 0.95), (0.95, 0.97), (0.97, 0.99), (0.99, 1.0001)]
+    for lo, hi in faixas:
+        sub = [r for r in obs if lo <= r["p_max"] < hi]
+        if sub:
+            wr = statistics.mean(1.0 if r["won"] else 0.0 for r in sub)
+            ev = wr / lo - 1.0            # comprar no piso da faixa, segurar
+            print(f"  {lo:.2f}–{hi:.2f}  {len(sub):>6}{wr:>9.1%}"
+                  f"{lo:>7.2f}{ev:>+11.2%}")
+    print("  (cumulativo)")
+    for thr in (0.95, 0.97, 0.99):
+        sub = [r for r in obs if r["p_max"] >= thr]
+        if sub:
+            wr = statistics.mean(1.0 if r["won"] else 0.0 for r in sub)
+            ev = wr / thr - 1.0
+            jogos = len({r["slug"] for r in sub})
+            print(f"  pico >= {thr:.2f}: n={len(sub):>4} em {jogos} jogos · "
+                  f"venceu {wr:.1%} · breakeven {thr:.0%} · "
+                  f"EV comprando a {thr:.2f}: {ev:+.2%}")
     return 0
 
 
