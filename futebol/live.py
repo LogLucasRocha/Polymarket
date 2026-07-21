@@ -24,7 +24,8 @@ import requests
 
 GAMMA = "https://gamma-api.polymarket.com"
 SOCCER_TAG = "100350"
-WATCH = 0.90                 # só grava lados a partir daqui (perto da certeza)
+WATCH = 0.75                 # grava a partir daqui: cobre a banda E a região do
+#                              stop (−15% de 0,95 ≈ 0,81), pra observar a saída
 BAND_LO, BAND_HI = 0.95, 0.995
 ROOT = Path(__file__).resolve().parent.parent
 BUF_DIR = ROOT / "data_futebol"      # buffer do dia (cache)
