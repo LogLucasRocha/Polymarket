@@ -64,7 +64,7 @@ import unicodedata
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-from tmax import (calibration, capture, config, distribution, notify,
+from tmax import (calibration, capture, ceifa, config, distribution, notify,
                   pipeline, polymarket)
 
 
@@ -274,6 +274,12 @@ def main() -> int:
     # quase-certo é confiável (decisão do Lucas, 15/07).
     peak_by_icao = {s.icao: _cap(_peak_hour, contexts[s.icao])
                     for s in stations if s.icao in contexts}
+    # FILTRO DE INCERTEZA (mesma regra do backtest, agora AO VIVO): não alerta
+    # entrada em dia de ensemble largo na H-1. spread_norm = spread normal por
+    # cidade (do lago de dados); o spread de agora vem do contexto. Fonte única:
+    # ceifa.is_uncertain — backtest e ao vivo nunca divergem.
+    spread_norm = _cap(ceifa.spread_norm_map) or {}
+    spread_agora: dict[str, float | None] = {}     # cache por cidade (1 spread/dia)
     if config.CEIFA_ENABLED:
         for k, v in signal_rows.items():
             icao = v["icao"]
@@ -288,6 +294,13 @@ def main() -> int:
                 continue                     # fora da janela H-1
             if _is_held(held, icao, v["label"]):
                 continue                     # já tenho posição → não alerta
+            if icao not in spread_agora:
+                spread_agora[icao] = _cap(_ens_spread, ctx_i)
+            spr = spread_agora[icao]
+            if ceifa.is_uncertain(icao, spr, spread_norm):
+                print(f"[ceifa] {icao}: filtrado — ensemble largo na H-1 "
+                      f"(spread={spr:.1f}°C).")
+                continue                     # dia perigoso → não entra
             ceifa_pending.setdefault(icao, []).append((k, v["label"], price))
             ceifa_keep.append(k)
             if k not in ceifa_seen:
@@ -601,6 +614,25 @@ def _capture_context(station, ctx) -> None:
     members = {f"{m}:{mid}": s for (m, mid), s in ctx["ens"]["members"].items()}
     _cap(capture.record_ensemble, now, station.icao, d0,
          ctx["ens"]["time"], members, ctx["bias"])
+
+
+def _ens_spread(ctx) -> float | None:
+    """Incerteza do ensemble AGORA = teto_ens − mediana, exatamente como é
+    gravado na base previsao (max da máxima por membro − mediana da
+    distribuição). É o valor que o filtro de incerteza lê na H-1."""
+    dist = ctx.get("dist_d0") if ctx else None
+    if not dist:
+        return None
+    mediana = dist["quantiles"].get(50)
+    if mediana is None:
+        return None
+    mm = distribution.member_maxima_for_day(
+        ctx["d0"], ctx["ens"]["time"], ctx["ens"]["members"], ctx["bias"],
+        now=ctx["now"], shift=ctx["shift"], obs_max=ctx["obs_max_today"])
+    mm_vals = [m["tmax"] for m in mm]
+    if not mm_vals:
+        return None
+    return max(mm_vals) - mediana
 
 
 def _report_snapshot(station, ctx) -> dict:

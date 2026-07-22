@@ -51,6 +51,31 @@ def _local_hour(g: pd.DataFrame) -> pd.Series:
     return g["ts"].dt.tz_convert(_tz(g.name)).dt.hour
 
 
+def spread_norm_map(archive=ARCHIVE) -> dict:
+    """Spread NORMAL (mediana histórica de teto_ens − mediana) por estação, a
+    partir do lago de dados. É a base do filtro relativo — usado tanto no
+    backtest quanto no alerta ao vivo, pra os dois nunca divergirem."""
+    prev = _load("previsao", archive)
+    if prev.empty:
+        return {}
+    ps = prev.dropna(subset=["teto_ens", "mediana"]).copy()
+    ps["spread"] = ps["teto_ens"] - ps["mediana"]
+    return ps.groupby("icao")["spread"].median().to_dict()
+
+
+def is_uncertain(icao, spread, spread_norm) -> bool:
+    """Dia perigoso? Spread do ensemble alto na H-1 — no ABSOLUTO
+    (>= CEIFA_SPREAD_ABS) OU RELATIVO ao normal da estação
+    (>= CEIFA_SPREAD_REL × mediana histórica). É onde o NÃO estoura pra zero
+    (Istambul 34°C). Fonte única da regra: backtest e ao vivo chamam isto."""
+    if spread is None or not config.CEIFA_SPREAD_FILTER:
+        return False
+    if spread >= config.CEIFA_SPREAD_ABS:
+        return True
+    norm = spread_norm.get(icao)
+    return norm is not None and norm > 0 and spread >= config.CEIFA_SPREAD_REL * norm
+
+
 def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE) -> dict:
     """Roda a Ceifa (entrada em H-1) nos snapshots e devolve estatísticas no
     formato que backtest.ceifa_report_text espera.
@@ -91,15 +116,6 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE) -> dict:
         ate = d[d["ts"] <= e_ts]
         return float(ate["spread"].iloc[-1]) if len(ate) else None
 
-    def incerto(icao, spr):
-        """dia perigoso? spread alto no absoluto OU relativo ao normal."""
-        if spr is None or not config.CEIFA_SPREAD_FILTER:
-            return False
-        if spr >= config.CEIFA_SPREAD_ABS:
-            return True
-        norm = spread_norm.get(icao)
-        return norm is not None and norm > 0 and spr >= config.CEIFA_SPREAD_REL * norm
-
     pmin, pmax = config.CEIFA_PRICE_MIN, config.CEIFA_PRICE_MAX
     signals = []
     n_filtrado = 0
@@ -120,7 +136,7 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE) -> dict:
         # FILTRO DE INCERTEZA (no lugar do stop): não entra em dia de ensemble
         # largo na H-1 — é onde o estouro (NÃO → zero) acontece.
         spr = spread_na_entrada(icao, dia, e["ts"])
-        if incerto(icao, spr):
+        if is_uncertain(icao, spr, spread_norm):
             n_filtrado += 1
             continue
         # Sem stop: segura até liquidar. Vitória se o NÃO foi para ~1,0.
