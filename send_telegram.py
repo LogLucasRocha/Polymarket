@@ -212,7 +212,12 @@ def main() -> int:
     # explícito: não parar de mandar até sumir).
     _cap(lambda: capture.record_stops(dt.datetime.now(dt.timezone.utc),
                                       _stop_rows(positions)))
-    stop_msg = _stop_alerts(positions)
+    # Decisão (22/07): o stop loss saiu — no lugar entrou o filtro de incerteza
+    # (não entra em dia de ensemble largo na H-1). O alerta de "SAIR −15%" agora
+    # contradiz a estratégia (o stop não pega gap e vende whipsaw), então só
+    # dispara se CEIFA_STOP_ENABLED voltar a True. Seguimos gravando o
+    # record_stops acima só como dado de drawdown para análise.
+    stop_msg = _stop_alerts(positions) if config.CEIFA_STOP_ENABLED else None
     if stop_msg:
         try:
             notify.send_message(token, chat_id, stop_msg)
