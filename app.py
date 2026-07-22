@@ -27,7 +27,7 @@ RED = "#c01c28"
 GREEN = "#26a269"
 BAND_FILL = "rgba(26, 95, 180, 0.18)"
 
-st.set_page_config(page_title="Previsão de TMax", page_icon="🌡️", layout="wide")
+st.set_page_config(page_title="Polymarket", page_icon="🌡️", layout="wide")
 
 
 @st.cache_data(ttl=600, show_spinner="Buscando METAR, TAF, modelos e ensembles...")
@@ -276,7 +276,7 @@ def render_station(station: config.Station) -> None:
 
 
 def main() -> None:
-    st.title("🌡️ Previsão de TMax — mercados de temperatura")
+    st.title("🌡️ Polymarket — mercados de temperatura")
     stations = list(config.STATIONS.values())
     tabs = st.tabs([f"{s.flag} {s.label}" for s in stations])
     for tab, station in zip(tabs, stations):

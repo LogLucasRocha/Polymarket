@@ -1,4 +1,6 @@
-# Previsão de TMax — Guarulhos, Buenos Aires e Moscou, D0 e D+1
+# Polymarket
+
+Previsão de TMax para Guarulhos, Buenos Aires e Moscou, D0 e D+1.
 
 Pipeline que combina múltiplos modelos numéricos, ensembles, correção de viés
 por estação e observações em tempo real para gerar uma **distribuição de
