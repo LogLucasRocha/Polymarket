@@ -1,0 +1,27 @@
+name: Reconstroi Istambul 07-22 + backtest do filtro
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  recon:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout do repositório
+        uses: actions/checkout@v5
+
+      - name: Instalar Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependências
+        run: pip install -r requirements.txt
+
+      - name: Reconstruir e rodar backtest
+        run: python recon_istanbul.py
