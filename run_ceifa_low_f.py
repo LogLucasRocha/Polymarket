@@ -1,9 +1,9 @@
-"""Relatório diário da Ceifa na temperatura MÍNIMA (lowest) — monitoramento.
+"""Relatório diário da Ceifa na temperatura MÍNIMA (lowest) das cidades em °F.
 
-Réplica do run_ceifa_f.py, mas lendo o lago dados_low/ (mínima). Roda no mesmo
-cron das 06:00, mandando uma mensagem apartada. Modo observação: não aposta.
+Igual ao run_ceifa_low.py, mas restrito a config.STATIONS_FAHRENHEIT. Manda uma
+mensagem apartada. Modo observação: não aposta.
 
-Uso local: python run_ceifa_low.py [--no-telegram]
+Uso local: python run_ceifa_low_f.py [--no-telegram]
 """
 from __future__ import annotations
 
@@ -24,9 +24,9 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 from tmax import backtest, ceifa, config, notify
 
 ARCHIVE = config.ROOT / "dados_low"
-TITULO = "❄️ <b>Ceifa Mínima °C — monitoramento (nossos snapshots)</b>"
-NOTA = ("<i>Temperatura MÍNIMA (lowest) das cidades em °C — observação, ainda "
-        "sem apostar. H-1 = hora antes do mínimo previsto.</i>")
+TITULO = "❄️🇺🇸 <b>Ceifa Mínima °F — monitoramento (nossos snapshots)</b>"
+NOTA = ("<i>Temperatura MÍNIMA (lowest) das cidades americanas em °F — "
+        "observação, ainda sem apostar. H-1 = hora antes do mínimo previsto.</i>")
 
 
 def main() -> int:
@@ -35,7 +35,8 @@ def main() -> int:
     args = ap.parse_args()
 
     log = lambda msg: print(msg, flush=True)  # noqa: E731
-    st = ceifa.simulate(log, icaos=set(config.STATIONS), archive=ARCHIVE)
+    st = ceifa.simulate(log, icaos=set(config.STATIONS_FAHRENHEIT),
+                        archive=ARCHIVE)
     text = backtest.ceifa_report_text(st, titulo=TITULO, nota=NOTA)
     if st["n"]:
         parts = [f"{k} {v[1] / v[0]:.0%} (n={v[0]})"
@@ -50,7 +51,7 @@ def main() -> int:
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
     if not args.no_telegram and token and chat_id:
         notify.send_message(token, chat_id, text)
-        print("[telegram] relatório da Ceifa Mínima enviado.")
+        print("[telegram] relatório da Ceifa Mínima °F enviado.")
     return 0
 
 
