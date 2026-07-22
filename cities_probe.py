@@ -83,33 +83,37 @@ def dias_hist(city, kind, n=12):
     return hits
 
 
+NOVAS_13 = ["milan", "wuhan", "munich", "helsinki", "tel-aviv", "manila",
+            "kuala-lumpur", "hong-kong", "taipei", "guangzhou", "shenzhen",
+            "chengdu", "cape-town"]
+
+
 def main() -> int:
-    nossas = set(pm._ICAO_TO_CITY_SLUG.values())
+    # Fonte de resolução de cada cidade nova — precisamos do ICAO da descrição
+    # (senão a estação METAR desalinha da fonte do mercado, como Istambul; e há
+    # casos não-METAR, tipo Hong Kong, que devem ser descartados).
     hoje = dt.date.today()
-
-    print("=== varredura de cidades candidatas (highest) ===")
-    achou = []
-    for city in dict.fromkeys(CANDIDATAS):     # dedup preservando ordem
-        # teste rápido: hoje OU ontem existe?
-        existe = any(
-            ev_ok(get(f"{GAMMA}/events", slug=(
-                f"highest-temperature-in-{city}-on-"
-                f"{pm._MONTHS[d.month - 1]}-{d.day}-{d.year}")))
-            for d in (hoje, hoje - dt.timedelta(days=1))
-        )
-        if not existe:
+    for city in NOVAS_13:
+        ev = None
+        for d in (hoje, hoje - dt.timedelta(days=1), hoje - dt.timedelta(days=2)):
+            slug = (f"highest-temperature-in-{city}-on-"
+                    f"{pm._MONTHS[d.month - 1]}-{d.day}-{d.year}")
+            ev = ev_ok(get(f"{GAMMA}/events", slug=slug))
+            if ev:
+                break
+        print("\n" + "=" * 66)
+        print(f"CIDADE: {city}")
+        if not ev:
+            print("  (sem evento recente)")
             continue
-        jah = city in nossas
-        low = dias_hist(city, "lowest", 6) > 0
-        achou.append((city, jah, low))
-        tag = "(já temos)" if jah else "NOVA"
-        print(f"  {'✓':<2} {city:<18} highest {tag:<11} lowest: {'sim' if low else 'não'}")
-
-    novas = [c for c, jah, _ in achou if not jah]
-    print(f"\nNOVAS que a Polymarket tem e não capturamos: {novas or 'nenhuma'}")
-    print(f"(total candidatas com highest: {len(achou)})")
-    print("\nObs.: lista de candidatas é curada — pode haver outras. "
-          "A varredura automática não rola porque a Gamma limita a paginação.")
+        rs = ev.get("resolutionSource") or ""
+        desc = (ev.get("description") or "").replace("\n", " ")
+        mkts = ev.get("markets") or []
+        mdesc = (mkts[0].get("description") or "").replace("\n", " ") if mkts else ""
+        print(f"  resolutionSource: {rs[:200]}")
+        print(f"  description: {desc[:280]}")
+        if mdesc and mdesc != desc:
+            print(f"  market.desc: {mdesc[:280]}")
     return 0
 
 
