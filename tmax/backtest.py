@@ -683,8 +683,7 @@ def simulate_ceifa(log=lambda m: None, data=None) -> dict:
 
 def ceifa_report_text(st: dict, titulo: str | None = None,
                       nota: str | None = None) -> str:
-    """Relatório da Ceifa (HTML do Telegram) com os 4 números: quantidade de
-    testes, assertividade, rendimento (realista, sem alavancar) e drawdown.
+    """Relatório compacto da Ceifa (HTML do Telegram).
 
     titulo: cabeçalho alternativo (ex.: relatório separado das cidades °F).
     nota: linha extra logo abaixo do cabeçalho (ex.: aviso de monitoramento).
@@ -694,50 +693,38 @@ def ceifa_report_text(st: dict, titulo: str | None = None,
     if st["n"] == 0:
         base = (f"{cab} · {st.get('days', 0)} dia(s) · "
                 f"nenhuma entrada (NÃO em {faixa}, na H-1) ainda.")
-        return f"{base}\n{nota}" if nota else base
+        linhas = [base, *([nota] if nota else [])]
+        if st.get("n_filtrado", 0):
+            linhas.append(_ceifa_filter_line(st))
+        return "\n".join(linhas)
     real = st.get("real_mult", 1.0)
-    dd_max = st.get("real_dd", st.get("maxdd", 0.0))
     per_day = st.get("per_day", [])
     ndias = len(per_day) if per_day else st.get("days", 0)
     ret_med = (sum(d["ret"] for d in per_day) / len(per_day)) if per_day else 0.0
-    dd_med = (sum(d["dd"] for d in per_day) / len(per_day)) if per_day else 0.0
 
     linhas = [
         cab,
         *([nota] if nota else []),
         f"Comprar NÃO em <b>{faixa}</b>, na hora antes do pico (H-1) · "
         f"{ndias} dia(s) com apostas",
-        f"• <b>Testes:</b> {st['n']} · <b>Assertividade:</b> "
-        f"{st['hit']:.1%} ({st['wins']}/{st['n']})",
-        f"• <b>Rendimento total (sem alavancar):</b> R$100 → "
-        f"<b>R${real * 100:.2f}</b> ({(real - 1) * 100:+.1f}%)",
+        f"• <b>Entradas:</b> {st['n']}",
+        f"• <b>Assertividade:</b> {st['hit']:.1%} "
+        f"({st['wins']}/{st['n']})",
+        f"• <b>Rendimento acumulado:</b> {(real - 1) * 100:+.1f}% "
+        "<i>(10% da banca por entrada)</i>",
         f"• <b>Retorno diário médio:</b> {ret_med * 100:+.2f}%",
-        f"• <b>Drawdown diário médio:</b> {dd_med:.1%} (máximo {dd_max:.1%})",
-        _ceifa_stops_line(st),
-        "<i>Cada aposta = 10% do capital disponível (trava até o dia fechar); "
-        "a banca liquida no fim do dia e compõe dia a dia. SEM stop: no lugar, "
-        "um filtro de incerteza NÃO entra em dia de ensemble largo na H-1 "
-        "(teto − mediana alto = risco de estouro). Sem alavancar.</i>",
+        _ceifa_filter_line(st),
     ]
     return "\n".join(linhas)
 
 
-def _ceifa_stops_line(st: dict) -> str:
-    n_stop = st.get("n_stopped", 0)
-    # Perda TOTAL (−100%): entrou e o NÃO resolveu em ~0 — a cauda catastrófica
-    # (a máxima entrou na faixa). Fica explícita, não diluída na assertividade.
-    n_full = max(0, st.get("n", 0) - st.get("wins", 0) - n_stop)
+def _ceifa_filter_line(st: dict) -> str:
+    """Resume o destino das entradas recusadas pelo filtro de incerteza."""
     n_filt = st.get("n_filtrado", 0)
-    linhas = [f"• Filtro de incerteza: {n_filt} aposta(s) cortada(s) "
-              "(dia de ensemble largo)"]
-    if n_full:
-        linhas.append(f"• <b>{n_full} perda(s) TOTAL(is) (−100%)</b> — "
-                      "a máxima entrou na faixa e o NÃO foi a zero")
-    else:
-        linhas.append("• 0 perdas totais")
-    if n_stop:                                    # legado (não deve ocorrer)
-        linhas.append(f"• {n_stop} stop(s) (legado)")
-    return "\n".join(linhas)
+    n_100c = st.get("n_filtrado_100c", 0)
+    n_0c = st.get("n_filtrado_0c", 0)
+    return (f"• <b>Filtro de incerteza:</b> {n_filt} entradas evitadas — "
+            f"desfecho: {n_100c} em 100¢ · {n_0c} em 0¢")
 
 
 def _stats(signals: list, res_mismatch: int, days_seen: int) -> dict:

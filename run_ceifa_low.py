@@ -37,11 +37,6 @@ def main() -> int:
     log = lambda msg: print(msg, flush=True)  # noqa: E731
     st = ceifa.simulate(log, icaos=set(config.STATIONS), archive=ARCHIVE)
     text = backtest.ceifa_report_text(st, titulo=TITULO, nota=NOTA)
-    if st["n"]:
-        parts = [f"{k} {v[1] / v[0]:.0%} (n={v[0]})"
-                 for k, v in sorted(st["by_city"].items(),
-                                    key=lambda kv: -kv[1][0])[:6]]
-        text += "\n<i>Top cidades:</i> " + " · ".join(parts)
 
     print("\n" + text.replace("<b>", "").replace("</b>", "")
           .replace("<i>", "").replace("</i>", ""))
