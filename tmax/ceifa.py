@@ -119,6 +119,8 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE) -> dict:
     pmin, pmax = config.CEIFA_PRICE_MIN, config.CEIFA_PRICE_MAX
     signals = []
     n_filtrado = 0
+    n_filtrado_100c = 0
+    n_filtrado_0c = 0
     for (icao, dia, faixa), g in mkt.groupby(["icao", "dia", "faixa"]):
         H = Hs.get((icao, dia))
         if H is None:
@@ -138,6 +140,10 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE) -> dict:
         spr = spread_na_entrada(icao, dia, e["ts"])
         if is_uncertain(icao, spr, spread_norm):
             n_filtrado += 1
+            if nao_final > 0.5:
+                n_filtrado_100c += 1
+            else:
+                n_filtrado_0c += 1
             continue
         # Sem stop: segura até liquidar. Vitória se o NÃO foi para ~1,0.
         won = nao_final > 0.5
@@ -149,6 +155,8 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE) -> dict:
         f"{n_filtrado} cortadas por incerteza.")
     st = _stats(signals, mkt["dia"].nunique())
     st["n_filtrado"] = n_filtrado
+    st["n_filtrado_100c"] = n_filtrado_100c
+    st["n_filtrado_0c"] = n_filtrado_0c
     return st
 
 
