@@ -1,4 +1,7 @@
 import unittest
+import datetime as dt
+import gzip
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -25,6 +28,54 @@ class WarmTargetRiskTests(unittest.TestCase):
         self.assertFalse(ceifa.is_warm_target_risk(
             "EGLC", "30°C", 0.8, 26.2, 27.5,
             observed_deviation=1.4))
+
+    def test_plateau_extends_lower_bound_to_observed_maximum(self):
+        self.assertTrue(ceifa.is_warm_target_risk(
+            "CYYZ", "26°C", 1.05, 27.5, 29.3,
+            observed_deviation=1.5, plateau_temp=26.0))
+
+    def test_same_target_without_plateau_remains_outside_range(self):
+        self.assertFalse(ceifa.is_warm_target_risk(
+            "CYYZ", "26°C", 1.05, 27.5, 29.3,
+            observed_deviation=1.5))
+
+    def test_detects_two_hour_plateau_at_daily_maximum(self):
+        base = dt.datetime(2026, 7, 26, 12, tzinfo=dt.timezone.utc)
+        obs = [{"time": base + dt.timedelta(hours=i), "temp": 26.0}
+               for i in range(3)]
+        self.assertEqual(ceifa.plateau_temperature(obs), 26.0)
+
+    def test_does_not_call_cooling_after_peak_a_plateau_at_maximum(self):
+        base = dt.datetime(2026, 7, 26, 12, tzinfo=dt.timezone.utc)
+        obs = [
+            {"time": base, "temp": 27.0},
+            {"time": base + dt.timedelta(hours=1), "temp": 26.0},
+            {"time": base + dt.timedelta(hours=3), "temp": 26.0},
+        ]
+        self.assertIsNone(ceifa.plateau_temperature(obs))
+
+    def test_reconstructs_plateau_for_legacy_snapshot(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            station = root / "CYYZ"
+            station.mkdir()
+            with gzip.open(station / "2026-07-26.json.gz", "wt",
+                           encoding="utf-8") as handle:
+                json.dump({"obs": [
+                    ["2026-07-26 12:00", 26.0],
+                    ["2026-07-26 13:00", 26.0],
+                    ["2026-07-26 14:00", 26.0],
+                ]}, handle)
+            old_root = ceifa.BACKTEST_ARCHIVE
+            try:
+                ceifa.BACKTEST_ARCHIVE = root
+                ceifa._archived_observations.cache_clear()
+                value = ceifa.reconstructed_plateau_temperature(
+                    "CYYZ", "2026-07-26", "2026-07-26T18:15:00Z")
+            finally:
+                ceifa.BACKTEST_ARCHIVE = old_root
+                ceifa._archived_observations.cache_clear()
+            self.assertEqual(value, 26.0)
 
     def test_reconstructs_conservative_raw_deviation_for_old_snapshot(self):
         deviation = ceifa.reconstructed_observed_deviation(
@@ -62,6 +113,31 @@ class WarmTargetRiskTests(unittest.TestCase):
 
             self.assertEqual(result["n"], 1)
             self.assertEqual(result["wins"], 1)
+
+    def test_checked_book_without_ask_does_not_create_backtest_entry(self):
+        with TemporaryDirectory() as tmp:
+            archive = Path(tmp)
+            (archive / "mercado").mkdir()
+            (archive / "previsao").mkdir()
+            pd.DataFrame([
+                {"ts_utc": "2026-07-26T13:10:00Z", "icao": "EGLC",
+                 "dia": "2026-07-26", "faixa": "30°C",
+                 "preco_sim": 0.03, "preco_nao": 0.97,
+                 "ask_nao": None, "livro_consultado": True},
+                {"ts_utc": "2026-07-26T18:00:00Z", "icao": "EGLC",
+                 "dia": "2026-07-26", "faixa": "30°C",
+                 "preco_sim": 0.01, "preco_nao": 0.99,
+                 "ask_nao": None, "livro_consultado": True},
+            ]).to_parquet(archive / "mercado" / "day.parquet", index=False)
+            pd.DataFrame([
+                {"ts_utc": "2026-07-26T13:00:00Z", "icao": "EGLC",
+                 "dia": "2026-07-26", "pico_hora": 15},
+            ]).to_parquet(archive / "previsao" / "day.parquet", index=False)
+
+            result = ceifa.simulate(
+                icaos={"EGLC"}, archive=archive, warm_target_filter=False)
+
+            self.assertEqual(result["n"], 0)
 
 
 if __name__ == "__main__":
