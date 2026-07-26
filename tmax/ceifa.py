@@ -45,9 +45,7 @@ def _load(base: str, archive=ARCHIVE) -> pd.DataFrame:
 
 
 def _tz(icao: str):
-    """Fuso da estação, procurando tanto nas ativas (°C) quanto nas de
-    monitoramento em °F — senão UTC. Sem isto, as cidades °F cairiam em UTC e
-    a hora H-1 sairia errada."""
+    """Fuso da estação ativa ou de um grupo auxiliar — senão UTC."""
     if icao in config.STATIONS:
         return config.STATIONS[icao].tz
     if icao in config.STATIONS_FAHRENHEIT:
@@ -206,8 +204,8 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
     """Roda a Ceifa (entrada em H-1) nos snapshots e devolve estatísticas no
     formato que backtest.ceifa_report_text espera.
 
-    icaos: se dado, restringe a análise a esse conjunto de estações (para
-    separar o relatório das ativas em °C do das cidades °F em monitoramento).
+    icaos: se dado, restringe a análise a esse conjunto de estações (usado
+    também pelos estudos separados de temperatura mínima).
     archive: raiz do lago de dados (padrão dados/ = máxima; dados_low/ = mínima).
     warm_target_filter: desliga o veto de nowcast quente nos relatórios de
     mínima, onde a direção de risco é diferente.

@@ -1,7 +1,7 @@
 """Relatório diário da Ceifa na temperatura MÍNIMA (lowest) — monitoramento.
 
-Réplica do run_ceifa_f.py, mas lendo o lago dados_low/ (mínima). Roda no mesmo
-cron das 06:00, mandando uma mensagem apartada. Modo observação: não aposta.
+Lê o lago dados_low/ e restringe o estudo às cidades cujos contratos resolvem
+em °C. Roda no cron das 06:00 em modo observação: não aposta.
 
 Uso local: python run_ceifa_low.py [--no-telegram]
 """
@@ -35,7 +35,9 @@ def main() -> int:
     args = ap.parse_args()
 
     log = lambda msg: print(msg, flush=True)  # noqa: E731
-    st = ceifa.simulate(log, icaos=set(config.STATIONS), archive=ARCHIVE,
+    celsius_icaos = {icao for icao, station in config.STATIONS.items()
+                     if station.unit == "C"}
+    st = ceifa.simulate(log, icaos=celsius_icaos, archive=ARCHIVE,
                         warm_target_filter=False)
     text = backtest.ceifa_report_text(st, titulo=TITULO, nota=NOTA)
 

@@ -104,8 +104,9 @@ STATIONS = {
                     "🇿🇦", -33.9648, 18.6017, "Africa/Johannesburg"),
 }
 
-# Cidades que resolvem em FAHRENHEIT — catalogadas mas fora de operação por
-# decisão do Lucas (12/07/2026). Para reativar, mova para STATIONS.
+# Cidades cujos contratos resolvem em FAHRENHEIT. O grupo continua identificado
+# separadamente para os estudos de temperatura mínima, mas desde 26/07 também
+# faz parte da Ceifa ativa de temperatura máxima.
 STATIONS_FAHRENHEIT = {
     "KLGA": Station("KLGA", "Nova York", "LaGuardia",
                     "🇺🇸", 40.7772, -73.8726, "America/New_York", unit="F"),
@@ -128,6 +129,9 @@ STATIONS_FAHRENHEIT = {
                     "🇺🇸", 47.4489, -122.3094, "America/Los_Angeles",
                     unit="F"),
 }
+
+# Universo operacional único da temperatura máxima: cidades em °C e °F.
+STATIONS.update(STATIONS_FAHRENHEIT)
 
 # Grupo de observação encerrado em 26/07: as 12 cidades foram promovidas para
 # STATIONS e agora participam da Ceifa principal (captura, alertas e backtest).
@@ -285,7 +289,7 @@ HARVEST_PRICE_MAX = 0.995
 HARVEST_MIN_HOUR = 16
 HARVEST_MIN_CONF = 0.85
 
-# Com 30 cidades, o bloco completo (posições+tabela+gráfico+hora a hora) só
+# Com 39 cidades, o bloco completo (posições+tabela+gráfico+hora a hora) só
 # é enviado para cidades com ATIVIDADE (posição aberta ou sinal na rodada);
 # as demais são monitoradas em silêncio. False = comportamento antigo.
 FULL_BLOCK_ONLY_WITH_ACTIVITY = True
