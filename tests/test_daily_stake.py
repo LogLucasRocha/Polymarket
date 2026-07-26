@@ -4,9 +4,13 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import send_telegram
+from tmax import config
 
 
 class DailyStakeTests(unittest.TestCase):
+    def test_automatic_positions_summary_is_disabled(self):
+        self.assertFalse(config.POSITIONS_SUMMARY_ENABLED)
+
     @patch("send_telegram.polymarket.fetch_pusd_balance", return_value=410.12)
     def test_uses_one_percent_of_current_free_balance(self, balance):
         free, stake = send_telegram._current_ceifa_stake(
