@@ -233,6 +233,11 @@ STOP_EXIT_FRAC = 0.15
 # 16/07). Para reativar, True.
 COND_ALERTS_ENABLED = False
 
+# Resumo automático das posições abertas no Telegram. As posições continuam
+# sendo consultadas para os controles internos e ficam disponíveis no relatório
+# solicitado manualmente por cidade, mas o resumo periódico não é enviado.
+POSITIONS_SUMMARY_ENABLED = False
+
 # ---------------------------------------------------------------- Ceifa
 # Estratégia ATIVA (decisão do Lucas, 15/07) e a ÚNICA no momento: comprar o
 # NÃO quando o mercado já está quase-certo, com o preço do NÃO nesta faixa —

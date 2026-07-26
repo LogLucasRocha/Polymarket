@@ -8,10 +8,8 @@ Uso local:
 Na nuvem roda pelo GitHub Actions (.github/workflows/main.yml), com o
 token e o chat_id guardados como *secrets* do repositório.
 
-Modo silencioso (decisão do Lucas, 12/07) — o Telegram só recebe:
-  1. Resumo geral das posições (PnL): no máximo UMA vez por hora, quando
-     alguma estação tem novidade.
-  2. Alertas de compra — estratégia CEIFA (a única ativa; Edge e Colheita
+Modo silencioso — o Telegram só recebe:
+  1. Alertas de compra — estratégia CEIFA (a única ativa; Edge e Colheita
      desligadas). Compra o NÃO na hora local ANTERIOR ao pico previsto (H-1)
      quando CEIFA_PRICE_MIN < preço do NÃO < CEIFA_PRICE_MAX (só o preço, mas
      só na janela H-1 — perto do pico há pouca incerteza). O alerta REPETE a
@@ -22,10 +20,10 @@ Modo silencioso (decisão do Lucas, 12/07) — o Telegram só recebe:
      o pico previsto e a mediana (P10/P90) — SEM tabela de probabilidades;
      as repetições vêm em texto curto. O desempenho da Ceifa vai num relatório
      diário às 06:00 (run_ceifa.py), medido SÓ nos nossos snapshots (dados/).
-  3. Para cidades com posição aberta: SEM bloco — apenas avisos pontuais em
+  2. Para cidades com posição aberta: SEM bloco — apenas avisos pontuais em
      texto de platô (2h de lado) e fuga do envelope do ensemble, uma vez por
      episódio.
-  4. Stop loss: claro e urgente, texto puro, toda rodada enquanto o mercado
+  3. Stop loss: claro e urgente, texto puro, toda rodada enquanto o mercado
      estiver ≥ STOP_ALERT_FRAC abaixo da entrada.
 
 Comandos (getUpdates, processados a cada rodada — latência de até ~5 min):
@@ -160,9 +158,8 @@ def main() -> int:
                 if fps[s.icao] is None
                 or station_state.get(s.icao) != fps[s.icao]}
 
-    # Sinais são computados cedo porque um sinal NOVO (não estava na rodada
-    # anterior) puxa junto o resumo de posições e o bloco completo da cidade
-    # (contexto da decisão de entrada); as repetições vêm sozinhas em texto.
+    # Sinais são computados cedo para identificar oportunidades novas; as
+    # repetições posteriores vêm sozinhas em texto.
     signal_rows = _collect_signal_rows(stations, contexts, yes_prob)
     prev_probs = state.get("signal_probs", {})
     # Estratégia Edge pausada (config.EDGE_ENABLED): sem edge, o digest opera só
@@ -183,9 +180,9 @@ def main() -> int:
         if c is not None:
             _cap(_capture_context, s, c)
 
-    # 2) Posições: buscadas TODA rodada (o stop loss precisa do preço atual);
-    # o resumo geral é enviado quando há novidade no observado OU quando um
-    # sinal novo apareceu (contexto para decidir a entrada).
+    # 2) Posições: buscadas TODA rodada para os controles internos. O resumo
+    # geral só é enviado se POSITIONS_SUMMARY_ENABLED estiver explicitamente
+    # ligado; por padrão permanece desativado.
     positions: list[dict] = []
     wallet = os.environ.get("POLYMARKET_WALLET")
     if wallet and not args.no_positions:
@@ -195,7 +192,7 @@ def main() -> int:
             print(f"[polymarket] ERRO ao ler posições: {exc}", file=sys.stderr)
         # Evolução do portfólio: no máximo 1x por hora (decisão do Lucas).
         pnl_sent_at = float(state.get("pnl_sent_at") or 0)
-        if (positions and novidade
+        if (config.POSITIONS_SUMMARY_ENABLED and positions and novidade
                 and time.time() - pnl_sent_at >= 3600):
             try:
                 notify.send_message(
