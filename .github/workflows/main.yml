@@ -51,14 +51,6 @@ jobs:
           POLYMARKET_WALLET: ${{ vars.POLYMARKET_WALLET }}
         run: python send_telegram.py
 
-      # Captura ao vivo das cidades americanas (°F) em modo OBSERVAÇÃO: grava
-      # mercado/previsão/ensemble delas em dados/ (sem mandar nada no Telegram),
-      # para avaliar a Ceifa nelas antes de apostar. Compartilha o mesmo buffer
-      # do digest. É acessório: nunca derruba o job (continue-on-error).
-      - name: Capturar cidades °F (observação)
-        continue-on-error: true
-        run: python capture_fahrenheit.py
-
       # Captura da temperatura MÍNIMA (lowest) — pendurada no digest porque o
       # cron do workflow próprio (lowtemp_live.yml) é estrangulado pelo GitHub e
       # perderia a janela da madrugada. O disparo externo mantém 5 min; este

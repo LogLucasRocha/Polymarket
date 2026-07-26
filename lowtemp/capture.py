@@ -1,7 +1,7 @@
 """Captura ao vivo do mercado de MÍNIMA (lowest temperature) — modo OBSERVAÇÃO.
 
 Réplica do que fazemos no Highest, mas para o mercado de temperatura MÍNIMA das
-cidades que a Polymarket cobre (7 das 27). A cada rodada, para cada cidade com
+cidades que a Polymarket cobre. A cada rodada, para cada cidade com
 mercado de mínima: grava as faixas com preço (mercado) e a HORA MAIS FRIA
 prevista (guardada como pico_hora, para a Ceifa entrar em H-1 sem mudar código).
 Grava no lago dados_low/ (mercado/ + previsao/), 1 commit/dia. NÃO aposta.

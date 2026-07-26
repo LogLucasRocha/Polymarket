@@ -35,8 +35,8 @@ def main() -> int:
 
     log = lambda msg: print(msg, flush=True)  # noqa: E731
     # Backtest SÓ nos nossos snapshots capturados (dados/), como pedido —
-    # nada do arquivo reconstruído de APIs. Inclui todas as 30 cidades ATIVAS
-    # em °C; as cidades °F em monitoramento saem no relatório separado.
+    # nada do arquivo reconstruído de APIs. Inclui todas as 39 cidades ATIVAS,
+    # preservando a unidade de resolução de cada contrato (°C ou °F).
     st = ceifa.simulate_repeated(
         log, icaos=set(config.STATIONS),
         interval_minutes=config.CEIFA_REPEAT_MINUTES,

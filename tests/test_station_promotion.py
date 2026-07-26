@@ -12,7 +12,14 @@ class StationPromotionTests(unittest.TestCase):
 
         self.assertTrue(promoted.issubset(config.STATIONS))
         self.assertEqual(config.STATIONS_OBSERVE, {})
-        self.assertEqual(len(config.STATIONS), 30)
+        self.assertEqual(len(config.STATIONS), 39)
+
+    def test_fahrenheit_cities_are_active_and_keep_their_unit(self):
+        self.assertTrue(set(config.STATIONS_FAHRENHEIT).issubset(config.STATIONS))
+        self.assertEqual(len(config.STATIONS_FAHRENHEIT), 9)
+        for icao in config.STATIONS_FAHRENHEIT:
+            with self.subTest(icao=icao):
+                self.assertEqual(config.STATIONS[icao].unit, "F")
 
     def test_promoted_city_market_titles_are_recognized(self):
         titles = {
