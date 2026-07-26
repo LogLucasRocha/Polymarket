@@ -267,8 +267,7 @@ def main() -> int:
     daily_stake = None
     if wallet:
         try:
-            stake_state = _ensure_daily_stake(
-                token, chat_id, wallet, stake_state)
+            stake_state = _ensure_daily_stake(wallet, stake_state)
             daily_stake = float(stake_state["stake"])
         except Exception as exc:  # tenta novamente na próxima rodada
             print(f"[ceifa] ERRO ao apurar stake diária: {exc}", file=sys.stderr)
@@ -631,9 +630,9 @@ def _save_digest_state(state: dict) -> None:
         print(f"AVISO: não salvou o estado do digest ({exc})", file=sys.stderr)
 
 
-def _ensure_daily_stake(token, chat_id, wallet: str, previous: dict,
+def _ensure_daily_stake(wallet: str, previous: dict,
                         now: dt.datetime | None = None) -> dict:
-    """Apura e anuncia uma única vez a stake fixa do dia de Brasília."""
+    """Apura uma única vez a stake fixa do dia de Brasília."""
     now_brt = (now or dt.datetime.now(ZoneInfo("America/Sao_Paulo"))).astimezone(
         ZoneInfo("America/Sao_Paulo"))
     day = now_brt.date().isoformat()
@@ -650,15 +649,7 @@ def _ensure_daily_stake(token, chat_id, wallet: str, previous: dict,
         "free_pusd": round(float(values["free_pusd"]), 6),
         "positions_value": round(float(values["positions_value"]), 6),
     }
-    notify.send_message(
-        token, chat_id,
-        f"🌾 <b>Stake da Ceifa — {now_brt:%d/%m}</b>\n"
-        f"Capital às 00h: <b>${capital:,.2f}</b> "
-        f"(livre ${values['free_pusd']:,.2f} · posições "
-        f"${values['positions_value']:,.2f})\n"
-        f"Stake fixa de {config.CEIFA_STAKE_FRAC:.0%} por contrato hoje: "
-        f"<b>${stake:,.2f}</b>")
-    print(f"[ceifa] stake diária anunciada: ${stake:.2f} de ${capital:.2f}.")
+    print(f"[ceifa] stake diária calculada: ${stake:.2f} de ${capital:.2f}.")
     return current
 
 

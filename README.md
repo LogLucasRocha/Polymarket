@@ -110,7 +110,8 @@ por pelo menos duas horas, o limite inferior desce até essa máxima. A entrada
 só é alertada quando existe uma oferta de venda executável do token NÃO no
 livro; o texto mostra o menor ask e seu volume disponível. Na primeira rodada
 depois de 00:00 de Brasília, o bot calcula o capital como pUSD livre + valor
-atual das posições, anuncia 1% desse total e fixa essa stake para o dia. O
+atual das posições e fixa 1% desse total para o dia, sem enviar um aviso
+separado; a stake aparece dentro de cada recomendação de compra. O
 alerta repete com intervalo mínimo de cinco minutos enquanto elegível, mesmo se
 já houver posição; cada contrato indicado autoriza uma nova parcela de 1%, sem
 teto por contrato e sem alavancagem. A 1ª
