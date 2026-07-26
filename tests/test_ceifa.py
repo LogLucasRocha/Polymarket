@@ -139,7 +139,7 @@ class WarmTargetRiskTests(unittest.TestCase):
 
             self.assertEqual(result["n"], 0)
 
-    def test_repeated_strategy_adds_fixed_one_percent_every_five_minutes(self):
+    def test_repeated_strategy_uses_one_percent_of_free_cash(self):
         with TemporaryDirectory() as tmp:
             archive = Path(tmp)
             (archive / "mercado").mkdir()
@@ -167,9 +167,13 @@ class WarmTargetRiskTests(unittest.TestCase):
 
             self.assertEqual(result["n"], 3)
             self.assertEqual(result["wins"], 3)
+            stakes = [s["stake"] for s in result["signals"]]
+            self.assertAlmostEqual(stakes[0], 0.01)
+            self.assertAlmostEqual(stakes[1], 0.0099)
+            self.assertAlmostEqual(stakes[2], 0.009801)
             self.assertAlmostEqual(
-                result["real_mult"], 1 + 3 * 0.01 * (1 / 0.98 - 1))
-            self.assertTrue(all(s["stake"] == 0.01 for s in result["signals"]))
+                result["real_mult"],
+                0.99 ** 3 + sum(stake / 0.98 for stake in stakes))
 
 
 if __name__ == "__main__":

@@ -109,12 +109,11 @@ fica entre mediana−0,5°C e P90+0,5°C. Se a máxima observada estiver em plat
 por pelo menos duas horas, o limite inferior desce até essa máxima. A entrada
 só é alertada quando existe uma oferta de venda executável do token NÃO no
 livro; o texto mostra o menor ask e seu volume disponível. Na primeira rodada
-depois de 00:00 de Brasília, o bot calcula o capital como pUSD livre + valor
-atual das posições e fixa 1% desse total para o dia, sem enviar um aviso
-separado; a stake aparece dentro de cada recomendação de compra. O
-alerta repete com intervalo mínimo de cinco minutos enquanto elegível, mesmo se
-já houver posição; cada contrato indicado autoriza uma nova parcela de 1%, sem
-teto por contrato e sem alavancagem. A 1ª
+rodada com uma oportunidade, o bot consulta o pUSD livre e mostra dentro da
+recomendação a stake de 1% desse saldo naquele momento. O alerta repete com
+intervalo mínimo de cinco minutos enquanto elegível, mesmo se já houver
+posição; cada contrato indicado autoriza uma nova parcela relativa, sem teto
+por contrato e sem alavancagem. A 1ª
 aparição vem com um **bloco enxuto**: gráfico da
 distribuição (ensemble + TAF + mediana) e texto com o **pico previsto** e a
 **mediana (P10/P90)** — sem tabela de probabilidades e sem hora a hora; as

@@ -2,39 +2,19 @@ import datetime as dt
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
-from zoneinfo import ZoneInfo
 
 import send_telegram
 
 
 class DailyStakeTests(unittest.TestCase):
-    @patch("send_telegram.polymarket.fetch_portfolio_capital")
-    def test_calculates_one_percent_on_first_round_of_brazil_day(
-            self, capital):
-        capital.return_value = {
-            "free_pusd": 410.12, "positions_value": 618.42,
-            "capital": 1028.54,
-        }
-        now = dt.datetime(2026, 7, 27, 0, 3,
-                          tzinfo=ZoneInfo("America/Sao_Paulo"))
+    @patch("send_telegram.polymarket.fetch_pusd_balance", return_value=410.12)
+    def test_uses_one_percent_of_current_free_balance(self, balance):
+        free, stake = send_telegram._current_ceifa_stake(
+            "0x" + "1" * 40)
 
-        state = send_telegram._ensure_daily_stake(
-            "0x" + "1" * 40, {}, now=now)
-
-        self.assertEqual(state["day"], "2026-07-27")
-        self.assertAlmostEqual(state["stake"], 10.2854)
-
-    @patch("send_telegram.polymarket.fetch_portfolio_capital")
-    def test_does_not_recalculate_again_on_same_day(self, capital):
-        previous = {"day": "2026-07-27", "capital": 1000, "stake": 10}
-        now = dt.datetime(2026, 7, 27, 15,
-                          tzinfo=ZoneInfo("America/Sao_Paulo"))
-
-        state = send_telegram._ensure_daily_stake(
-            "0x" + "1" * 40, previous, now=now)
-
-        self.assertIs(state, previous)
-        capital.assert_not_called()
+        self.assertEqual(free, 410.12)
+        self.assertAlmostEqual(stake, 4.1012)
+        balance.assert_called_once()
 
     def test_enforces_five_minutes_between_contract_alerts(self):
         now = dt.datetime(2026, 7, 26, 13, 5, tzinfo=dt.timezone.utc)
@@ -46,10 +26,24 @@ class DailyStakeTests(unittest.TestCase):
     def test_purchase_message_contains_stake_per_contract(self):
         station = SimpleNamespace(flag="🇨🇦", city="Toronto", icao="CYYZ")
         text = send_telegram._ceifa_repeat_text(
-            station, [("key", "30°C", 0.97, 25)], 10.32)
+            station, [("key", "30°C", 0.97, 25, 10.32)])
 
-        self.assertIn("Stake por contrato: <b>$10.32</b>", text)
+        self.assertIn("stake: <b>$10.32</b>", text)
         self.assertIn("Comprar <b>NÃO 30°C</b>", text)
+
+    def test_allocates_each_simultaneous_signal_from_remaining_cash(self):
+        stations = [SimpleNamespace(icao="A"), SimpleNamespace(icao="B")]
+        pending = {
+            "A": [("a", "30°C", 0.97, 10), ("b", "31°C", 0.98, 10)],
+            "B": [("c", "32°C", 0.96, 10)],
+        }
+
+        result = send_telegram._allocate_relative_stakes(
+            pending, stations, 1000.0, 0.01)
+
+        self.assertAlmostEqual(result["A"][0][-1], 10.0)
+        self.assertAlmostEqual(result["A"][1][-1], 9.9)
+        self.assertAlmostEqual(result["B"][0][-1], 9.801)
 
 
 if __name__ == "__main__":
