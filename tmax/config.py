@@ -264,10 +264,11 @@ CEIFA_SPREAD_REL = 2.0            # ou se spread >= REL × mediana da cidade
 
 # Segundo veto de incerteza (decisão do Lucas, 26/07): em dia que está rodando
 # claramente mais quente que o ensemble, não vender uma faixa que ainda está
-# dentro da região plausível da máxima. Londres 27°C (26/07) tinha ajuste de
-# nowcast de +1,2°C; a largura do ensemble continuou normal e não capturou o
-# risco porque teto e mediana subiram juntos.
+# dentro da região plausível da máxima. Corta se o desvio observado bruto OU o
+# shift chega a +1°C. Londres 27°C tinha desvio +1,7°C e shift +1,2°C; a largura
+# do ensemble continuou normal porque teto e mediana subiram juntos.
 CEIFA_NOWCAST_FILTER = True
+CEIFA_OBS_DEVIATION_MIN = 1.0     # desvio bruto observado vs ensemble (°C)
 CEIFA_NOWCAST_SHIFT_MIN = 1.0     # ajuste quente mínimo (°C)
 CEIFA_TARGET_MARGIN = 0.5         # faixa: mediana−margem até P90+margem (°C)
 

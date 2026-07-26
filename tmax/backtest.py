@@ -725,7 +725,7 @@ def _ceifa_filter_line(st: dict) -> str:
     n_nowcast = st.get("n_filtrado_nowcast", 0)
     n_100c = st.get("n_filtrado_100c", 0)
     n_0c = st.get("n_filtrado_0c", 0)
-    motivos = (f" ({n_spread} ensemble largo · {n_nowcast} nowcast quente)"
+    motivos = (f" ({n_spread} ensemble largo · {n_nowcast} desvio/nowcast quente)"
                if n_nowcast else "")
     return (f"• <b>Filtro de incerteza:</b> {n_filt} entradas evitadas"
             f"{motivos} — desfecho: {n_100c} em 100¢ · {n_0c} em 0¢")
