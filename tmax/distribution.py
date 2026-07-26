@@ -25,6 +25,7 @@ def compute_nowcast_offset(obs_today: list[dict], ens_times: list[dt.datetime],
         return None
     # média do ensemble corrigida, hora a hora
     ens_mean: dict[dt.datetime, float] = {}
+    ens_count: dict[dt.datetime, int] = {}
     for i, t in enumerate(ens_times):
         vals = []
         for (model, _mid), series in member_series.items():
@@ -35,26 +36,36 @@ def compute_nowcast_offset(obs_today: list[dict], ens_times: list[dt.datetime],
             b = bias.get(fam, {}).get("bias", 0.0) if fam else 0.0
             vals.append(v - b)
         if vals:
-            ens_mean[t.replace(minute=0, second=0, microsecond=0)] = sum(vals) / len(vals)
+            hour = t.replace(minute=0, second=0, microsecond=0)
+            ens_mean[hour] = sum(vals) / len(vals)
+            ens_count[hour] = len(vals)
 
     diffs = []
     for ob in obs_today[-(config.NOWCAST_HOURS * 3):]:  # inclui SPECIs
         hour = ob["time"].replace(minute=0, second=0, microsecond=0)
         if hour in ens_mean:
-            diffs.append((ob["time"], ob["temp"] - ens_mean[hour]))
+            diffs.append({
+                "observation_time": ob["time"],
+                "ensemble_hour": hour,
+                "observed_temp_c": float(ob["temp"]),
+                "ensemble_mean_c": ens_mean[hour],
+                "deviation_c": float(ob["temp"]) - ens_mean[hour],
+                "member_count": ens_count[hour],
+                "raw_metar": ob.get("raw"),
+            })
     if not diffs:
         return None
     # mantém apenas as N horas distintas mais recentes
     seen_hours: list = []
     kept = []
-    for when, d in reversed(diffs):
-        h = when.replace(minute=0, second=0, microsecond=0)
+    for component in reversed(diffs):
+        h = component["ensemble_hour"]
         if h not in seen_hours:
             seen_hours.append(h)
-            kept.append(d)
+            kept.append(component)
         if len(seen_hours) >= config.NOWCAST_HOURS:
             break
-    offset = sum(kept) / len(kept)
+    offset = sum(c["deviation_c"] for c in kept) / len(kept)
     # Desvio de manhã cedo (nevoeiro, resfriamento noturno) correlaciona fraco
     # com o erro da máxima da tarde; o peso cresce conforme o dia esquenta.
     last_hour = obs_today[-1]["time"].hour
@@ -64,6 +75,8 @@ def compute_nowcast_offset(obs_today: list[dict], ens_times: list[dt.datetime],
         "shift": config.NOWCAST_DAMPING * hour_weight * offset,
         "hour_weight": hour_weight,
         "n_hours": len(kept),
+        "damping": config.NOWCAST_DAMPING,
+        "components": list(reversed(kept)),
     }
 
 

@@ -625,7 +625,9 @@ def _capture_context(station, ctx) -> None:
          obs_max=ctx["obs_max_today"], nowcast_shift=ctx["shift"],
          nowcast_offset=(ctx.get("nowcast") or {}).get("offset"),
          nowcast_n_hours=(ctx.get("nowcast") or {}).get("n_hours"),
+         nowcast_hour_weight=(ctx.get("nowcast") or {}).get("hour_weight"),
          travada=ctx["tmax_locked"])
+    _cap(capture.record_nowcast, now, station.icao, d0, ctx.get("nowcast"))
     members = {f"{m}:{mid}": s for (m, mid), s in ctx["ens"]["members"].items()}
     _cap(capture.record_ensemble, now, station.icao, d0,
          ctx["ens"]["time"], members, ctx["bias"])
@@ -671,6 +673,7 @@ def _report_snapshot(station, ctx) -> dict:
         "nowcast_offset": (ctx.get("nowcast") or {}).get("offset"),
         "nowcast_n_hours": (ctx.get("nowcast") or {}).get("n_hours"),
         "nowcast_hour_weight": (ctx.get("nowcast") or {}).get("hour_weight"),
+        "nowcast_components": (ctx.get("nowcast") or {}).get("components", []),
         "quantiles": {str(k): v for k, v in dist["quantiles"].items()},
         "buckets": dist["buckets"], "exceed": dist.get("exceed"),
         "taf_tx_d0": ctx["taf_tx_d0"], "hourly": hourly,

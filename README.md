@@ -116,6 +116,11 @@ assertividade, rendimento, drawdown) é enviado **todo dia às 06:00 de Brasíli
 (`run_ceifa.py` / workflow `ceifa_report.yml`). Você também pode pedir o
 relatório completo de qualquer cidade pelo comando abaixo.
 
+Para auditoria, cada rodada também arquiva em `dados/nowcast/` até três horas
+que formaram o ajuste: METAR bruto, temperatura observada, média corrigida dos
+membros, desvio horário, quantidade de membros, peso temporal, amortecimento,
+desvio médio e shift final.
+
 Comandos (também no menu “/” do Telegram):
 
 - `/relatorio <cidade>` — relatório completo de qualquer cidade, por ICAO
