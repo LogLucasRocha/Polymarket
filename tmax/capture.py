@@ -98,14 +98,17 @@ def record_market(now: dt.datetime, icao: str, dia: dt.date,
     """Todas as faixas do evento de `dia` com seus preços Sim/Não."""
     rows = [{"ts_utc": _iso(now), "icao": icao, "dia": dia.isoformat(),
              "faixa": r.get("label"), "preco_sim": r.get("yes"),
-             "preco_nao": r.get("no")} for r in odds]
+             "preco_nao": r.get("no"), "ask_nao": r.get("no_ask"),
+             "ask_nao_volume": r.get("no_ask_size"),
+             "livro_consultado": bool(r.get("book_checked"))} for r in odds]
     _append_jsonl("mercado", now, rows)
 
 
 def record_forecast(now: dt.datetime, icao: str, dia: dt.date, *,
                     media, mediana, piso_ens, teto_ens, p10, p90,
                     pico_hora, obs_max, nowcast_shift, nowcast_offset,
-                    nowcast_n_hours, nowcast_hour_weight, travada) -> None:
+                    nowcast_n_hours, nowcast_hour_weight, plateau_temp,
+                    travada) -> None:
     """Previsão derivada do ensemble corrigido no instante `now`."""
     _append_jsonl("previsao", now, [{
         "ts_utc": _iso(now), "icao": icao, "dia": dia.isoformat(),
@@ -115,6 +118,7 @@ def record_forecast(now: dt.datetime, icao: str, dia: dt.date, *,
         "nowcast_shift": nowcast_shift,
         "nowcast_offset": nowcast_offset, "nowcast_n_hours": nowcast_n_hours,
         "nowcast_hour_weight": nowcast_hour_weight,
+        "plateau_temp": plateau_temp,
         "travada": bool(travada)}])
 
 

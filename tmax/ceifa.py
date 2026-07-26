@@ -7,7 +7,8 @@ preço do NÃO está na banda (CEIFA_PRICE_MIN, CEIFA_PRICE_MAX), é uma entrada
 Perto do pico há pouca incerteza — é onde o mercado quase-certo é confiável.
 Antes de entrar, dois vetos usam apenas o snapshot da H-1: ensemble largo; ou
 desvio bruto >= +1°C OU nowcast >= +1°C, com a faixa vendida dentro da região
-mediana−0,5°C a P90+0,5°C.
+mediana−0,5°C a P90+0,5°C. Quando a máxima está em platô há pelo menos 2h, o
+limite inferior desce até a temperatura já observada.
 
 Resolução pela convergência do preço: o NÃO venceu se o preço do NÃO no fim do
 dia foi para ~1,0. Stop: se depois da entrada o preço do NÃO cair
@@ -17,14 +18,18 @@ STOP_EXIT_FRAC abaixo da entrada, sai a −STOP_EXIT_FRAC (alerta a −10%, saí
 from __future__ import annotations
 
 import datetime as dt
+import gzip
+import json
 import re
 from collections import defaultdict
+from functools import lru_cache
 
 import pandas as pd
 
 from . import config
 
 ARCHIVE = config.ROOT / "dados"
+BACKTEST_ARCHIVE = config.ROOT / "backtest_data"
 STAKE_FRAC = 0.10
 
 
@@ -95,6 +100,59 @@ def target_temperature_c(icao: str, faixa) -> float | None:
     return (value - 32.0) * 5.0 / 9.0 if _station_unit(icao) == "F" else value
 
 
+def plateau_temperature(obs: list[dict], min_hours: float | None = None) -> float | None:
+    """Temperatura do platô atual quando ele coincide com a máxima observada.
+
+    Um platô exige a mesma leitura por pelo menos duas horas. Se a temperatura
+    já estiver caindo depois do pico, não usamos a máxima antiga como piso.
+    """
+    min_hours = (config.CEIFA_PLATEAU_HOURS if min_hours is None
+                 else float(min_hours))
+    if len(obs) < 2:
+        return None
+    ordered = sorted(obs, key=lambda item: item["time"])
+    last = ordered[-1]
+    start = last["time"]
+    for item in reversed(ordered):
+        if item["temp"] != last["temp"]:
+            break
+        start = item["time"]
+    hours = (last["time"] - start).total_seconds() / 3600.0
+    observed_max = max(item["temp"] for item in ordered)
+    if hours >= min_hours and last["temp"] == observed_max:
+        return float(last["temp"])
+    return None
+
+
+@lru_cache(maxsize=4096)
+def _archived_observations(icao: str, day: str) -> tuple[tuple[dt.datetime, float], ...]:
+    """METARs históricos do backtest, usados em snapshots sem plateau_temp."""
+    path = BACKTEST_ARCHIVE / icao / f"{day}.json.gz"
+    if not path.exists():
+        return ()
+    try:
+        with gzip.open(path, "rt", encoding="utf-8") as handle:
+            raw = json.load(handle).get("obs", [])
+        return tuple((dt.datetime.fromisoformat(str(ts)).replace(tzinfo=_tz(icao)),
+                      float(temp)) for ts, temp in raw)
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return ()
+
+
+def reconstructed_plateau_temperature(icao: str, day: str, snapshot_ts) -> float | None:
+    """Reconstrói o platô na H-1 para snapshots gravados antes desse campo."""
+    if snapshot_ts is None:
+        return None
+    ts = pd.Timestamp(snapshot_ts)
+    if ts.tzinfo is None:
+        ts = ts.tz_localize("UTC")
+    cutoff = ts.tz_convert(_tz(icao)).to_pydatetime()
+    obs = [{"time": when, "temp": temp}
+           for when, temp in _archived_observations(icao, str(day))
+           if when <= cutoff]
+    return plateau_temperature(obs)
+
+
 def reconstructed_observed_deviation(icao: str, snapshot_ts,
                                      nowcast_shift) -> float | None:
     """Limite inferior conservador do desvio bruto em snapshots antigos.
@@ -115,7 +173,7 @@ def reconstructed_observed_deviation(icao: str, snapshot_ts,
 
 
 def is_warm_target_risk(icao: str, faixa, nowcast_shift, mediana, p90,
-                        observed_deviation=None) -> bool:
+                        observed_deviation=None, plateau_temp=None) -> bool:
     """Veta faixa plausível quando desvio bruto OU shift chega a +1°C.
 
     A regra usa somente informações disponíveis na H-1. ``faixa`` pode estar
@@ -129,9 +187,10 @@ def is_warm_target_risk(icao: str, faixa, nowcast_shift, mediana, p90,
     if target is None:
         return False
     margin = config.CEIFA_TARGET_MARGIN
-    target_is_plausible = (
-        float(mediana) - margin <= target <= float(p90) + margin
-    )
+    lower = float(mediana) - margin
+    if plateau_temp is not None and not pd.isna(plateau_temp):
+        lower = min(lower, float(plateau_temp))
+    target_is_plausible = lower <= target <= float(p90) + margin
     shift_hot = (nowcast_shift is not None and not pd.isna(nowcast_shift)
                  and float(nowcast_shift) >= config.CEIFA_NOWCAST_SHIFT_MIN)
     observed_hot = (
@@ -202,6 +261,7 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
     n_filtrado = 0
     n_filtrado_spread = 0
     n_filtrado_nowcast = 0
+    n_filtrado_plateau = 0
     n_filtrado_100c = 0
     n_filtrado_0c = 0
     for (icao, dia, faixa), g in mkt.groupby(["icao", "dia", "faixa"]):
@@ -212,7 +272,13 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
         if h1.empty:
             continue
         e = h1.iloc[-1]                            # último da hora H-1
-        entry = float(e["preco_nao"])
+        checked = e.get("livro_consultado")
+        checked = (checked is not None and not pd.isna(checked)
+                   and bool(checked))
+        ask = e.get("ask_nao")
+        if checked and (ask is None or pd.isna(ask)):
+            continue                              # não havia oferta para comprar
+        entry = float(ask if checked else e["preco_nao"])
         if not (pmin < entry < pmax):
             continue
         nao_final = float(g["preco_nao"].iloc[-1])
@@ -230,18 +296,35 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
             else:
                 n_filtrado_0c += 1
             continue
-        if (warm_target_filter and forecast is not None
-                and is_warm_target_risk(icao, faixa,
-                    forecast.get("nowcast_shift"), forecast.get("mediana"),
-                    forecast.get("p90"),
-                    observed_deviation=(
-                        forecast.get("nowcast_offset")
-                        if not pd.isna(forecast.get("nowcast_offset"))
-                        else reconstructed_observed_deviation(
-                            icao, forecast.get("ts"),
-                            forecast.get("nowcast_shift"))))):
+        plateau = forecast.get("plateau_temp") if forecast is not None else None
+        if forecast is not None and (plateau is None or pd.isna(plateau)):
+            plateau = reconstructed_plateau_temperature(
+                icao, dia, forecast.get("ts"))
+        observed_deviation = None
+        if forecast is not None:
+            observed_deviation = (
+                forecast.get("nowcast_offset")
+                if not pd.isna(forecast.get("nowcast_offset"))
+                else reconstructed_observed_deviation(
+                    icao, forecast.get("ts"), forecast.get("nowcast_shift")))
+        warm_without_plateau = (
+            warm_target_filter and forecast is not None
+            and is_warm_target_risk(
+                icao, faixa, forecast.get("nowcast_shift"),
+                forecast.get("mediana"), forecast.get("p90"),
+                observed_deviation=observed_deviation))
+        warm_with_plateau = (
+            warm_target_filter and forecast is not None
+            and is_warm_target_risk(
+                icao, faixa, forecast.get("nowcast_shift"),
+                forecast.get("mediana"), forecast.get("p90"),
+                observed_deviation=observed_deviation,
+                plateau_temp=plateau))
+        if warm_with_plateau:
             n_filtrado += 1
             n_filtrado_nowcast += 1
+            if not warm_without_plateau:
+                n_filtrado_plateau += 1
             if nao_final > 0.5:
                 n_filtrado_100c += 1
             else:
@@ -259,6 +342,7 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
     st["n_filtrado"] = n_filtrado
     st["n_filtrado_spread"] = n_filtrado_spread
     st["n_filtrado_nowcast"] = n_filtrado_nowcast
+    st["n_filtrado_plateau"] = n_filtrado_plateau
     st["n_filtrado_100c"] = n_filtrado_100c
     st["n_filtrado_0c"] = n_filtrado_0c
     return st

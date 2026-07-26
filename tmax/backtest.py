@@ -723,9 +723,12 @@ def _ceifa_filter_line(st: dict) -> str:
     n_filt = st.get("n_filtrado", 0)
     n_spread = st.get("n_filtrado_spread", 0)
     n_nowcast = st.get("n_filtrado_nowcast", 0)
+    n_plateau = st.get("n_filtrado_plateau", 0)
     n_100c = st.get("n_filtrado_100c", 0)
     n_0c = st.get("n_filtrado_0c", 0)
-    motivos = (f" ({n_spread} ensemble largo · {n_nowcast} desvio/nowcast quente)"
+    plateau = f", {n_plateau} por platô" if n_plateau else ""
+    motivos = (f" ({n_spread} ensemble largo · {n_nowcast} desvio/nowcast quente"
+               f"{plateau})"
                if n_nowcast else "")
     return (f"• <b>Filtro de incerteza:</b> {n_filt} entradas evitadas"
             f"{motivos} — desfecho: {n_100c} em 100¢ · {n_0c} em 0¢")

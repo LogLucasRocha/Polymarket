@@ -271,6 +271,7 @@ CEIFA_NOWCAST_FILTER = True
 CEIFA_OBS_DEVIATION_MIN = 1.0     # desvio bruto observado vs ensemble (°C)
 CEIFA_NOWCAST_SHIFT_MIN = 1.0     # ajuste quente mínimo (°C)
 CEIFA_TARGET_MARGIN = 0.5         # faixa: mediana−margem até P90+margem (°C)
+CEIFA_PLATEAU_HOURS = 2.0         # mesma máxima observada por pelo menos 2h
 
 # Colheita de favoritos: APOSENTADA (decisão do Lucas 15/07 — substituída pela
 # Ceifa). Mantida no código, desligada por HARVEST_ENABLED. Parâmetros antigos

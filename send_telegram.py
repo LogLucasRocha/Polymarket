@@ -267,7 +267,7 @@ def main() -> int:
     # mostra a entrada → para de alertar aquele contrato).
     held = _cap(_held_nao, positions) or []
     ceifa_seen = set(state.get("ceifa", []))
-    ceifa_pending: dict[str, list] = {}     # icao -> [(chave, faixa, preço)]
+    ceifa_pending: dict[str, list] = {}     # icao -> [(chave, faixa, ask, volume)]
     ceifa_fresh: set = set()                # cidades com oportunidade NOVA
     ceifa_keep: list = []
     # H-1: a entrada é SÓ na hora local ANTERIOR ao pico previsto pelo modelo
@@ -286,7 +286,15 @@ def main() -> int:
             icao = v["icao"]
             if v["yes"] is None:
                 continue
-            price = 1.0 - v["yes"]           # preço do NÃO
+            price = v.get("no_ask")           # oferta realmente comprável do NÃO
+            if price is None:
+                indicative = v.get("no")
+                if (indicative is not None
+                        and config.CEIFA_PRICE_MIN < indicative
+                        < config.CEIFA_PRICE_MAX):
+                    print(f"[ceifa] {icao}: sem oferta executável para NÃO "
+                          f"{v['label']} (indicativo=${indicative:.3f}).")
+                continue
             if not (config.CEIFA_PRICE_MIN < price < config.CEIFA_PRICE_MAX):
                 continue
             H = peak_by_icao.get(icao)
@@ -304,9 +312,11 @@ def main() -> int:
                 continue                     # dia perigoso → não entra
             q = ctx_i["dist_d0"]["quantiles"]
             observed_deviation = (ctx_i.get("nowcast") or {}).get("offset")
+            plateau_temp = ceifa.plateau_temperature(ctx_i["obs_today"])
             if ceifa.is_warm_target_risk(
                     icao, v["label"], ctx_i.get("shift"), q.get(50), q.get(90),
-                    observed_deviation=observed_deviation):
+                    observed_deviation=observed_deviation,
+                    plateau_temp=plateau_temp):
                 desvio_txt = (f"{observed_deviation:+.1f}°C"
                               if observed_deviation is not None else "—")
                 print(f"[ceifa] {icao}: filtrado — desvio/nowcast quente na H-1 "
@@ -314,7 +324,8 @@ def main() -> int:
                       f"faixa={v['label']}, "
                       f"mediana={q.get(50):.1f}°C, P90={q.get(90):.1f}°C).")
                 continue
-            ceifa_pending.setdefault(icao, []).append((k, v["label"], price))
+            ceifa_pending.setdefault(icao, []).append(
+                (k, v["label"], price, v.get("no_ask_size")))
             ceifa_keep.append(k)
             if k not in ceifa_seen:
                 ceifa_fresh.add(icao)
@@ -400,6 +411,10 @@ def _collect_signal_rows(stations, contexts, yes_prob) -> dict:
         except Exception as exc:  # noqa: BLE001 — sinal é acessório
             print(f"[sinais] ERRO evento {slug}: {exc}", file=sys.stderr)
             continue
+        try:
+            polymarket.attach_no_best_asks(event)
+        except Exception as exc:  # sem livro, captura indicativo mas não alerta
+            print(f"[sinais] ERRO livro {slug}: {exc}", file=sys.stderr)
         odds = polymarket.odds_rows(event, yes_prob)
         # Captura de mercado: reaproveita esta busca (sem fetch extra).
         _cap(capture.record_market, ctx["now"], station.icao, day, odds)
@@ -408,8 +423,12 @@ def _collect_signal_rows(stations, contexts, yes_prob) -> dict:
                 continue
             key = f"{station.icao}:{day.isoformat()}:{r['label']}"
             rows[key] = {"icao": station.icao, "label": r["label"],
-                         "day_label": f"hoje {day.strftime('%d/%m')}",
-                         "yes": r["yes"], "mp": r["mp"]}
+                          "day_label": f"hoje {day.strftime('%d/%m')}",
+                          "yes": r["yes"], "no": r.get("no"),
+                          "book_checked": r.get("book_checked", False),
+                          "no_ask": r.get("no_ask"),
+                          "no_ask_size": r.get("no_ask_size"),
+                          "mp": r["mp"]}
     return json.loads(json.dumps(rows))
 
 
@@ -626,6 +645,7 @@ def _capture_context(station, ctx) -> None:
          nowcast_offset=(ctx.get("nowcast") or {}).get("offset"),
          nowcast_n_hours=(ctx.get("nowcast") or {}).get("n_hours"),
          nowcast_hour_weight=(ctx.get("nowcast") or {}).get("hour_weight"),
+         plateau_temp=ceifa.plateau_temperature(ctx["obs_today"]),
          travada=ctx["tmax_locked"])
     _cap(capture.record_nowcast, now, station.icao, d0, ctx.get("nowcast"))
     members = {f"{m}:{mid}": s for (m, mid), s in ctx["ens"]["members"].items()}
@@ -674,6 +694,7 @@ def _report_snapshot(station, ctx) -> dict:
         "nowcast_n_hours": (ctx.get("nowcast") or {}).get("n_hours"),
         "nowcast_hour_weight": (ctx.get("nowcast") or {}).get("hour_weight"),
         "nowcast_components": (ctx.get("nowcast") or {}).get("components", []),
+        "plateau_temp": ceifa.plateau_temperature(ctx["obs_today"]),
         "quantiles": {str(k): v for k, v in dist["quantiles"].items()},
         "buckets": dist["buckets"], "exceed": dist.get("exceed"),
         "taf_tx_d0": ctx["taf_tx_d0"], "hourly": hourly,
@@ -783,9 +804,9 @@ def _ceifa_text(station, ctx, contratos) -> str:
     pico = _peak_hour(ctx)
     linhas = [f"🌾 <b>Ceifa — {station.flag} {html.escape(station.city)} "
               f"({station.icao})</b>"]
-    for _k, faixa, price in contratos:
+    for _k, faixa, price, size in contratos:
         linhas.append(f"• Comprar <b>NÃO {html.escape(str(faixa))}</b> "
-                      f"@ ${price:.3f}")
+                      f"@ ${price:.3f} · disponível: {size:g} cota(s)")
     agora = ctx["now"].strftime("%H:%M")
     pico_txt = f"{pico:02d}h" if pico is not None else "—"
     linhas.append(f"🕐 Agora: <b>{agora}</b> (local) · 📈 Pico previsto: "
@@ -800,9 +821,9 @@ def _ceifa_repeat_text(station, contratos) -> str:
     linhas = [f"🌾 <b>Ceifa — {station.flag} {html.escape(station.city)} "
               f"({station.icao})</b> <i>(ainda vale — entre para parar de "
               "receber)</i>"]
-    for _k, faixa, price in contratos:
+    for _k, faixa, price, size in contratos:
         linhas.append(f"• Comprar <b>NÃO {html.escape(str(faixa))}</b> "
-                      f"@ ${price:.3f}")
+                      f"@ ${price:.3f} · disponível: {size:g} cota(s)")
     return "\n".join(linhas)
 
 
@@ -824,12 +845,13 @@ def _ceifa_alert_rows(ceifa_pending, ceifa_seen, signal_rows) -> list:
     rows = []
     for icao, contratos in ceifa_pending.items():
         hloc = dt.datetime.now(config.STATIONS[icao].tz).hour
-        for k, faixa, price in contratos:
+        for k, faixa, price, size in contratos:
             v = signal_rows.get(k, {})
             mp = v.get("mp")
             rows.append({
                 "icao": icao, "dia": k.split(":")[1], "estrategia": "ceifa",
                 "faixa": faixa, "lado": "NAO", "preco": round(price, 4),
+                "volume_disponivel": round(size, 4),
                 "modelo": (round(1.0 - mp, 4) if mp is not None else None),
                 "edge_pp": None, "hora_local": hloc,
                 "repeticao": k in ceifa_seen})

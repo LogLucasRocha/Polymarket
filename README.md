@@ -104,10 +104,12 @@ quando `CEIFA_PRICE_MIN < preço do NÃO < CEIFA_PRICE_MAX` — só entra perto 
 pico, onde o mercado quase-certo é confiável. Dois vetos de incerteza bloqueiam
 a entrada: ensemble anormalmente largo; ou desvio observado bruto de pelo menos
 +1,0°C OU ajuste quente do nowcast de pelo menos +1,0°C, quando a faixa vendida
-fica entre mediana−0,5°C e P90+0,5°C. O
-alerta **repete até você ter
-posição**
-no contrato; ao detectar a entrada na carteira (`POLYMARKET_WALLET`), para de
+fica entre mediana−0,5°C e P90+0,5°C. Se a máxima observada estiver em platô
+por pelo menos duas horas, o limite inferior desce até essa máxima. A entrada
+só é alertada quando existe uma oferta de venda executável do token NÃO no
+livro; o texto mostra o menor ask e seu volume disponível. O alerta **repete
+até você ter posição** no contrato; ao detectar a entrada na carteira
+(`POLYMARKET_WALLET`), para de
 alertar aquele contrato. A 1ª aparição vem com um **bloco enxuto**: gráfico da
 distribuição (ensemble + TAF + mediana) e texto com o **pico previsto** e a
 **mediana (P10/P90)** — sem tabela de probabilidades e sem hora a hora; as
