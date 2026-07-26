@@ -842,6 +842,10 @@ def _peak_hour(ctx):
 def _ceifa_text(station, ctx, contratos) -> str:
     """Texto do alerta de Ceifa: as compras + pico previsto + mediana P10/P90."""
     q = ctx["dist_d0"]["quantiles"]
+    unit = station.unit
+    q10 = notify.temperature_for_unit(q.get(10), unit)
+    q50 = notify.temperature_for_unit(q.get(50), unit)
+    q90 = notify.temperature_for_unit(q.get(90), unit)
     pico = _peak_hour(ctx)
     linhas = [f"🌾 <b>Ceifa — {station.flag} {html.escape(station.city)} "
               f"({station.icao})</b>"]
@@ -853,8 +857,8 @@ def _ceifa_text(station, ctx, contratos) -> str:
     pico_txt = f"{pico:02d}h" if pico is not None else "—"
     linhas.append(f"🕐 Agora: <b>{agora}</b> (local) · 📈 Pico previsto: "
                   f"<b>{pico_txt}</b>")
-    linhas.append(f"📊 Mediana: <b>{q.get(50):.1f} °C</b> "
-                  f"(P10 {q.get(10):.1f} · P90 {q.get(90):.1f})")
+    linhas.append(f"📊 Mediana: <b>{q50:.1f} °{unit}</b> "
+                  f"(P10 {q10:.1f} · P90 {q90:.1f})")
     return "\n".join(linhas)
 
 

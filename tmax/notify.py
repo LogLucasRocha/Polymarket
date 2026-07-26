@@ -8,6 +8,7 @@ from __future__ import annotations
 import html
 import io
 import json
+import math
 import time
 
 import matplotlib
@@ -17,7 +18,7 @@ import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import requests
 
-from . import config
+from . import config, distribution
 from .pipeline import hourly_percentiles
 
 TELEGRAM_API = "https://api.telegram.org"
@@ -41,15 +42,55 @@ plt.rcParams.update({
 
 # ------------------------------------------------------------------ gráfico
 
+def temperature_for_unit(value, unit: str = "C"):
+    """Converte uma temperatura interna em °C para a unidade de exibição."""
+    if value is None:
+        return None
+    return float(value) * 9.0 / 5.0 + 32.0 if unit.upper() == "F" else value
+
+
+def _temperature_series(values, unit: str) -> list:
+    return [temperature_for_unit(value, unit) for value in values]
+
+
+def _tick_label(value: float) -> str:
+    return f"{value:.0f}" if abs(value - round(value)) < 1e-9 else f"{value:.1f}"
+
+
+def _fahrenheit_market_buckets(dist: dict) -> list[dict]:
+    """Reagrupa a distribuição nos contratos americanos de 2 °F."""
+    if not dist.get("comps") or not dist.get("buckets"):
+        return []
+    min_f = temperature_for_unit(dist["buckets"][0]["low"], "F")
+    max_f = temperature_for_unit(dist["buckets"][-1]["high"], "F")
+    first = int(2 * math.floor((min_f + 0.5) / 2.0))
+    last = int(2 * math.ceil((max_f + 0.5) / 2.0))
+    buckets = []
+    for low in range(first, last + 1, 2):
+        prob = distribution.market_prob(dist, low, low + 1, "exact", "F")
+        if prob is not None and prob >= 0.005:
+            buckets.append({"low": low, "high": low + 1, "prob": prob})
+    total = sum(bucket["prob"] for bucket in buckets)
+    if total:
+        for bucket in buckets:
+            bucket["prob"] /= total
+    return buckets
+
+
 def _draw_hourly(ax, ctx) -> None:
+    unit = ctx["station"].unit
     times, p10, p50, p90, _raw = hourly_percentiles(
         ctx["ens"]["time"], ctx["ens"]["members"], ctx["bias"],
         ctx["shift"], ctx["now"], days={ctx["d0"]})
+    p10 = _temperature_series(p10, unit)
+    p50 = _temperature_series(p50, unit)
+    p90 = _temperature_series(p90, unit)
     ax.fill_between(times, p10, p90, color=BLUE, alpha=0.18, label="P10–P90")
     ax.plot(times, p50, color=BLUE, lw=1.8, label="Mediana (corrigida)")
     if ctx["obs_today"]:
         ax.plot([o["time"] for o in ctx["obs_today"]],
-                [o["temp"] for o in ctx["obs_today"]], "o-",
+                [temperature_for_unit(o["temp"], unit)
+                 for o in ctx["obs_today"]], "o-",
                 color=RED, ms=4, lw=1.2, label="Observado (METAR)")
     ax.axvline(ctx["now"], color="#666", lw=1, ls="--")
     ax.annotate("agora", (ctx["now"], ax.get_ylim()[1]), fontsize=8,
@@ -57,29 +98,47 @@ def _draw_hourly(ax, ctx) -> None:
                 textcoords="offset points")
     ax.xaxis.set_major_formatter(
         mdates.DateFormatter("%d/%m\n%Hh", tz=times[0].tzinfo))
-    ax.set_ylabel("°C")
+    ax.set_ylabel(f"°{unit}")
     ax.set_title("Trajetória horária (hora local)", fontsize=11)
     ax.legend(loc="upper left", fontsize=8, framealpha=0.9)
 
 
-def _draw_dist(ax, dist, title, det_points, taf_tx) -> None:
+def _draw_dist(ax, dist, title, det_points, taf_tx, unit: str = "C") -> None:
     buckets = dist["buckets"]
-    xs = [b["low"] + 0.5 for b in buckets]
+    market_buckets = _fahrenheit_market_buckets(dist) if unit == "F" else []
+    if market_buckets:
+        buckets = market_buckets
+        xs = [b["low"] + 0.5 for b in buckets]
+        widths = [2.0 * 0.92 for _b in buckets]
+    else:
+        lows = [temperature_for_unit(b["low"], unit) for b in buckets]
+        highs = [temperature_for_unit(b["high"], unit) for b in buckets]
+        xs = [(low + high) / 2.0 for low, high in zip(lows, highs)]
+        widths = [(high - low) * 0.92 for low, high in zip(lows, highs)]
     ps = [b["prob"] * 100 for b in buckets]
-    bars = ax.bar(xs, ps, width=0.92, color=BLUE, alpha=0.75)
+    bars = ax.bar(xs, ps, width=widths, color=BLUE, alpha=0.75)
     for bar, p in zip(bars, ps):
         if p >= 5:
             ax.annotate(f"{p:.0f}%", (bar.get_x() + bar.get_width() / 2, p),
                         ha="center", va="bottom", fontsize=7, color="#333")
-    med = dist["quantiles"][50]
+    med = temperature_for_unit(dist["quantiles"][50], unit)
     ax.axvline(med, color=RED, lw=1.5, ls="--", label=f"Mediana {med:.1f}")
     if det_points:
         for v in det_points.values():
-            ax.plot(v, 0, marker="^", ms=8, color=ORANGE, clip_on=False, zorder=5)
+            ax.plot(temperature_for_unit(v, unit), 0, marker="^", ms=8,
+                    color=ORANGE, clip_on=False, zorder=5)
     if taf_tx is not None:
+        taf_tx = temperature_for_unit(taf_tx, unit)
         ax.axvline(taf_tx, color=GREEN, lw=1.5, ls=":", label=f"TAF {taf_tx:.0f}")
-    ax.set_xticks([b["low"] for b in buckets] + [buckets[-1]["high"]])
-    ax.set_xlabel("Faixa da máxima (°C)")
+    if market_buckets:
+        ax.set_xticks(xs)
+        ax.set_xticklabels(
+            [f"{bucket['low']}–{bucket['high']}" for bucket in buckets])
+    else:
+        ticks = lows + [highs[-1]]
+        ax.set_xticks(ticks)
+        ax.set_xticklabels([_tick_label(value) for value in ticks])
+    ax.set_xlabel(f"Faixa da máxima (°{unit})")
     ax.set_ylabel("Prob. (%)")
     ax.set_title(title, fontsize=10)
     ax.legend(loc="upper right", fontsize=7.5, framealpha=0.9)
@@ -96,7 +155,7 @@ def station_chart_png(ctx: dict) -> bytes:
     det0 = {m: v["corrected"] for m, v in ctx["det_corrected"]["d0"].items()}
     _draw_dist(fig.add_subplot(gs[1, 0]), ctx["dist_d0"],
                f"Hoje ({ctx['d0'].strftime('%d/%m')})", det0,
-               ctx["taf_tx_d0"])
+               ctx["taf_tx_d0"], unit=ctx["station"].unit)
 
     station = ctx["station"]
     # Sem a bandeira: emojis não existem na fonte do matplotlib (viram tofu).
@@ -114,7 +173,8 @@ def distribution_png(ctx: dict) -> bytes:
     do ensemble + TAF. Sem hora a hora e sem os determinísticos."""
     fig, ax = plt.subplots(figsize=(9, 5))
     _draw_dist(ax, ctx["dist_d0"], f"Hoje ({ctx['d0'].strftime('%d/%m')})",
-               det_points=None, taf_tx=ctx["taf_tx_d0"])
+               det_points=None, taf_tx=ctx["taf_tx_d0"],
+               unit=ctx["station"].unit)
     station = ctx["station"]
     fig.suptitle(f"{station.city} — {station.icao}",
                  fontsize=13, fontweight="bold")
@@ -159,7 +219,8 @@ def ceifa_chart_png(ctx: dict) -> bytes:
     _draw_hourly(fig.add_subplot(gs[0, 0]), ctx)
     _draw_dist(fig.add_subplot(gs[1, 0]), ctx["dist_d0"],
                f"Hoje ({ctx['d0'].strftime('%d/%m')})",
-               det_points=None, taf_tx=ctx["taf_tx_d0"])
+               det_points=None, taf_tx=ctx["taf_tx_d0"],
+               unit=ctx["station"].unit)
     station = ctx["station"]
     fig.suptitle(f"{station.city} — {station.icao}",
                  fontsize=13, fontweight="bold")
