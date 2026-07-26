@@ -261,7 +261,8 @@ def main() -> int:
                       file=sys.stderr)
 
     # 2d) Ceifa (estratégia ATIVA e única): comprar o NÃO quando
-    # CEIFA_PRICE_MIN < preço do NÃO < CEIFA_PRICE_MAX — só o preço decide. O
+    # CEIFA_PRICE_MIN < preço do NÃO < CEIFA_PRICE_MAX, na H-1, desde que os
+    # vetos de incerteza (ensemble largo / nowcast quente) permitam. O
     # alerta REPETE a cada rodada ATÉ você ter posição no contrato (a carteira
     # mostra a entrada → para de alertar aquele contrato).
     held = _cap(_held_nao, positions) or []
@@ -301,6 +302,13 @@ def main() -> int:
                 print(f"[ceifa] {icao}: filtrado — ensemble largo na H-1 "
                       f"(spread={spr:.1f}°C).")
                 continue                     # dia perigoso → não entra
+            q = ctx_i["dist_d0"]["quantiles"]
+            if ceifa.is_warm_target_risk(
+                    icao, v["label"], ctx_i.get("shift"), q.get(50), q.get(90)):
+                print(f"[ceifa] {icao}: filtrado — nowcast quente na H-1 "
+                      f"(ajuste={ctx_i['shift']:+.1f}°C, faixa={v['label']}, "
+                      f"mediana={q.get(50):.1f}°C, P90={q.get(90):.1f}°C).")
+                continue
             ceifa_pending.setdefault(icao, []).append((k, v["label"], price))
             ceifa_keep.append(k)
             if k not in ceifa_seen:

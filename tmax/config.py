@@ -240,11 +240,13 @@ COND_ALERTS_ENABLED = False
 # ---------------------------------------------------------------- Ceifa
 # Estratégia ATIVA (decisão do Lucas, 15/07) e a ÚNICA no momento: comprar o
 # NÃO quando o mercado já está quase-certo, com o preço do NÃO nesta faixa —
-# a análise da base de mercado mostrou o mercado ~100% assertivo aí. Critério
-# é SÓ o preço (sem filtro de hora nem de modelo). O alerta REPETE a cada
-# rodada até você ter posição naquele contrato; assim que a carteira mostra a
-# entrada, para de alertar aquele contrato. Assertividade = preço do NÃO
-# convergindo para 1,0 (o NÃO resolveu).
+# a análise da base de mercado mostrou o mercado ~100% assertivo aí. O preço
+# identifica a oportunidade; H-1 e os filtros abaixo autorizam a entrada. O
+# alerta REPETE a cada rodada até você ter posição naquele contrato; assim que
+# a carteira mostra a
+# entrada, para de alertar aquele contrato. A banda de preço abre a oportunidade;
+# H-1 e os vetos meteorológicos abaixo decidem se ela pode virar alerta.
+# Assertividade = preço do NÃO convergindo para 1,0 (o NÃO resolveu).
 CEIFA_ENABLED = True
 CEIFA_PRICE_MIN = 0.95      # exclusivo: preço do NÃO > 0,95
 CEIFA_PRICE_MAX = 0.995     # exclusivo: preço do NÃO < 0,995
@@ -259,6 +261,15 @@ CEIFA_STOP_ENABLED = False       # stop no backtest (desligado — filtro no lug
 CEIFA_SPREAD_FILTER = True        # liga o filtro de incerteza
 CEIFA_SPREAD_ABS = 3.0            # corta se spread na H-1 >= isto (°C)
 CEIFA_SPREAD_REL = 2.0            # ou se spread >= REL × mediana da cidade
+
+# Segundo veto de incerteza (decisão do Lucas, 26/07): em dia que está rodando
+# claramente mais quente que o ensemble, não vender uma faixa que ainda está
+# dentro da região plausível da máxima. Londres 27°C (26/07) tinha ajuste de
+# nowcast de +1,2°C; a largura do ensemble continuou normal e não capturou o
+# risco porque teto e mediana subiram juntos.
+CEIFA_NOWCAST_FILTER = True
+CEIFA_NOWCAST_SHIFT_MIN = 1.0     # ajuste quente mínimo (°C)
+CEIFA_TARGET_MARGIN = 0.5         # faixa: mediana−margem até P90+margem (°C)
 
 # Colheita de favoritos: APOSENTADA (decisão do Lucas 15/07 — substituída pela
 # Ceifa). Mantida no código, desligada por HARVEST_ENABLED. Parâmetros antigos

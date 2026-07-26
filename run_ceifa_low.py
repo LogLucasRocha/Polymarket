@@ -35,7 +35,8 @@ def main() -> int:
     args = ap.parse_args()
 
     log = lambda msg: print(msg, flush=True)  # noqa: E731
-    st = ceifa.simulate(log, icaos=set(config.STATIONS), archive=ARCHIVE)
+    st = ceifa.simulate(log, icaos=set(config.STATIONS), archive=ARCHIVE,
+                        warm_target_filter=False)
     text = backtest.ceifa_report_text(st, titulo=TITULO, nota=NOTA)
 
     print("\n" + text.replace("<b>", "").replace("</b>", "")
