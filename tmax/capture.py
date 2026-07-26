@@ -7,7 +7,7 @@ guardar, no instante em que vemos, tudo que um backtest futuro precisa.
 Fluxo em duas etapas (para não commitar a cada 10 min):
   1. A cada rodada do digest, os `record_*` gravam num BUFFER dentro de
      ``data/capture/`` (que o cache do GitHub Actions já persiste entre rodadas):
-       - séries tabulares (mercado, previsão, alertas, stops) → JSONL append;
+       - séries tabulares (mercado, previsão, nowcast, alertas, stops) → JSONL;
        - arquivos por evento (ensemble, relatórios) → JSON.gz staged.
   2. ``flush()`` (chamado toda rodada, mas só age em dias JÁ FECHADOS) consolida
      o buffer no arquivo definitivo em ``dados/`` (Parquet + JSON.gz), que o
@@ -18,6 +18,7 @@ que mantém o histórico do git enxuto; mesmo assim, para análise, pandas/DuckD
 leem a pasta inteira como uma base só (``pd.read_parquet("dados/mercado/")``):
   mercado/{ICAO}/{AAAA-MM-DD}.parquet     preço de todas as faixas, a cada 10 min
   previsao/{ICAO}/{AAAA-MM-DD}.parquet    previsão derivada, a cada 10 min
+  nowcast/{ICAO}/{AAAA-MM-DD}.parquet     até três desvios de cada cálculo
   alertas/{AAAA-MM-DD}.parquet            todo alerta de edge/colheita (evento)
   stops/{AAAA-MM-DD}.parquet              posição caindo >10% (evento)
   ensemble/{ICAO}/{dia}/{ts}.json.gz      ensemble bruto, só quando o ciclo muda
@@ -45,11 +46,12 @@ FILES_DIR = CACHE_DIR / "files"                     # arquivos por evento (stage
 STATE_FILE = CACHE_DIR / "state.json"               # hash do último ciclo, etc.
 
 # Séries tabulares particionadas por cidade (as de evento não são).
-_PER_ICAO = {"mercado", "previsao"}
+_PER_ICAO = {"mercado", "previsao", "nowcast"}
 # Chave natural de cada base, para deduplicar re-execuções da mesma rodada.
 _KEYS = {
     "mercado": ["ts_utc", "icao", "faixa"],
     "previsao": ["ts_utc", "icao"],
+    "nowcast": ["ts_utc", "icao", "observation_time"],
     "alertas": ["ts_utc", "icao", "faixa", "estrategia"],
     "stops": ["ts_utc", "icao", "faixa"],
 }
@@ -103,7 +105,7 @@ def record_market(now: dt.datetime, icao: str, dia: dt.date,
 def record_forecast(now: dt.datetime, icao: str, dia: dt.date, *,
                     media, mediana, piso_ens, teto_ens, p10, p90,
                     pico_hora, obs_max, nowcast_shift, nowcast_offset,
-                    nowcast_n_hours, travada) -> None:
+                    nowcast_n_hours, nowcast_hour_weight, travada) -> None:
     """Previsão derivada do ensemble corrigido no instante `now`."""
     _append_jsonl("previsao", now, [{
         "ts_utc": _iso(now), "icao": icao, "dia": dia.isoformat(),
@@ -112,7 +114,37 @@ def record_forecast(now: dt.datetime, icao: str, dia: dt.date, *,
         "pico_hora": pico_hora, "obs_max": obs_max,
         "nowcast_shift": nowcast_shift,
         "nowcast_offset": nowcast_offset, "nowcast_n_hours": nowcast_n_hours,
+        "nowcast_hour_weight": nowcast_hour_weight,
         "travada": bool(travada)}])
+
+
+def record_nowcast(now: dt.datetime, icao: str, dia: dt.date,
+                   nowcast: dict | None) -> None:
+    """Arquiva a tabela horária completa que originou o nowcast da rodada."""
+    if not nowcast or not nowcast.get("components"):
+        return
+    common = {
+        "ts_utc": _iso(now), "icao": icao, "dia": dia.isoformat(),
+        "nowcast_offset": nowcast.get("offset"),
+        "nowcast_shift": nowcast.get("shift"),
+        "nowcast_hour_weight": nowcast.get("hour_weight"),
+        "nowcast_damping": nowcast.get("damping"),
+        "nowcast_n_hours": nowcast.get("n_hours"),
+    }
+    rows = []
+    for order, component in enumerate(nowcast["components"], start=1):
+        rows.append({
+            **common,
+            "component_order": order,
+            "observation_time": component.get("observation_time"),
+            "ensemble_hour": component.get("ensemble_hour"),
+            "observed_temp_c": component.get("observed_temp_c"),
+            "ensemble_mean_c": component.get("ensemble_mean_c"),
+            "deviation_c": component.get("deviation_c"),
+            "member_count": component.get("member_count"),
+            "raw_metar": component.get("raw_metar"),
+        })
+    _append_jsonl("nowcast", now, rows)
 
 
 def record_alerts(now: dt.datetime, rows: list[dict]) -> None:
