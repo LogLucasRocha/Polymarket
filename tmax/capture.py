@@ -102,14 +102,17 @@ def record_market(now: dt.datetime, icao: str, dia: dt.date,
 
 def record_forecast(now: dt.datetime, icao: str, dia: dt.date, *,
                     media, mediana, piso_ens, teto_ens, p10, p90,
-                    pico_hora, obs_max, nowcast_shift, travada) -> None:
+                    pico_hora, obs_max, nowcast_shift, nowcast_offset,
+                    nowcast_n_hours, travada) -> None:
     """Previsão derivada do ensemble corrigido no instante `now`."""
     _append_jsonl("previsao", now, [{
         "ts_utc": _iso(now), "icao": icao, "dia": dia.isoformat(),
         "media": media, "mediana": mediana,
         "piso_ens": piso_ens, "teto_ens": teto_ens, "p10": p10, "p90": p90,
         "pico_hora": pico_hora, "obs_max": obs_max,
-        "nowcast_shift": nowcast_shift, "travada": bool(travada)}])
+        "nowcast_shift": nowcast_shift,
+        "nowcast_offset": nowcast_offset, "nowcast_n_hours": nowcast_n_hours,
+        "travada": bool(travada)}])
 
 
 def record_alerts(now: dt.datetime, rows: list[dict]) -> None:

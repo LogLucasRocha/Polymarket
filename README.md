@@ -102,8 +102,9 @@ Estratégia ativa: **Ceifa** (a única no momento — Edge pausado, Colheita
 aposentada). Compra o **NÃO** na **hora local anterior ao pico previsto (H-1)**
 quando `CEIFA_PRICE_MIN < preço do NÃO < CEIFA_PRICE_MAX` — só entra perto do
 pico, onde o mercado quase-certo é confiável. Dois vetos de incerteza bloqueiam
-a entrada: ensemble anormalmente largo; ou ajuste quente do nowcast de pelo
-menos +1,0°C quando a faixa vendida fica entre mediana−0,5°C e P90+0,5°C. O
+a entrada: ensemble anormalmente largo; ou desvio observado bruto de pelo menos
++1,0°C OU ajuste quente do nowcast de pelo menos +1,0°C, quando a faixa vendida
+fica entre mediana−0,5°C e P90+0,5°C. O
 alerta **repete até você ter
 posição**
 no contrato; ao detectar a entrada na carteira (`POLYMARKET_WALLET`), para de

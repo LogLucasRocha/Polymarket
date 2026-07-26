@@ -303,10 +303,15 @@ def main() -> int:
                       f"(spread={spr:.1f}°C).")
                 continue                     # dia perigoso → não entra
             q = ctx_i["dist_d0"]["quantiles"]
+            observed_deviation = (ctx_i.get("nowcast") or {}).get("offset")
             if ceifa.is_warm_target_risk(
-                    icao, v["label"], ctx_i.get("shift"), q.get(50), q.get(90)):
-                print(f"[ceifa] {icao}: filtrado — nowcast quente na H-1 "
-                      f"(ajuste={ctx_i['shift']:+.1f}°C, faixa={v['label']}, "
+                    icao, v["label"], ctx_i.get("shift"), q.get(50), q.get(90),
+                    observed_deviation=observed_deviation):
+                desvio_txt = (f"{observed_deviation:+.1f}°C"
+                              if observed_deviation is not None else "—")
+                print(f"[ceifa] {icao}: filtrado — desvio/nowcast quente na H-1 "
+                      f"(desvio={desvio_txt}, ajuste={ctx_i['shift']:+.1f}°C, "
+                      f"faixa={v['label']}, "
                       f"mediana={q.get(50):.1f}°C, P90={q.get(90):.1f}°C).")
                 continue
             ceifa_pending.setdefault(icao, []).append((k, v["label"], price))
@@ -618,6 +623,8 @@ def _capture_context(station, ctx) -> None:
          teto_ens=(round(max(mm_vals), 2) if mm_vals else None),
          p10=q.get(10), p90=q.get(90), pico_hora=pico_hora,
          obs_max=ctx["obs_max_today"], nowcast_shift=ctx["shift"],
+         nowcast_offset=(ctx.get("nowcast") or {}).get("offset"),
+         nowcast_n_hours=(ctx.get("nowcast") or {}).get("n_hours"),
          travada=ctx["tmax_locked"])
     members = {f"{m}:{mid}": s for (m, mid), s in ctx["ens"]["members"].items()}
     _cap(capture.record_ensemble, now, station.icao, d0,
@@ -661,6 +668,9 @@ def _report_snapshot(station, ctx) -> dict:
             "temp": lm["temp"],
             "time": lm["time"].strftime("%Y-%m-%dT%H:%M")}),
         "nowcast_shift": ctx["shift"],
+        "nowcast_offset": (ctx.get("nowcast") or {}).get("offset"),
+        "nowcast_n_hours": (ctx.get("nowcast") or {}).get("n_hours"),
+        "nowcast_hour_weight": (ctx.get("nowcast") or {}).get("hour_weight"),
         "quantiles": {str(k): v for k, v in dist["quantiles"].items()},
         "buckets": dist["buckets"], "exceed": dist.get("exceed"),
         "taf_tx_d0": ctx["taf_tx_d0"], "hourly": hourly,

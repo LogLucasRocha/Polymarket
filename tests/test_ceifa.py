@@ -16,6 +16,21 @@ class WarmTargetRiskTests(unittest.TestCase):
         self.assertFalse(ceifa.is_warm_target_risk(
             "EGLC", "27°C", 0.9, 26.2, 27.5))
 
+    def test_blocks_when_raw_deviation_reaches_one_degree(self):
+        self.assertTrue(ceifa.is_warm_target_risk(
+            "EGLC", "27°C", 0.8, 26.2, 27.5,
+            observed_deviation=1.1))
+
+    def test_requires_plausible_target_even_with_hot_raw_deviation(self):
+        self.assertFalse(ceifa.is_warm_target_risk(
+            "EGLC", "30°C", 0.8, 26.2, 27.5,
+            observed_deviation=1.4))
+
+    def test_reconstructs_conservative_raw_deviation_for_old_snapshot(self):
+        deviation = ceifa.reconstructed_observed_deviation(
+            "EGLC", "2026-07-26T13:00:00Z", 0.76)
+        self.assertAlmostEqual(deviation, 0.76 / 0.7)
+
     def test_allows_target_outside_plausible_range(self):
         self.assertFalse(ceifa.is_warm_target_risk(
             "EGLC", "30°C", 1.2, 26.2, 27.5))

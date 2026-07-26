@@ -6,7 +6,8 @@ ao pico previsto pelo modelo (H = pico_hora da base previsao). Nessa hora, se o
 preço do NÃO está na banda (CEIFA_PRICE_MIN, CEIFA_PRICE_MAX), é uma entrada.
 Perto do pico há pouca incerteza — é onde o mercado quase-certo é confiável.
 Antes de entrar, dois vetos usam apenas o snapshot da H-1: ensemble largo; ou
-nowcast >= +1°C com a faixa vendida dentro da região mediana−0,5°C a P90+0,5°C.
+desvio bruto >= +1°C OU nowcast >= +1°C, com a faixa vendida dentro da região
+mediana−0,5°C a P90+0,5°C.
 
 Resolução pela convergência do preço: o NÃO venceu se o preço do NÃO no fim do
 dia foi para ~1,0. Stop: se depois da entrada o preço do NÃO cair
@@ -94,22 +95,50 @@ def target_temperature_c(icao: str, faixa) -> float | None:
     return (value - 32.0) * 5.0 / 9.0 if _station_unit(icao) == "F" else value
 
 
-def is_warm_target_risk(icao: str, faixa, nowcast_shift, mediana, p90) -> bool:
-    """Veta faixa plausível quando o dia roda >=1°C acima do ensemble.
+def reconstructed_observed_deviation(icao: str, snapshot_ts,
+                                     nowcast_shift) -> float | None:
+    """Limite inferior conservador do desvio bruto em snapshots antigos.
+
+    Antes de 26/07 o lago guardava apenas o shift já amortecido. O peso real
+    usa a hora do último METAR, que nunca é posterior à hora do snapshot; usar
+    a hora do snapshot produz o maior peso possível e, portanto, o menor
+    desvio bruto compatível com aquele shift.
+    """
+    if nowcast_shift is None or pd.isna(nowcast_shift) or snapshot_ts is None:
+        return None
+    ts = pd.Timestamp(snapshot_ts)
+    if ts.tzinfo is None:
+        ts = ts.tz_localize("UTC")
+    local_hour = ts.tz_convert(_tz(icao)).hour
+    hour_weight = min(max((local_hour - 6) / 6.0, 0.25), 1.0)
+    return float(nowcast_shift) / (config.NOWCAST_DAMPING * hour_weight)
+
+
+def is_warm_target_risk(icao: str, faixa, nowcast_shift, mediana, p90,
+                        observed_deviation=None) -> bool:
+    """Veta faixa plausível quando desvio bruto OU shift chega a +1°C.
 
     A regra usa somente informações disponíveis na H-1. ``faixa`` pode estar
-    em °C ou °F; mediana, P90 e nowcast_shift são sempre armazenados em °C.
+    em °C ou °F; os indicadores meteorológicos são sempre armazenados em °C.
     """
     if not config.CEIFA_NOWCAST_FILTER:
         return False
-    if any(v is None or pd.isna(v) for v in (nowcast_shift, mediana, p90)):
+    if any(v is None or pd.isna(v) for v in (mediana, p90)):
         return False
     target = target_temperature_c(icao, faixa)
     if target is None:
         return False
     margin = config.CEIFA_TARGET_MARGIN
-    return (float(nowcast_shift) >= config.CEIFA_NOWCAST_SHIFT_MIN
-            and float(mediana) - margin <= target <= float(p90) + margin)
+    target_is_plausible = (
+        float(mediana) - margin <= target <= float(p90) + margin
+    )
+    shift_hot = (nowcast_shift is not None and not pd.isna(nowcast_shift)
+                 and float(nowcast_shift) >= config.CEIFA_NOWCAST_SHIFT_MIN)
+    observed_hot = (
+        observed_deviation is not None and not pd.isna(observed_deviation)
+        and float(observed_deviation) >= config.CEIFA_OBS_DEVIATION_MIN
+    )
+    return target_is_plausible and (observed_hot or shift_hot)
 
 
 def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
@@ -202,9 +231,15 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
                 n_filtrado_0c += 1
             continue
         if (warm_target_filter and forecast is not None
-                and is_warm_target_risk(
-                    icao, faixa, forecast.get("nowcast_shift"),
-                    forecast.get("mediana"), forecast.get("p90"))):
+                and is_warm_target_risk(icao, faixa,
+                    forecast.get("nowcast_shift"), forecast.get("mediana"),
+                    forecast.get("p90"),
+                    observed_deviation=(
+                        forecast.get("nowcast_offset")
+                        if not pd.isna(forecast.get("nowcast_offset"))
+                        else reconstructed_observed_deviation(
+                            icao, forecast.get("ts"),
+                            forecast.get("nowcast_shift"))))):
             n_filtrado += 1
             n_filtrado_nowcast += 1
             if nao_final > 0.5:
