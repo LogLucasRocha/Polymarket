@@ -93,9 +93,10 @@ reports/               relatórios gerados
 
 ## Bot do Telegram (comandos)
 
-O `send_telegram.py` roda a cada 10 min no GitHub Actions (`main.yml`) e, além
+O `send_telegram.py` é disparado a cada 5 min pelo cron externo; o agendamento
+nativo do GitHub Actions (`main.yml`) fica a cada 10 min como redundância. Além
 de mandar os alertas, agora **lê os comandos e cliques de botão** (getUpdates)
-na mesma rodada — então a resposta chega com latência de **até ~10 min** (não
+na mesma rodada — então a resposta chega com latência de **até ~5 min** (não
 há servidor sempre ligado; foi a opção escolhida para não exigir infra nova).
 
 Estratégia ativa: **Ceifa** (a única no momento — Edge pausado, Colheita
@@ -107,10 +108,13 @@ a entrada: ensemble anormalmente largo; ou desvio observado bruto de pelo menos
 fica entre mediana−0,5°C e P90+0,5°C. Se a máxima observada estiver em platô
 por pelo menos duas horas, o limite inferior desce até essa máxima. A entrada
 só é alertada quando existe uma oferta de venda executável do token NÃO no
-livro; o texto mostra o menor ask e seu volume disponível. O alerta **repete
-até você ter posição** no contrato; ao detectar a entrada na carteira
-(`POLYMARKET_WALLET`), para de
-alertar aquele contrato. A 1ª aparição vem com um **bloco enxuto**: gráfico da
+livro; o texto mostra o menor ask e seu volume disponível. Na primeira rodada
+depois de 00:00 de Brasília, o bot calcula o capital como pUSD livre + valor
+atual das posições, anuncia 1% desse total e fixa essa stake para o dia. O
+alerta repete com intervalo mínimo de cinco minutos enquanto elegível, mesmo se
+já houver posição; cada contrato indicado autoriza uma nova parcela de 1%, sem
+teto por contrato e sem alavancagem. A 1ª
+aparição vem com um **bloco enxuto**: gráfico da
 distribuição (ensemble + TAF + mediana) e texto com o **pico previsto** e a
 **mediana (P10/P90)** — sem tabela de probabilidades e sem hora a hora; as
 repetições vêm em texto curto. O **desempenho da Ceifa** (testes,

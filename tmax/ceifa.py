@@ -21,6 +21,7 @@ import datetime as dt
 import gzip
 import json
 import re
+from bisect import bisect_right
 from collections import defaultdict
 from functools import lru_cache
 
@@ -346,6 +347,197 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
     st["n_filtrado_100c"] = n_filtrado_100c
     st["n_filtrado_0c"] = n_filtrado_0c
     return st
+
+
+def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
+                      warm_target_filter=True, interval_minutes: int = 5,
+                      stake_frac: float = 0.01) -> dict:
+    """Ceifa parcelada: uma stake fixa a cada rodada elegível da H-1.
+
+    A stake de cada parcela é ``stake_frac`` da banca no início do dia. Não há
+    teto por contrato; a única trava financeira é não usar mais caixa do que a
+    banca disponível (sem alavancagem). Cada snapshot respeita novamente preço,
+    livro, ensemble, nowcast e platô.
+    """
+    mkt = _load("mercado", archive)
+    prev = _load("previsao", archive)
+    if icaos is not None:
+        icaos = set(icaos)
+        mkt = mkt[mkt["icao"].isin(icaos)] if not mkt.empty else mkt
+        prev = prev[prev["icao"].isin(icaos)] if not prev.empty else prev
+    if mkt.empty or prev.empty:
+        return {"n": 0, "days": 0, "signals": [],
+                "stake_frac": stake_frac, "repeat_minutes": interval_minutes}
+
+    mkt["hloc"] = mkt.groupby("icao")["ts"].transform(
+        lambda series: series.dt.tz_convert(_tz(series.name)).dt.hour)
+    prev_by = {}
+    for key, group in prev.groupby(["icao", "dia"]):
+        ordered = group.sort_values("ts")
+        prev_by[key] = ([timestamp.value for timestamp in ordered["ts"]],
+                        [row for _, row in ordered.iterrows()])
+    if {"teto_ens", "mediana"}.issubset(prev.columns):
+        ps = prev.dropna(subset=["teto_ens", "mediana"]).copy()
+        ps["spread"] = ps["teto_ens"] - ps["mediana"]
+        spread_norm = ps.groupby("icao")["spread"].median().to_dict()
+    else:
+        spread_norm = {}
+
+    def forecast_at(icao, day, timestamp):
+        lookup = prev_by.get((icao, day))
+        if lookup is None:
+            return None
+        timestamps, rows = lookup
+        index = bisect_right(timestamps, timestamp.value) - 1
+        return rows[index] if index >= 0 else None
+
+    pmin, pmax = config.CEIFA_PRICE_MIN, config.CEIFA_PRICE_MAX
+    min_gap = pd.Timedelta(minutes=interval_minutes)
+    signals = []
+    filtered = filtered_spread = filtered_nowcast = filtered_plateau = 0
+    filtered_100c = filtered_0c = 0
+    for (icao, day, faixa), group in mkt.groupby(["icao", "dia", "faixa"]):
+        group = group.sort_values("ts")
+        final_no = float(group["preco_nao"].iloc[-1])
+        if not (final_no > 0.90 or final_no < 0.10):
+            continue
+        last_entry_ts = None
+        for _, entry_row in group.iterrows():
+            forecast = forecast_at(icao, day, entry_row["ts"])
+            if forecast is None or pd.isna(forecast.get("pico_hora")):
+                continue
+            peak = int(forecast["pico_hora"])
+            if int(entry_row["hloc"]) != (peak - 1) % 24:
+                continue
+            if (last_entry_ts is not None
+                    and entry_row["ts"] - last_entry_ts < min_gap):
+                continue
+
+            checked = entry_row.get("livro_consultado")
+            checked = (checked is not None and not pd.isna(checked)
+                       and bool(checked))
+            ask = entry_row.get("ask_nao")
+            if checked and (ask is None or pd.isna(ask)):
+                continue
+            price = float(ask if checked else entry_row["preco_nao"])
+            if not (pmin < price < pmax):
+                continue
+
+            spread = None
+            if not pd.isna(forecast.get("teto_ens")) and not pd.isna(
+                    forecast.get("mediana")):
+                spread = float(forecast["teto_ens"] - forecast["mediana"])
+            if is_uncertain(icao, spread, spread_norm):
+                filtered += 1
+                filtered_spread += 1
+                if final_no > 0.5:
+                    filtered_100c += 1
+                else:
+                    filtered_0c += 1
+                continue
+
+            plateau = forecast.get("plateau_temp")
+            if plateau is None or pd.isna(plateau):
+                plateau = reconstructed_plateau_temperature(
+                    icao, day, forecast.get("ts"))
+            observed_deviation = forecast.get("nowcast_offset")
+            if observed_deviation is None or pd.isna(observed_deviation):
+                observed_deviation = reconstructed_observed_deviation(
+                    icao, forecast.get("ts"), forecast.get("nowcast_shift"))
+            warm_without_plateau = (
+                warm_target_filter and is_warm_target_risk(
+                    icao, faixa, forecast.get("nowcast_shift"),
+                    forecast.get("mediana"), forecast.get("p90"),
+                    observed_deviation=observed_deviation))
+            warm_with_plateau = (
+                warm_target_filter and is_warm_target_risk(
+                    icao, faixa, forecast.get("nowcast_shift"),
+                    forecast.get("mediana"), forecast.get("p90"),
+                    observed_deviation=observed_deviation,
+                    plateau_temp=plateau))
+            if warm_with_plateau:
+                filtered += 1
+                filtered_nowcast += 1
+                if not warm_without_plateau:
+                    filtered_plateau += 1
+                if final_no > 0.5:
+                    filtered_100c += 1
+                else:
+                    filtered_0c += 1
+                continue
+
+            signals.append({
+                "icao": icao, "day": day, "faixa": faixa,
+                "ts": entry_row["ts"], "price": price,
+                "won": final_no > 0.5, "stopped": False,
+                "loss_frac": None, "spread": spread,
+            })
+            last_entry_ts = entry_row["ts"]
+
+    stats = _stats_fixed_daily_stake(signals, mkt["dia"].nunique(), stake_frac)
+    stats.update({
+        "repeat_minutes": interval_minutes,
+        "n_filtrado": filtered,
+        "n_filtrado_spread": filtered_spread,
+        "n_filtrado_nowcast": filtered_nowcast,
+        "n_filtrado_plateau": filtered_plateau,
+        "n_filtrado_100c": filtered_100c,
+        "n_filtrado_0c": filtered_0c,
+    })
+    log(f"ceifa parcelada ({interval_minutes} min): {stats['n']} parcelas · "
+        f"{filtered} oportunidades recusadas por incerteza.")
+    return stats
+
+
+def _stats_fixed_daily_stake(signals: list, days: int,
+                             stake_frac: float) -> dict:
+    """Banca composta com parcela fixa sobre o capital do início de cada dia."""
+    by_day: dict = defaultdict(list)
+    for signal in signals:
+        by_day[signal["day"]].append(signal)
+    capital, peak, max_drawdown = 1.0, 1.0, 0.0
+    executed, per_day, constrained = [], [], 0
+    for day in sorted(by_day):
+        start = capital
+        stake = stake_frac * start
+        available, settled = start, 0.0
+        day_executed = []
+        for signal in sorted(by_day[day], key=lambda item: item["ts"]):
+            if available + 1e-12 < stake:
+                constrained += 1
+                continue
+            available -= stake
+            settled += stake / signal["price"] if signal["won"] else 0.0
+            placed = dict(signal, stake=stake)
+            executed.append(placed)
+            day_executed.append(placed)
+        capital = available + settled
+        peak = max(peak, capital)
+        drawdown = 1.0 - capital / peak if peak else 0.0
+        max_drawdown = max(max_drawdown, drawdown)
+        per_day.append({
+            "day": day, "n": len(day_executed),
+            "wins": sum(1 for item in day_executed if item["won"]),
+            "ret": capital / start - 1.0, "cap": capital, "dd": drawdown,
+            "stake": stake,
+        })
+
+    n = len(executed)
+    wins = sum(1 for signal in executed if signal["won"])
+    by_city = defaultdict(lambda: [0, 0])
+    for signal in executed:
+        by_city[signal["icao"]][0] += 1
+        by_city[signal["icao"]][1] += int(signal["won"])
+    return {
+        "n": n, "days": days, "wins": wins,
+        "hit": wins / n if n else 0.0,
+        "avg_price": (sum(signal["price"] for signal in executed) / n
+                      if n else 0.0),
+        "real_mult": capital, "real_dd": max_drawdown,
+        "per_day": per_day, "by_city": dict(by_city), "signals": executed,
+        "stake_frac": stake_frac, "n_capital_limited": constrained,
+        "n_stopped": 0,
+    }
 
 
 def _stats(signals: list, days: int) -> dict:

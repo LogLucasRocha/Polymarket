@@ -61,7 +61,8 @@ jobs:
 
       # Captura da temperatura MÍNIMA (lowest) — pendurada no digest porque o
       # cron do workflow próprio (lowtemp_live.yml) é estrangulado pelo GitHub e
-      # perderia a janela da madrugada. Aqui roda a cada 10 min de verdade.
+      # perderia a janela da madrugada. O disparo externo mantém 5 min; este
+      # schedule nativo de 10 min funciona como redundância.
       - name: Capturar temperatura mínima (observação)
         continue-on-error: true
         run: python -m lowtemp.capture

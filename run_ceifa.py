@@ -37,7 +37,10 @@ def main() -> int:
     # Backtest SÓ nos nossos snapshots capturados (dados/), como pedido —
     # nada do arquivo reconstruído de APIs. Restrito às cidades ATIVAS (°C);
     # as cidades °F em monitoramento saem no relatório separado (run_ceifa_f).
-    st = ceifa.simulate(log, icaos=set(config.STATIONS))
+    st = ceifa.simulate_repeated(
+        log, icaos=set(config.STATIONS),
+        interval_minutes=config.CEIFA_REPEAT_MINUTES,
+        stake_frac=config.CEIFA_STAKE_FRAC)
     text = backtest.ceifa_report_text(st)
 
     print("\n" + text.replace("<b>", "").replace("</b>", "")

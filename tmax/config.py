@@ -250,6 +250,8 @@ COND_ALERTS_ENABLED = False
 CEIFA_ENABLED = True
 CEIFA_PRICE_MIN = 0.95      # exclusivo: preço do NÃO > 0,95
 CEIFA_PRICE_MAX = 0.995     # exclusivo: preço do NÃO < 0,995
+CEIFA_STAKE_FRAC = 0.01     # parcela fixa sobre a banca apurada às 00h BRT
+CEIFA_REPEAT_MINUTES = 5    # nova parcela em cada rodada elegível
 
 # FILTRO DE INCERTEZA (decisão do Lucas, 22/07 — substitui o stop loss no
 # backtest). A Ceifa vende quase-certeza; em dia de ensemble muito largo na H-1

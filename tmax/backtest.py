@@ -701,20 +701,29 @@ def ceifa_report_text(st: dict, titulo: str | None = None,
     per_day = st.get("per_day", [])
     ndias = len(per_day) if per_day else st.get("days", 0)
     ret_med = (sum(d["ret"] for d in per_day) / len(per_day)) if per_day else 0.0
+    repeated = st.get("repeat_minutes") is not None
+    sizing = (f"1% da banca das 00h por parcela, a cada "
+              f"{st['repeat_minutes']} min" if repeated
+              else "10% da banca por entrada")
+    count_label = "Parcelas" if repeated else "Entradas"
 
     linhas = [
         cab,
         *([nota] if nota else []),
         f"Comprar NÃO em <b>{faixa}</b>, na hora antes do pico (H-1) · "
         f"{ndias} dia(s) com apostas",
-        f"• <b>Entradas:</b> {st['n']}",
+        f"• <b>{count_label}:</b> {st['n']}",
         f"• <b>Assertividade:</b> {st['hit']:.1%} "
         f"({st['wins']}/{st['n']})",
         f"• <b>Rendimento acumulado:</b> {(real - 1) * 100:+.1f}% "
-        "<i>(10% da banca por entrada)</i>",
+        f"<i>({sizing})</i>",
         f"• <b>Retorno diário médio:</b> {ret_med * 100:+.2f}%",
         _ceifa_filter_line(st),
     ]
+    if repeated and st.get("n_capital_limited", 0):
+        linhas.append(
+            f"• <b>Sem caixa:</b> {st['n_capital_limited']} parcela(s) "
+            "não executada(s), sem alavancagem")
     return "\n".join(linhas)
 
 
