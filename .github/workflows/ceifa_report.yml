@@ -63,7 +63,7 @@ jobs:
         if: steps.dedupe.outputs.skip != 'true'
         run: pip install -r requirements.txt
 
-      - name: Enviar relatório da Ceifa (cidades ativas °C)
+      - name: Enviar relatório da Ceifa (cidades ativas °C e °F)
         if: steps.dedupe.outputs.skip != 'true'
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
