@@ -352,12 +352,12 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
 def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                       warm_target_filter=True, interval_minutes: int = 5,
                       stake_frac: float = 0.01) -> dict:
-    """Ceifa parcelada: uma stake fixa a cada rodada elegível da H-1.
+    """Ceifa parcelada: uma stake relativa a cada rodada elegível da H-1.
 
-    A stake de cada parcela é ``stake_frac`` da banca no início do dia. Não há
-    teto por contrato; a única trava financeira é não usar mais caixa do que a
-    banca disponível (sem alavancagem). Cada snapshot respeita novamente preço,
-    livro, ensemble, nowcast e platô.
+    A stake de cada parcela é ``stake_frac`` do caixa ainda livre naquele
+    instante. Não há teto por contrato nem alavancagem; como a parcela diminui
+    junto com o saldo disponível, o caixa nunca é esgotado matematicamente.
+    Cada snapshot respeita novamente preço, livro, ensemble, nowcast e platô.
     """
     mkt = _load("mercado", archive)
     prev = _load("previsao", archive)
@@ -474,7 +474,8 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
             })
             last_entry_ts = entry_row["ts"]
 
-    stats = _stats_fixed_daily_stake(signals, mkt["dia"].nunique(), stake_frac)
+    stats = _stats_relative_available_stake(
+        signals, mkt["dia"].nunique(), stake_frac)
     stats.update({
         "repeat_minutes": interval_minutes,
         "n_filtrado": filtered,
@@ -489,23 +490,20 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
     return stats
 
 
-def _stats_fixed_daily_stake(signals: list, days: int,
-                             stake_frac: float) -> dict:
-    """Banca composta com parcela fixa sobre o capital do início de cada dia."""
+def _stats_relative_available_stake(signals: list, days: int,
+                                    stake_frac: float) -> dict:
+    """Parcela cada entrada com uma fração do caixa ainda disponível."""
     by_day: dict = defaultdict(list)
     for signal in signals:
         by_day[signal["day"]].append(signal)
     capital, peak, max_drawdown = 1.0, 1.0, 0.0
-    executed, per_day, constrained = [], [], 0
+    executed, per_day = [], []
     for day in sorted(by_day):
         start = capital
-        stake = stake_frac * start
         available, settled = start, 0.0
         day_executed = []
         for signal in sorted(by_day[day], key=lambda item: item["ts"]):
-            if available + 1e-12 < stake:
-                constrained += 1
-                continue
+            stake = stake_frac * available
             available -= stake
             settled += stake / signal["price"] if signal["won"] else 0.0
             placed = dict(signal, stake=stake)
@@ -519,7 +517,10 @@ def _stats_fixed_daily_stake(signals: list, days: int,
             "day": day, "n": len(day_executed),
             "wins": sum(1 for item in day_executed if item["won"]),
             "ret": capital / start - 1.0, "cap": capital, "dd": drawdown,
-            "stake": stake,
+            "first_stake": (day_executed[0]["stake"]
+                            if day_executed else 0.0),
+            "last_stake": (day_executed[-1]["stake"]
+                           if day_executed else 0.0),
         })
 
     n = len(executed)
@@ -535,7 +536,7 @@ def _stats_fixed_daily_stake(signals: list, days: int,
                       if n else 0.0),
         "real_mult": capital, "real_dd": max_drawdown,
         "per_day": per_day, "by_city": dict(by_city), "signals": executed,
-        "stake_frac": stake_frac, "n_capital_limited": constrained,
+        "stake_frac": stake_frac, "n_capital_limited": 0,
         "n_stopped": 0,
     }
 

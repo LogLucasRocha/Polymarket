@@ -16,7 +16,7 @@ Modo silencioso (decisão do Lucas, 12/07) — o Telegram só recebe:
      quando CEIFA_PRICE_MIN < preço do NÃO < CEIFA_PRICE_MAX (só o preço, mas
      só na janela H-1 — perto do pico há pouca incerteza). O alerta REPETE a
      cada rodada de 5 minutos da H-1, mesmo se já houver posição: cada aviso é
-     uma nova parcela de 1% da banca apurada às 00h de Brasília. A 1ª
+     uma nova parcela de 1% do saldo livre no momento do sinal. A 1ª
      aparição leva o bloco enxuto: um gráfico com a TRAJETÓRIA hora a hora + a
      distribuição (ensemble + TAF + mediana), e texto com o horário local,
      o pico previsto e a mediana (P10/P90) — SEM tabela de probabilidades;
@@ -60,7 +60,6 @@ import re
 import sys
 import time
 import unicodedata
-from zoneinfo import ZoneInfo
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -261,22 +260,11 @@ def main() -> int:
                 print(f"[{station.icao}] ERRO no alerta {kind}: {exc}",
                       file=sys.stderr)
 
-    # Stake fixa do dia: 1% do capital apurado na primeira rodada depois de
-    # 00:00 de Brasília. Capital = pUSD livre + valor atual das posições.
-    stake_state = state.get("ceifa_stake", {})
-    daily_stake = None
-    if wallet:
-        try:
-            stake_state = _ensure_daily_stake(wallet, stake_state)
-            daily_stake = float(stake_state["stake"])
-        except Exception as exc:  # tenta novamente na próxima rodada
-            print(f"[ceifa] ERRO ao apurar stake diária: {exc}", file=sys.stderr)
-
     # 2d) Ceifa (estratégia ATIVA e única): comprar o NÃO quando
     # CEIFA_PRICE_MIN < preço do NÃO < CEIFA_PRICE_MAX, na H-1, desde que os
     # vetos de incerteza (ensemble largo / nowcast quente) permitam. O
     # alerta REPETE em toda rodada elegível, mesmo quando já existe posição:
-    # cada aviso corresponde a uma nova parcela da stake diária fixa.
+    # cada aviso corresponde a uma nova parcela relativa ao saldo livre atual.
     ceifa_seen = set(state.get("ceifa", []))
     ceifa_last_sent = state.get("ceifa_last_sent", {})
     run_now_utc = dt.datetime.now(dt.timezone.utc)
@@ -294,7 +282,7 @@ def main() -> int:
     # ceifa.is_uncertain — backtest e ao vivo nunca divergem.
     spread_norm = _cap(ceifa.spread_norm_map) or {}
     spread_agora: dict[str, float | None] = {}     # cache por cidade (1 spread/dia)
-    if config.CEIFA_ENABLED and daily_stake is not None and daily_stake > 0:
+    if config.CEIFA_ENABLED:
         for k, v in signal_rows.items():
             icao = v["icao"]
             if v["yes"] is None:
@@ -345,6 +333,28 @@ def main() -> int:
             if k not in ceifa_seen:
                 ceifa_fresh.add(icao)
 
+    # Stake relativa: no instante de cada rodada com oportunidade, recomenda
+    # 1% do pUSD livre. Se as compras anteriores foram executadas, o próprio
+    # saldo menor reduz naturalmente a parcela seguinte.
+    free_pusd = None
+    if ceifa_pending:
+        if not wallet:
+            print("[ceifa] ERRO ao apurar stake atual: carteira não definida.",
+                  file=sys.stderr)
+            ceifa_pending = {}
+        else:
+            try:
+                free_pusd, first_stake = _current_ceifa_stake(wallet)
+                ceifa_pending = _allocate_relative_stakes(
+                    ceifa_pending, stations, free_pusd,
+                    config.CEIFA_STAKE_FRAC)
+                print(f"[ceifa] primeira stake atual: ${first_stake:.2f} "
+                      f"de ${free_pusd:.2f} livres.")
+            except Exception as exc:
+                print(f"[ceifa] ERRO ao apurar stake atual: {exc}",
+                      file=sys.stderr)
+                ceifa_pending = {}
+
     # 3) Um alerta por cidade com oportunidade de Ceifa. A PRIMEIRA aparição
     # leva o bloco enxuto (gráfico da distribuição do ensemble + TAF + mediana,
     # texto com pico e mediana P10/P90); as repetições vêm em texto curto, até
@@ -359,14 +369,14 @@ def main() -> int:
         try:
             if icao in ceifa_fresh and ctx is not None:
                 _send_ceifa_block(
-                    token, chat_id, station, ctx, contratos, daily_stake)
+                    token, chat_id, station, ctx, contratos)
                 _cap(lambda st=station, c=ctx: capture.record_report(
                     c["now"], st.icao, c["d0"], _report_snapshot(st, c)))
                 marca = "bloco"
             else:
                 notify.send_message(
                     token, chat_id,
-                    _ceifa_repeat_text(station, contratos, daily_stake))
+                    _ceifa_repeat_text(station, contratos))
                 marca = "repetição"
             if fp is not None:
                 station_state[icao] = fp
@@ -380,7 +390,7 @@ def main() -> int:
     _cap(lambda: capture.record_alerts(
         dt.datetime.now(dt.timezone.utc),
         _ceifa_alert_rows(
-            ceifa_pending, ceifa_seen, signal_rows, daily_stake)))
+            ceifa_pending, ceifa_seen, signal_rows)))
 
     # 4) Comandos e cliques de botão recebidos desde a última rodada
     # (getUpdates). É aqui que o relatório completo sai, sob demanda —
@@ -398,7 +408,6 @@ def main() -> int:
                         "cond_alerts": cond_state,
                         "ceifa": ceifa_keep,
                         "ceifa_last_sent": ceifa_last_sent,
-                        "ceifa_stake": stake_state,
                         "pnl_sent_at": state.get("pnl_sent_at", 0),
                         "commands_set": state.get("commands_set", False),
                         "tg_offset": tg_offset})
@@ -411,6 +420,33 @@ def main() -> int:
         print(f"[captura] {len(changed)} arquivo(s) consolidado(s) em dados/.")
 
     return 1 if len(errors) == len(stations) else 0
+
+
+def _current_ceifa_stake(wallet: str) -> tuple[float, float]:
+    """Saldo livre e sua parcela de 1%, consultados no momento do sinal."""
+    free_pusd = polymarket.fetch_pusd_balance(wallet)
+    stake = free_pusd * config.CEIFA_STAKE_FRAC
+    if stake <= 0:
+        raise ValueError("saldo livre da carteira está zerado")
+    return free_pusd, stake
+
+
+def _allocate_relative_stakes(pending: dict, stations, free_pusd: float,
+                              stake_frac: float) -> dict:
+    """Anexa a stake a cada contrato, abatendo as parcelas anteriores."""
+    remaining = free_pusd
+    allocated = {}
+    for station in stations:
+        contracts = pending.get(station.icao, [])
+        if not contracts:
+            continue
+        rows = []
+        for contract in contracts:
+            stake = remaining * stake_frac
+            remaining -= stake
+            rows.append((*contract, stake))
+        allocated[station.icao] = rows
+    return allocated
 
 
 def _collect_signal_rows(stations, contexts, yes_prob) -> dict:
@@ -630,29 +666,6 @@ def _save_digest_state(state: dict) -> None:
         print(f"AVISO: não salvou o estado do digest ({exc})", file=sys.stderr)
 
 
-def _ensure_daily_stake(wallet: str, previous: dict,
-                        now: dt.datetime | None = None) -> dict:
-    """Apura uma única vez a stake fixa do dia de Brasília."""
-    now_brt = (now or dt.datetime.now(ZoneInfo("America/Sao_Paulo"))).astimezone(
-        ZoneInfo("America/Sao_Paulo"))
-    day = now_brt.date().isoformat()
-    if previous.get("day") == day and float(previous.get("stake") or 0) > 0:
-        return previous
-
-    values = polymarket.fetch_portfolio_capital(wallet)
-    capital = float(values["capital"])
-    stake = capital * config.CEIFA_STAKE_FRAC
-    if stake <= 0:
-        raise ValueError("capital da carteira está zerado")
-    current = {
-        "day": day, "capital": round(capital, 6), "stake": round(stake, 6),
-        "free_pusd": round(float(values["free_pusd"]), 6),
-        "positions_value": round(float(values["positions_value"]), 6),
-    }
-    print(f"[ceifa] stake diária calculada: ${stake:.2f} de ${capital:.2f}.")
-    return current
-
-
 def _ceifa_send_due(last_sent: str | None, now_utc: dt.datetime,
                     interval_minutes: int) -> bool:
     """Impede parcelas duplicadas quando cron externo e fallback coincidem."""
@@ -829,16 +842,16 @@ def _peak_hour(ctx):
     return max(valid, key=lambda tv: tv[1])[0].hour if valid else None
 
 
-def _ceifa_text(station, ctx, contratos, stake_usd: float) -> str:
+def _ceifa_text(station, ctx, contratos) -> str:
     """Texto do alerta de Ceifa: as compras + pico previsto + mediana P10/P90."""
     q = ctx["dist_d0"]["quantiles"]
     pico = _peak_hour(ctx)
     linhas = [f"🌾 <b>Ceifa — {station.flag} {html.escape(station.city)} "
-              f"({station.icao})</b>",
-              f"Stake por contrato: <b>${stake_usd:,.2f}</b> (1% da banca 00h)"]
-    for _k, faixa, price, size in contratos:
+              f"({station.icao})</b>"]
+    for _k, faixa, price, size, stake in contratos:
         linhas.append(f"• Comprar <b>NÃO {html.escape(str(faixa))}</b> "
-                      f"@ ${price:.3f} · disponível: {size:g} cota(s)")
+                      f"@ ${price:.3f} · stake: <b>${stake:,.2f}</b> "
+                      f"· disponível: {size:g} cota(s)")
     agora = ctx["now"].strftime("%H:%M")
     pico_txt = f"{pico:02d}h" if pico is not None else "—"
     linhas.append(f"🕐 Agora: <b>{agora}</b> (local) · 📈 Pico previsto: "
@@ -848,47 +861,44 @@ def _ceifa_text(station, ctx, contratos, stake_usd: float) -> str:
     return "\n".join(linhas)
 
 
-def _ceifa_repeat_text(station, contratos, stake_usd: float) -> str:
+def _ceifa_repeat_text(station, contratos) -> str:
     """Repetição enxuta: cada rodada elegível autoriza uma nova parcela."""
     linhas = [f"🌾 <b>Ceifa — {station.flag} {html.escape(station.city)} "
-              f"({station.icao})</b> <i>(nova parcela)</i>",
-              f"Stake por contrato: <b>${stake_usd:,.2f}</b> (1% da banca 00h)"]
-    for _k, faixa, price, size in contratos:
+              f"({station.icao})</b> <i>(nova parcela)</i>"]
+    for _k, faixa, price, size, stake in contratos:
         linhas.append(f"• Comprar <b>NÃO {html.escape(str(faixa))}</b> "
-                      f"@ ${price:.3f} · disponível: {size:g} cota(s)")
+                      f"@ ${price:.3f} · stake: <b>${stake:,.2f}</b> "
+                      f"· disponível: {size:g} cota(s)")
     return "\n".join(linhas)
 
 
-def _send_ceifa_block(token, chat_id, station, ctx, contratos,
-                      stake_usd: float) -> None:
+def _send_ceifa_block(token, chat_id, station, ctx, contratos) -> None:
     """Bloco enxuto da Ceifa: divisor, texto (compra + pico + mediana) e o
     gráfico da distribuição (ensemble + TAF + mediana). Sem tabela de
     probabilidades e sem hora a hora."""
     notify.send_message(token, chat_id, notify.station_divider(station))
     notify.send_message(
-        token, chat_id, _ceifa_text(station, ctx, contratos, stake_usd))
+        token, chat_id, _ceifa_text(station, ctx, contratos))
     notify.send_photo(
         token, chat_id, notify.ceifa_chart_png(ctx),
         f"📈 <b>{html.escape(station.city)}</b> — trajetória hora a hora + "
         "distribuição da máxima de hoje (ensemble · TAF · mediana)")
 
 
-def _ceifa_alert_rows(ceifa_pending, ceifa_seen, signal_rows,
-                      stake_usd: float | None = None) -> list:
+def _ceifa_alert_rows(ceifa_pending, ceifa_seen, signal_rows) -> list:
     """Linhas estruturadas dos alertas de Ceifa desta rodada (para a captura),
     com a flag repeticao separando a entrada das repetições."""
     rows = []
     for icao, contratos in ceifa_pending.items():
         hloc = dt.datetime.now(config.STATIONS[icao].tz).hour
-        for k, faixa, price, size in contratos:
+        for k, faixa, price, size, stake_usd in contratos:
             v = signal_rows.get(k, {})
             mp = v.get("mp")
             rows.append({
                 "icao": icao, "dia": k.split(":")[1], "estrategia": "ceifa",
                 "faixa": faixa, "lado": "NAO", "preco": round(price, 4),
                 "volume_disponivel": round(size, 4),
-                "stake_usd": (round(stake_usd, 4)
-                              if stake_usd is not None else None),
+                "stake_usd": round(stake_usd, 4),
                 "modelo": (round(1.0 - mp, 4) if mp is not None else None),
                 "edge_pp": None, "hora_local": hloc,
                 "repeticao": k in ceifa_seen})

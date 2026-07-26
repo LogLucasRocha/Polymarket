@@ -702,7 +702,7 @@ def ceifa_report_text(st: dict, titulo: str | None = None,
     ndias = len(per_day) if per_day else st.get("days", 0)
     ret_med = (sum(d["ret"] for d in per_day) / len(per_day)) if per_day else 0.0
     repeated = st.get("repeat_minutes") is not None
-    sizing = (f"1% da banca das 00h por parcela, a cada "
+    sizing = (f"1% do caixa livre por parcela, a cada "
               f"{st['repeat_minutes']} min" if repeated
               else "10% da banca por entrada")
     count_label = "Parcelas" if repeated else "Entradas"
@@ -720,10 +720,6 @@ def ceifa_report_text(st: dict, titulo: str | None = None,
         f"• <b>Retorno diário médio:</b> {ret_med * 100:+.2f}%",
         _ceifa_filter_line(st),
     ]
-    if repeated and st.get("n_capital_limited", 0):
-        linhas.append(
-            f"• <b>Sem caixa:</b> {st['n_capital_limited']} parcela(s) "
-            "não executada(s), sem alavancagem")
     return "\n".join(linhas)
 
 
