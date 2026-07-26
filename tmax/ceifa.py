@@ -5,6 +5,8 @@ Regra (decisão do Lucas, 15/07): a entrada é SÓ em H-1 — a hora local anter
 ao pico previsto pelo modelo (H = pico_hora da base previsao). Nessa hora, se o
 preço do NÃO está na banda (CEIFA_PRICE_MIN, CEIFA_PRICE_MAX), é uma entrada.
 Perto do pico há pouca incerteza — é onde o mercado quase-certo é confiável.
+Antes de entrar, dois vetos usam apenas o snapshot da H-1: ensemble largo; ou
+nowcast >= +1°C com a faixa vendida dentro da região mediana−0,5°C a P90+0,5°C.
 
 Resolução pela convergência do preço: o NÃO venceu se o preço do NÃO no fim do
 dia foi para ~1,0. Stop: se depois da entrada o preço do NÃO cair
@@ -14,6 +16,7 @@ STOP_EXIT_FRAC abaixo da entrada, sai a −STOP_EXIT_FRAC (alerta a −10%, saí
 from __future__ import annotations
 
 import datetime as dt
+import re
 from collections import defaultdict
 
 import pandas as pd
@@ -47,10 +50,6 @@ def _tz(icao: str):
     return dt.timezone.utc
 
 
-def _local_hour(g: pd.DataFrame) -> pd.Series:
-    return g["ts"].dt.tz_convert(_tz(g.name)).dt.hour
-
-
 def spread_norm_map(archive=ARCHIVE) -> dict:
     """Spread NORMAL (mediana histórica de teto_ens − mediana) por estação, a
     partir do lago de dados. É a base do filtro relativo — usado tanto no
@@ -76,13 +75,53 @@ def is_uncertain(icao, spread, spread_norm) -> bool:
     return norm is not None and norm > 0 and spread >= config.CEIFA_SPREAD_REL * norm
 
 
-def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE) -> dict:
+def _station_unit(icao: str) -> str:
+    """Unidade do contrato; as previsões armazenadas permanecem em °C."""
+    for stations in (config.STATIONS, config.STATIONS_FAHRENHEIT,
+                     getattr(config, "STATIONS_OBSERVE", {})):
+        station = stations.get(icao)
+        if station is not None:
+            return station.unit
+    return "C"
+
+
+def target_temperature_c(icao: str, faixa) -> float | None:
+    """Extrai o primeiro limite da faixa do mercado e normaliza para °C."""
+    match = re.search(r"-?\d+(?:[.,]\d+)?", str(faixa or ""))
+    if not match:
+        return None
+    value = float(match.group(0).replace(",", "."))
+    return (value - 32.0) * 5.0 / 9.0 if _station_unit(icao) == "F" else value
+
+
+def is_warm_target_risk(icao: str, faixa, nowcast_shift, mediana, p90) -> bool:
+    """Veta faixa plausível quando o dia roda >=1°C acima do ensemble.
+
+    A regra usa somente informações disponíveis na H-1. ``faixa`` pode estar
+    em °C ou °F; mediana, P90 e nowcast_shift são sempre armazenados em °C.
+    """
+    if not config.CEIFA_NOWCAST_FILTER:
+        return False
+    if any(v is None or pd.isna(v) for v in (nowcast_shift, mediana, p90)):
+        return False
+    target = target_temperature_c(icao, faixa)
+    if target is None:
+        return False
+    margin = config.CEIFA_TARGET_MARGIN
+    return (float(nowcast_shift) >= config.CEIFA_NOWCAST_SHIFT_MIN
+            and float(mediana) - margin <= target <= float(p90) + margin)
+
+
+def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
+             warm_target_filter=True) -> dict:
     """Roda a Ceifa (entrada em H-1) nos snapshots e devolve estatísticas no
     formato que backtest.ceifa_report_text espera.
 
     icaos: se dado, restringe a análise a esse conjunto de estações (para
     separar o relatório das ativas em °C do das cidades °F em monitoramento).
     archive: raiz do lago de dados (padrão dados/ = máxima; dados_low/ = mínima).
+    warm_target_filter: desliga o veto de nowcast quente nos relatórios de
+    mínima, onde a direção de risco é diferente.
     A base 'previsao' guarda a hora do extremo em pico_hora — para o Lowest é a
     hora mais FRIA, então a entrada em H-1 sai natural sem mudar este código.
     """
@@ -99,26 +138,41 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE) -> dict:
     # H (hora do pico previsto) por cidade-dia = moda da pico_hora
     Hs = (prev.dropna(subset=["pico_hora"]).groupby(["icao", "dia"])["pico_hora"]
              .agg(lambda s: int(s.mode().iat[0])).to_dict())
-    mkt["hloc"] = mkt.groupby("icao", group_keys=False).apply(_local_hour)
+    # ``groupby.apply`` devolve DataFrame (em vez de Series) quando existe uma
+    # única cidade em algumas versões do pandas; transform mantém o índice e o
+    # formato estáveis tanto no relatório completo quanto em recortes locais.
+    mkt["hloc"] = mkt.groupby("icao")["ts"].transform(
+        lambda s: s.dt.tz_convert(_tz(s.name)).dt.hour)
 
     # Incerteza do ensemble = teto_ens − mediana. Guardamos as séries por
     # (icao, dia) para pegar o spread NA H-1, e a mediana por cidade para o
     # filtro relativo (spread alto RELATIVO ao normal daquela estação).
-    ps = prev.dropna(subset=["teto_ens", "mediana"]).copy()
-    ps["spread"] = ps["teto_ens"] - ps["mediana"]
-    spread_norm = ps.groupby("icao")["spread"].median().to_dict()
-    spread_by = {k: v.sort_values("ts") for k, v in ps.groupby(["icao", "dia"])}
+    # O lago de temperatura mínima guarda somente a hora do extremo; nesse
+    # caso não há métricas de ensemble e os vetos meteorológicos são pulados.
+    forecast_cols = {"teto_ens", "mediana"}
+    if forecast_cols.issubset(prev.columns):
+        ps = prev.dropna(subset=list(forecast_cols)).copy()
+        ps["spread"] = ps["teto_ens"] - ps["mediana"]
+        spread_norm = ps.groupby("icao")["spread"].median().to_dict()
+        spread_by = {
+            k: v.sort_values("ts") for k, v in ps.groupby(["icao", "dia"])
+        }
+    else:
+        spread_norm = {}
+        spread_by = {}
 
-    def spread_na_entrada(icao, dia, e_ts):
+    def previsao_na_entrada(icao, dia, e_ts):
         d = spread_by.get((icao, dia))
         if d is None:
             return None
         ate = d[d["ts"] <= e_ts]
-        return float(ate["spread"].iloc[-1]) if len(ate) else None
+        return ate.iloc[-1] if len(ate) else None
 
     pmin, pmax = config.CEIFA_PRICE_MIN, config.CEIFA_PRICE_MAX
     signals = []
     n_filtrado = 0
+    n_filtrado_spread = 0
+    n_filtrado_nowcast = 0
     n_filtrado_100c = 0
     n_filtrado_0c = 0
     for (icao, dia, faixa), g in mkt.groupby(["icao", "dia", "faixa"]):
@@ -137,9 +191,22 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE) -> dict:
             continue                              # dia ainda em aberto
         # FILTRO DE INCERTEZA (no lugar do stop): não entra em dia de ensemble
         # largo na H-1 — é onde o estouro (NÃO → zero) acontece.
-        spr = spread_na_entrada(icao, dia, e["ts"])
+        forecast = previsao_na_entrada(icao, dia, e["ts"])
+        spr = float(forecast["spread"]) if forecast is not None else None
         if is_uncertain(icao, spr, spread_norm):
             n_filtrado += 1
+            n_filtrado_spread += 1
+            if nao_final > 0.5:
+                n_filtrado_100c += 1
+            else:
+                n_filtrado_0c += 1
+            continue
+        if (warm_target_filter and forecast is not None
+                and is_warm_target_risk(
+                    icao, faixa, forecast.get("nowcast_shift"),
+                    forecast.get("mediana"), forecast.get("p90"))):
+            n_filtrado += 1
+            n_filtrado_nowcast += 1
             if nao_final > 0.5:
                 n_filtrado_100c += 1
             else:
@@ -155,6 +222,8 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE) -> dict:
         f"{n_filtrado} cortadas por incerteza.")
     st = _stats(signals, mkt["dia"].nunique())
     st["n_filtrado"] = n_filtrado
+    st["n_filtrado_spread"] = n_filtrado_spread
+    st["n_filtrado_nowcast"] = n_filtrado_nowcast
     st["n_filtrado_100c"] = n_filtrado_100c
     st["n_filtrado_0c"] = n_filtrado_0c
     return st

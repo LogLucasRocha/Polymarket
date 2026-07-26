@@ -36,7 +36,7 @@ def main() -> int:
 
     log = lambda msg: print(msg, flush=True)  # noqa: E731
     st = ceifa.simulate(log, icaos=set(config.STATIONS_FAHRENHEIT),
-                        archive=ARCHIVE)
+                        archive=ARCHIVE, warm_target_filter=False)
     text = backtest.ceifa_report_text(st, titulo=TITULO, nota=NOTA)
 
     print("\n" + text.replace("<b>", "").replace("</b>", "")
