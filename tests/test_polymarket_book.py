@@ -59,5 +59,24 @@ class ExecutableBookTests(unittest.TestCase):
         self.assertIsNone(event["rows"][0]["no_ask_size"])
 
 
+class PortfolioCapitalTests(unittest.TestCase):
+    @patch("tmax.polymarket.fetch_positions_value", return_value=618.42)
+    @patch("tmax.polymarket.fetch_pusd_balance", return_value=410.12)
+    def test_capital_is_free_collateral_plus_positions(self, _balance, _value):
+        result = polymarket.fetch_portfolio_capital("0x" + "1" * 40)
+        self.assertAlmostEqual(result["capital"], 1028.54)
+
+    @patch("tmax.polymarket.requests.post")
+    def test_reads_six_decimal_pusd_balance_on_polygon(self, post):
+        response = Mock()
+        response.json.return_value = {"result": hex(10_285_400)}
+        post.return_value = response
+
+        result = polymarket.fetch_pusd_balance("0x" + "1" * 40)
+
+        self.assertAlmostEqual(result, 10.2854)
+        response.raise_for_status.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()

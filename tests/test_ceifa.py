@@ -139,6 +139,38 @@ class WarmTargetRiskTests(unittest.TestCase):
 
             self.assertEqual(result["n"], 0)
 
+    def test_repeated_strategy_adds_fixed_one_percent_every_five_minutes(self):
+        with TemporaryDirectory() as tmp:
+            archive = Path(tmp)
+            (archive / "mercado").mkdir()
+            (archive / "previsao").mkdir()
+            market_rows = [
+                {"ts_utc": f"2026-07-26T13:{minute:02d}:00Z", "icao": "EGLC",
+                 "dia": "2026-07-26", "faixa": "30°C",
+                 "preco_sim": 0.02, "preco_nao": 0.98}
+                for minute in (0, 5, 10)
+            ]
+            market_rows.append({
+                "ts_utc": "2026-07-26T18:00:00Z", "icao": "EGLC",
+                "dia": "2026-07-26", "faixa": "30°C",
+                "preco_sim": 0.01, "preco_nao": 0.99})
+            pd.DataFrame(market_rows).to_parquet(
+                archive / "mercado" / "day.parquet", index=False)
+            pd.DataFrame([{
+                "ts_utc": "2026-07-26T12:59:00Z", "icao": "EGLC",
+                "dia": "2026-07-26", "pico_hora": 15,
+            }]).to_parquet(archive / "previsao" / "day.parquet", index=False)
+
+            result = ceifa.simulate_repeated(
+                icaos={"EGLC"}, archive=archive, warm_target_filter=False,
+                interval_minutes=5, stake_frac=0.01)
+
+            self.assertEqual(result["n"], 3)
+            self.assertEqual(result["wins"], 3)
+            self.assertAlmostEqual(
+                result["real_mult"], 1 + 3 * 0.01 * (1 / 0.98 - 1))
+            self.assertTrue(all(s["stake"] == 0.01 for s in result["signals"]))
+
 
 if __name__ == "__main__":
     unittest.main()

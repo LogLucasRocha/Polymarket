@@ -23,6 +23,8 @@ from . import config
 DATA_API = "https://data-api.polymarket.com"
 GAMMA_API = "https://gamma-api.polymarket.com"
 CLOB_API = "https://clob.polymarket.com"
+POLYGON_RPC = "https://polygon-bor-rpc.publicnode.com"
+PUSD_CONTRACT = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB"
 
 # Cidade no título do mercado (em inglês) → ICAO da estação que resolve o
 # mercado (a estação vem da descrição oficial de cada mercado).
@@ -116,6 +118,44 @@ def fetch_positions(wallet: str, timeout: int = 30) -> list[dict]:
     r.raise_for_status()
     data = r.json()
     return data if isinstance(data, list) else []
+
+
+def fetch_positions_value(wallet: str, timeout: int = 30) -> float:
+    """Valor marcado a mercado de todas as posições da carteira."""
+    response = requests.get(
+        f"{DATA_API}/value", params={"user": wallet},
+        headers={"User-Agent": config.USER_AGENT}, timeout=timeout)
+    response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, list) or not data:
+        return 0.0
+    return float(data[0].get("value") or 0.0)
+
+
+def fetch_pusd_balance(wallet: str, timeout: int = 30) -> float:
+    """Saldo livre de pUSD no endereço Polygon (ERC-20, seis decimais)."""
+    address = str(wallet).lower().removeprefix("0x")
+    if len(address) != 40 or any(c not in "0123456789abcdef" for c in address):
+        raise ValueError("endereço POLYMARKET_WALLET inválido")
+    calldata = "0x70a08231" + address.rjust(64, "0")  # balanceOf(address)
+    response = requests.post(
+        POLYGON_RPC,
+        json={"jsonrpc": "2.0", "id": 1, "method": "eth_call",
+              "params": [{"to": PUSD_CONTRACT, "data": calldata}, "latest"]},
+        headers={"User-Agent": config.USER_AGENT}, timeout=timeout)
+    response.raise_for_status()
+    result = response.json().get("result")
+    if not isinstance(result, str) or not result.startswith("0x"):
+        raise ValueError("RPC Polygon não devolveu o saldo de pUSD")
+    return int(result, 16) / 1_000_000
+
+
+def fetch_portfolio_capital(wallet: str, timeout: int = 30) -> dict:
+    """Capital total = pUSD livre + valor atual das posições."""
+    free = fetch_pusd_balance(wallet, timeout)
+    positions = fetch_positions_value(wallet, timeout)
+    return {"free_pusd": free, "positions_value": positions,
+            "capital": free + positions}
 
 
 def _as_list(v) -> list:
