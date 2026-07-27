@@ -1,5 +1,6 @@
 import unittest
 
+import run_ceifa_low
 from tmax import config, polymarket
 
 
@@ -20,6 +21,13 @@ class StationPromotionTests(unittest.TestCase):
         for icao in config.STATIONS_FAHRENHEIT:
             with self.subTest(icao=icao):
                 self.assertEqual(config.STATIONS[icao].unit, "F")
+
+    def test_minimum_report_unifies_both_units(self):
+        icaos = run_ceifa_low.minimum_station_icaos()
+
+        self.assertEqual(icaos, set(config.STATIONS))
+        self.assertEqual({config.STATIONS[icao].unit for icao in icaos},
+                         {"C", "F"})
 
     def test_promoted_city_market_titles_are_recognized(self):
         titles = {

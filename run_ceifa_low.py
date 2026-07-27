@@ -1,7 +1,7 @@
-"""Relatório diário da Ceifa na temperatura MÍNIMA (lowest) — monitoramento.
+"""Relatório diário unificado da Ceifa na temperatura MÍNIMA — monitoramento.
 
-Lê o lago dados_low/ e restringe o estudo às cidades cujos contratos resolvem
-em °C. Roda no cron das 06:00 em modo observação: não aposta.
+Lê o lago dados_low/ e reúne as cidades cujos contratos resolvem em °C e °F.
+Roda no cron das 06:00 em modo observação: não aposta.
 
 Uso local: python run_ceifa_low.py [--no-telegram]
 """
@@ -24,9 +24,15 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 from tmax import backtest, ceifa, config, notify
 
 ARCHIVE = config.ROOT / "dados_low"
-TITULO = "❄️ <b>Ceifa Mínima °C — monitoramento (nossos snapshots)</b>"
-NOTA = ("<i>Temperatura MÍNIMA (lowest) das cidades em °C — observação, ainda "
-        "sem apostar. H-1 = hora antes do mínimo previsto.</i>")
+TITULO = "❄️ <b>Ceifa Mínima — monitoramento (nossos snapshots)</b>"
+NOTA = ("<i>Temperatura MÍNIMA (lowest) das cidades em °C e °F — observação, "
+        "ainda sem apostar. Cada contrato preserva sua unidade original; "
+        "H-1 = hora antes do mínimo previsto.</i>")
+
+
+def minimum_station_icaos() -> set[str]:
+    """Todas as cidades do estudo de mínima, independentemente da unidade."""
+    return set(config.STATIONS)
 
 
 def main() -> int:
@@ -35,9 +41,7 @@ def main() -> int:
     args = ap.parse_args()
 
     log = lambda msg: print(msg, flush=True)  # noqa: E731
-    celsius_icaos = {icao for icao, station in config.STATIONS.items()
-                     if station.unit == "C"}
-    st = ceifa.simulate(log, icaos=celsius_icaos, archive=ARCHIVE,
+    st = ceifa.simulate(log, icaos=minimum_station_icaos(), archive=ARCHIVE,
                         warm_target_filter=False)
     text = backtest.ceifa_report_text(st, titulo=TITULO, nota=NOTA)
 
