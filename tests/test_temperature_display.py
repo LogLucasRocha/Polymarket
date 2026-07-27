@@ -55,6 +55,10 @@ class TemperatureDisplayTests(unittest.TestCase):
                             if line.get_label() == "Observado (METAR)")
             self.assertEqual(ax.get_ylabel(), "°F")
             self.assertAlmostEqual(observed.get_ydata()[0], 32.0)
+            major = ax.yaxis.get_major_locator().tick_values(70, 76)
+            minor = ax.yaxis.get_minor_locator().tick_values(70, 76)
+            self.assertTrue(all(b - a == 2 for a, b in zip(major, major[1:])))
+            self.assertTrue(all(b - a == 1 for a, b in zip(minor, minor[1:])))
         finally:
             plt.close(fig)
 

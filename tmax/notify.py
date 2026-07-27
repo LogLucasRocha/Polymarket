@@ -16,6 +16,7 @@ import matplotlib
 matplotlib.use("Agg")  # sem display (roda no GitHub Actions)
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 import requests
 
 from . import config, distribution
@@ -99,6 +100,11 @@ def _draw_hourly(ax, ctx) -> None:
     ax.xaxis.set_major_formatter(
         mdates.DateFormatter("%d/%m\n%Hh", tz=times[0].tzinfo))
     ax.set_ylabel(f"°{unit}")
+    if unit == "F":
+        ax.yaxis.set_major_locator(mticker.MultipleLocator(2))
+        ax.yaxis.set_minor_locator(mticker.MultipleLocator(1))
+        ax.grid(which="minor", axis="y", color="#ececec", linewidth=0.4)
+        ax.tick_params(axis="y", which="minor", length=2)
     ax.set_title("Trajetória horária (hora local)", fontsize=11)
     ax.legend(loc="upper left", fontsize=8, framealpha=0.9)
 
