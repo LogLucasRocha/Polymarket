@@ -67,7 +67,10 @@ class TemperatureDisplayTests(unittest.TestCase):
         station = SimpleNamespace(
             unit="F", flag="🇺🇸", city="Chicago", icao="KORD")
         ctx = {
-            "dist_d0": {"quantiles": {10: 25.0, 50: 26.0, 90: 27.0}},
+            "dist_d0": {
+                "quantiles": {10: 25.0, 50: 26.0, 90: 27.0},
+                "comps": [(25.5, 1.0), (28.0, 1.2)],
+            },
             "now": dt.datetime(2026, 7, 26, 14, 30),
         }
 
@@ -76,6 +79,7 @@ class TemperatureDisplayTests(unittest.TestCase):
 
         self.assertIn("Mediana: <b>78.8 °F</b>", message)
         self.assertIn("P10 77.0 · P90 80.6", message)
+        self.assertIn("Teto ens. 82.4 °F", message)
 
 
 if __name__ == "__main__":

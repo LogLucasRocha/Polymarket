@@ -28,12 +28,21 @@ class DailyStakeTests(unittest.TestCase):
             "2026-07-26T13:00:00+00:00", now, 5))
 
     def test_purchase_message_contains_stake_per_contract(self):
-        station = SimpleNamespace(flag="🇨🇦", city="Toronto", icao="CYYZ")
+        station = SimpleNamespace(
+            flag="🇨🇦", city="Toronto", icao="CYYZ", unit="C")
+        ctx = {
+            "dist_d0": {
+                "quantiles": {10: 25.0, 50: 26.0, 90: 27.0},
+                "comps": [(25.5, 1.0), (28.2, 1.2)],
+            },
+        }
         text = send_telegram._ceifa_repeat_text(
-            station, [("key", "30°C", 0.97, 25, 10.32)])
+            station, ctx, [("key", "30°C", 0.97, 25, 10.32)])
 
         self.assertIn("stake: <b>$10.32</b>", text)
         self.assertIn("Comprar <b>NÃO 30°C</b>", text)
+        self.assertIn("Mediana: <b>26.0 °C</b>", text)
+        self.assertIn("Teto ens. 28.2 °C", text)
 
     def test_allocates_each_simultaneous_signal_from_remaining_cash(self):
         stations = [SimpleNamespace(icao="A"), SimpleNamespace(icao="B")]

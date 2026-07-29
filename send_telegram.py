@@ -354,8 +354,8 @@ def main() -> int:
 
     # 3) Um alerta por cidade com oportunidade de Ceifa. A PRIMEIRA aparição
     # leva o bloco enxuto (gráfico da distribuição do ensemble + TAF + mediana,
-    # texto com pico e mediana P10/P90); as repetições vêm em texto curto, até
-    # você ter posição. Sem tabela de probabilidades e sem hora a hora.
+    # texto com pico, mediana, P10/P90 e teto); as repetições também mostram o
+    # resumo do ensemble, mas continuam sem gráfico ou hora a hora.
     for station in stations:
         icao = station.icao
         contratos = ceifa_pending.get(icao)
@@ -373,7 +373,7 @@ def main() -> int:
             else:
                 notify.send_message(
                     token, chat_id,
-                    _ceifa_repeat_text(station, contratos))
+                    _ceifa_repeat_text(station, ctx, contratos))
                 marca = "repetição"
             if fp is not None:
                 station_state[icao] = fp
@@ -839,13 +839,27 @@ def _peak_hour(ctx):
     return max(valid, key=lambda tv: tv[1])[0].hour if valid else None
 
 
-def _ceifa_text(station, ctx, contratos) -> str:
-    """Texto do alerta de Ceifa: as compras + pico previsto + mediana P10/P90."""
+def _ceifa_distribution_line(station, ctx) -> str:
+    """Resumo da distribuição corrigida exibido em todo aviso de parcela."""
     q = ctx["dist_d0"]["quantiles"]
     unit = station.unit
     q10 = notify.temperature_for_unit(q.get(10), unit)
     q50 = notify.temperature_for_unit(q.get(50), unit)
     q90 = notify.temperature_for_unit(q.get(90), unit)
+    member_values = [
+        component[0] for component in ctx["dist_d0"].get("comps", [])
+        if component and component[0] is not None
+    ]
+    ceiling = (notify.temperature_for_unit(max(member_values), unit)
+               if member_values else None)
+    details = f"P10 {q10:.1f} · P90 {q90:.1f}"
+    if ceiling is not None:
+        details += f" · Teto ens. {ceiling:.1f} °{unit}"
+    return f"📊 Mediana: <b>{q50:.1f} °{unit}</b> ({details})"
+
+
+def _ceifa_text(station, ctx, contratos) -> str:
+    """Alerta de Ceifa: compras, pico, quantis e teto do ensemble corrigido."""
     pico = _peak_hour(ctx)
     linhas = [f"🌾 <b>Ceifa — {station.flag} {html.escape(station.city)} "
               f"({station.icao})</b>"]
@@ -857,19 +871,19 @@ def _ceifa_text(station, ctx, contratos) -> str:
     pico_txt = f"{pico:02d}h" if pico is not None else "—"
     linhas.append(f"🕐 Agora: <b>{agora}</b> (local) · 📈 Pico previsto: "
                   f"<b>{pico_txt}</b>")
-    linhas.append(f"📊 Mediana: <b>{q50:.1f} °{unit}</b> "
-                  f"(P10 {q10:.1f} · P90 {q90:.1f})")
+    linhas.append(_ceifa_distribution_line(station, ctx))
     return "\n".join(linhas)
 
 
-def _ceifa_repeat_text(station, contratos) -> str:
-    """Repetição enxuta: cada rodada elegível autoriza uma nova parcela."""
+def _ceifa_repeat_text(station, ctx, contratos) -> str:
+    """Nova parcela com preço, stake e resumo atual do ensemble."""
     linhas = [f"🌾 <b>Ceifa — {station.flag} {html.escape(station.city)} "
               f"({station.icao})</b> <i>(nova parcela)</i>"]
     for _k, faixa, price, size, stake in contratos:
         linhas.append(f"• Comprar <b>NÃO {html.escape(str(faixa))}</b> "
                       f"@ ${price:.3f} · stake: <b>${stake:,.2f}</b> "
                       f"· disponível: {size:g} cota(s)")
+    linhas.append(_ceifa_distribution_line(station, ctx))
     return "\n".join(linhas)
 
 
