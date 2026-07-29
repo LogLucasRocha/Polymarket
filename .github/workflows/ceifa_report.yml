@@ -1,13 +1,10 @@
 name: Relatório diário da Ceifa
 
 on:
-  schedule:
-    - cron: "0 9 * * *"        # 09:00 UTC = 06:00 em Brasília
   workflow_dispatch:
 
 permissions:
   contents: read
-  actions: read
 
 concurrency:
   group: ceifa-report
@@ -21,50 +18,16 @@ jobs:
       - name: Checkout do repositório
         uses: actions/checkout@v5
 
-      # O watchdog do workflow principal dispara este relatório às 09:00 UTC.
-      # O schedule nativo costuma chegar 1–2 h atrasado; sem esta guarda, ele
-      # envia o mesmo relatório novamente. Mantemos o schedule como fallback.
-      - name: Evitar relatório agendado duplicado
-        id: dedupe
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
-        run: |
-          if [ "${{ github.event_name }}" != "schedule" ]; then
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          hoje=$(date -u +%F)
-          if ! runs=$(curl --fail --silent --show-error \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            "https://api.github.com/repos/$REPO/actions/workflows/ceifa_report.yml/runs?created=$hoje..$hoje&per_page=20"); then
-            echo "consulta falhou — mantendo o relatório como fallback"
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          anterior=$(echo "$runs" | python3 -c "import json,os,sys; d=json.load(sys.stdin); rid=int(os.environ['RUN_ID']); print('sim' if any(r['id'] != rid and r.get('conclusion') == 'success' for r in d.get('workflow_runs', [])) else 'nao')")
-          if [ "$anterior" = "sim" ]; then
-            echo "relatório de hoje já foi enviado — schedule tardio ignorado"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "nenhum relatório anterior — executando fallback agendado"
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Instalar Python
-        if: steps.dedupe.outputs.skip != 'true'
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
 
       - name: Instalar dependências
-        if: steps.dedupe.outputs.skip != 'true'
         run: pip install -r requirements.txt
 
       - name: Enviar relatório da Ceifa (cidades ativas °C e °F)
-        if: steps.dedupe.outputs.skip != 'true'
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -72,7 +35,6 @@ jobs:
 
       # Monitoramento unificado da temperatura MÍNIMA (lowest), em °C e °F.
       - name: Enviar relatório da Ceifa Mínima (°C e °F)
-        if: steps.dedupe.outputs.skip != 'true'
         continue-on-error: true
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
