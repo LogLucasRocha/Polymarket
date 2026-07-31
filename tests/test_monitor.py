@@ -14,6 +14,16 @@ from tmax import monitor
 
 
 class MonitorTest(unittest.TestCase):
+    def test_city_frame_is_empty_without_raising_when_strategy_has_no_entries(self):
+        frame = monitor.city_frame({"by_city": {}})
+
+        self.assertTrue(frame.empty)
+        self.assertEqual(
+            frame.columns.tolist(),
+            ["Cidade", "ICAO", "Parcelas", "Acertos", "Erros",
+             "Assertividade"],
+        )
+
     def test_dashboard_refresh_updates_only_archive_paths(self):
         replies = [
             SimpleNamespace(returncode=0, stdout="", stderr=""),
