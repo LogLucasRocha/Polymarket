@@ -11,6 +11,18 @@ from tmax import ceifa
 
 
 class WarmTargetRiskTests(unittest.TestCase):
+    def test_intraday_price_is_not_treated_as_resolved_before_zero_or_one(self):
+        open_group = pd.DataFrame([{
+            "preco_nao": 0.98, "snapshot_live": True,
+        }])
+        resolved_group = pd.DataFrame([{
+            "preco_nao": 1.0, "snapshot_live": True,
+        }])
+
+        self.assertIsNone(ceifa._resolved_price(open_group, "preco_nao"))
+        self.assertEqual(
+            ceifa._resolved_price(resolved_group, "preco_nao"), 1.0)
+
     def test_blocks_london_case(self):
         self.assertTrue(ceifa.is_warm_target_risk(
             "EGLC", "27°C", 1.2, 26.2, 27.5))

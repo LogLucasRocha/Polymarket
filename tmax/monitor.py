@@ -3,62 +3,171 @@ from __future__ import annotations
 
 import datetime as dt
 import gzip
+import io
 import json
+import shutil
 import subprocess
+from collections import defaultdict
 from pathlib import Path
+from pathlib import PurePosixPath
+from zipfile import BadZipFile, ZipFile
 from zoneinfo import ZoneInfo
 
 import pandas as pd
+import requests
 
 from . import ceifa, config
 
 MAXIMUM_ARCHIVE = config.ROOT / "dados"
 MINIMUM_ARCHIVE = config.ROOT / "dados_low"
+MAXIMUM_LIVE_ARCHIVE = config.ROOT / "dados_live"
+MINIMUM_LIVE_ARCHIVE = config.ROOT / "dados_low_live"
+LIVE_RELEASE_API = (
+    "https://api.github.com/repos/LogLucasRocha/Polymarket/"
+    "releases/tags/ceifa-live")
 
 
-def sync_dashboard_data() -> dict:
-    """Sincroniza somente os arquivos de dados com o ``main`` remoto.
-
-    O dashboard local contém código e atalhos próprios que podem estar
-    modificados. Atualizar apenas ``dados/`` e ``dados_low/`` evita que essas
-    alterações bloqueiem a chegada dos snapshots publicados pelo workflow.
-    """
+def _sync_committed_archives() -> dict:
+    """Atualiza as partições diárias já consolidadas na branch principal."""
     def run(*args: str):
         return subprocess.run(
             ["git", *args], cwd=config.ROOT, capture_output=True, text=True,
             timeout=60, check=False)
 
-    try:
-        fetched = run("fetch", "origin", "--quiet")
-        if fetched.returncode:
-            return {"ok": False, "updated": False,
-                    "message": "Não consegui baixar os dados do GitHub."}
-        archives = ("dados", "dados_low")
-        compared = run("diff", "--quiet", "origin/main", "--", *archives)
-        if compared.returncode not in (0, 1):
-            return {
-                "ok": False, "updated": False,
-                "message": "Não consegui comparar os arquivos de dados.",
-            }
-        if compared.returncode == 0:
-            return {
-                "ok": True, "updated": False,
-                "message": "Você já estava com os dados mais recentes.",
-            }
-        restored = run(
-            "restore", "--source=origin/main", "--worktree", "--", *archives)
-        if restored.returncode:
-            return {
-                "ok": False, "updated": False,
-                "message": "Não consegui atualizar os arquivos de dados.",
-            }
-        return {
-            "ok": True, "updated": True,
-            "message": "Dados novos baixados e indicadores recalculados.",
-        }
-    except (OSError, subprocess.SubprocessError):
+    fetched = run("fetch", "origin", "--quiet")
+    if fetched.returncode:
         return {"ok": False, "updated": False,
-                "message": "A atualização automática não pôde ser concluída."}
+                "message": "Não consegui baixar o histórico do GitHub."}
+    archives = ("dados", "dados_low")
+    compared = run("diff", "--quiet", "origin/main", "--", *archives)
+    if compared.returncode not in (0, 1):
+        return {"ok": False, "updated": False,
+                "message": "Não consegui comparar o histórico."}
+    if compared.returncode == 0:
+        return {"ok": True, "updated": False,
+                "message": "Histórico diário já atualizado."}
+    restored = run(
+        "restore", "--source=origin/main", "--worktree", "--", *archives)
+    if restored.returncode:
+        return {"ok": False, "updated": False,
+                "message": "Não consegui atualizar os arquivos de dados."}
+    return {"ok": True, "updated": True,
+            "message": "Histórico diário atualizado."}
+
+
+def _write_live_frames(rows_by_archive: dict[tuple[str, str], list[dict]]) -> int:
+    """Materializa o JSONL intradiário como Parquet separado do histórico."""
+    build_root = config.DATA_DIR / "dashboard_live_build"
+    shutil.rmtree(build_root, ignore_errors=True)
+    roots = {
+        "maximum": build_root / "dados_live",
+        "minimum": build_root / "dados_low_live",
+    }
+    written = 0
+    for (kind, base), rows in rows_by_archive.items():
+        if not rows:
+            continue
+        frame = pd.DataFrame(rows)
+        if frame.empty or "dia" not in frame:
+            continue
+        frame["snapshot_live"] = True
+        per_icao = base in {"mercado", "previsao", "nowcast"}
+        groups = (["icao", "dia"] if per_icao and "icao" in frame
+                  else ["dia"])
+        for key, group in frame.groupby(groups):
+            values = key if isinstance(key, tuple) else (key,)
+            day = str(values[-1])
+            destination = roots[kind] / base
+            if per_icao:
+                destination /= str(values[0])
+            destination.mkdir(parents=True, exist_ok=True)
+            group.to_parquet(destination / f"{day}.parquet", index=False)
+            written += len(group)
+
+    if not written:
+        raise ValueError("O pacote intradiário veio vazio.")
+    for kind, destination in (
+            ("maximum", MAXIMUM_LIVE_ARCHIVE),
+            ("minimum", MINIMUM_LIVE_ARCHIVE)):
+        candidate = roots[kind]
+        if not candidate.exists():
+            continue
+        shutil.rmtree(destination, ignore_errors=True)
+        shutil.move(str(candidate), str(destination))
+    shutil.rmtree(build_root, ignore_errors=True)
+    return written
+
+
+def _sync_live_snapshot() -> dict:
+    """Baixa o asset mutável que contém as rodadas do dia UTC corrente."""
+    headers = {"User-Agent": config.USER_AGENT,
+               "Accept": "application/vnd.github+json"}
+    release = requests.get(LIVE_RELEASE_API, headers=headers, timeout=30)
+    release.raise_for_status()
+    assets = release.json().get("assets", [])
+    asset = next((item for item in assets
+                  if item.get("name") == "ceifa-live.zip"), None)
+    if not asset:
+        raise ValueError("Snapshot intradiário ainda não foi publicado.")
+    url = asset["browser_download_url"]
+    version = asset.get("updated_at") or asset.get("id")
+    response = requests.get(
+        f"{url}?v={version}", headers=headers, timeout=60)
+    response.raise_for_status()
+
+    rows_by_archive: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    with ZipFile(io.BytesIO(response.content)) as archive:
+        for name in archive.namelist():
+            path = PurePosixPath(name)
+            if path.suffix != ".jsonl":
+                continue
+            parts = path.parts
+            if parts[:3] == ("data", "capture", "buffer") and len(parts) >= 5:
+                kind, base = "maximum", parts[3]
+            elif parts[:1] == ("data_low",) and len(parts) == 2:
+                kind, base = "minimum", path.stem
+            else:
+                continue
+            text = archive.read(name).decode("utf-8")
+            for line in text.splitlines():
+                if line.strip():
+                    rows_by_archive[(kind, base)].append(json.loads(line))
+    written = _write_live_frames(rows_by_archive)
+    captured = max(
+        (str(row.get("ts_utc")) for rows in rows_by_archive.values()
+         for row in rows if row.get("ts_utc")), default=None)
+    return {"ok": True, "updated": True, "rows": written,
+            "captured": captured,
+            "message": f"Snapshot do dia atualizado ({written:,} linhas)."
+                       .replace(",", ".")}
+
+
+def sync_dashboard_data() -> dict:
+    """Sincroniza o histórico consolidado e o pacote intradiário.
+
+    O dashboard local contém código e atalhos próprios que podem estar
+    modificados. Atualizar apenas ``dados/`` e ``dados_low/`` evita que essas
+    alterações bloqueiem a chegada dos snapshots publicados pelo workflow.
+    """
+    try:
+        committed = _sync_committed_archives()
+    except (OSError, subprocess.SubprocessError):
+        committed = {"ok": False, "updated": False,
+                     "message": "Histórico diário indisponível."}
+    try:
+        live = _sync_live_snapshot()
+    except (OSError, ValueError, BadZipFile, requests.RequestException):
+        live = {"ok": False, "updated": False,
+                "message": "Snapshot do dia ainda indisponível."}
+    if not committed["ok"] and not live["ok"]:
+        return {"ok": False, "updated": False,
+                "message": f"{committed['message']} {live['message']}"}
+    messages = [result["message"] for result in (live, committed)
+                if result["ok"]]
+    return {"ok": True,
+            "updated": committed["updated"] or live["updated"],
+            "message": " ".join(messages),
+            "captured": live.get("captured")}
 
 
 def run_strategy() -> dict:
@@ -225,16 +334,18 @@ def _display_temperature(icao: str, value_c: float | None) -> float | None:
 
 def _entry_forecast(icao: str, day: str, timestamp,
                     archive: Path = MAXIMUM_ARCHIVE) -> pd.Series | None:
-    path = archive / "previsao" / icao / f"{day}.parquet"
-    if path.exists():
-        frame = pd.read_parquet(path)
-    else:
-        files = sorted((archive / "previsao").glob("*.parquet"))
-        if not files:
-            return None
-        frame = pd.concat((pd.read_parquet(item) for item in files),
-                          ignore_index=True)
-        frame = frame[frame["icao"].astype(str) == icao]
+    live_archive = archive.with_name(f"{archive.name}_live")
+    direct = [root / "previsao" / icao / f"{day}.parquet"
+              for root in (archive, live_archive)]
+    files = [path for path in direct if path.exists()]
+    if not files:
+        files = [path for root in (archive, live_archive)
+                 for path in sorted((root / "previsao").glob("*.parquet"))]
+    if not files:
+        return None
+    frame = pd.concat((pd.read_parquet(item) for item in files),
+                      ignore_index=True)
+    frame = frame[frame["icao"].astype(str) == icao]
     frame = frame[frame["dia"].astype(str) == str(day)].copy()
     frame["ts"] = pd.to_datetime(frame["ts_utc"], utc=True)
     eligible = frame[frame["ts"] <= pd.Timestamp(timestamp)]
@@ -369,15 +480,15 @@ def error_timeline(icao: str, day: str, faixa: str, entry_utc: str,
             lambda value: _display_temperature(icao, value))
 
     archive = MAXIMUM_ARCHIVE if archive_kind == "maximum" else MINIMUM_ARCHIVE
-    market_path = archive / "mercado" / icao / f"{day}.parquet"
-    market = pd.DataFrame()
-    if market_path.exists():
-        market = pd.read_parquet(market_path)
-    elif archive_kind == "minimum":
-        files = sorted((archive / "mercado").glob("*.parquet"))
-        if files:
-            market = pd.concat((pd.read_parquet(path) for path in files),
-                               ignore_index=True)
+    live_archive = archive.with_name(f"{archive.name}_live")
+    direct = [root / "mercado" / icao / f"{day}.parquet"
+              for root in (archive, live_archive)]
+    files = [path for path in direct if path.exists()]
+    if not files and archive_kind == "minimum":
+        files = [path for root in (archive, live_archive)
+                 for path in sorted((root / "mercado").glob("*.parquet"))]
+    market = (pd.concat((pd.read_parquet(path) for path in files),
+                        ignore_index=True) if files else pd.DataFrame())
     if not market.empty:
         market = market[(market["icao"].astype(str) == icao)
                         & (market["dia"].astype(str) == day)
@@ -392,7 +503,9 @@ def error_timeline(icao: str, day: str, faixa: str, entry_utc: str,
 
 def data_freshness(archive_kind: str = "maximum") -> dict:
     archive = MAXIMUM_ARCHIVE if archive_kind == "maximum" else MINIMUM_ARCHIVE
-    files = list((archive / "mercado").rglob("*.parquet"))
+    live_archive = archive.with_name(f"{archive.name}_live")
+    files = [path for root in (archive, live_archive)
+             for path in (root / "mercado").rglob("*.parquet")]
     if not files:
         return {"files": 0, "updated": None, "latest_day": None}
     latest = max(files, key=lambda path: path.stat().st_mtime)
