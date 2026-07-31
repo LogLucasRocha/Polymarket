@@ -24,6 +24,7 @@ import re
 from bisect import bisect_right
 from collections import defaultdict
 from functools import lru_cache
+from pathlib import Path
 
 import pandas as pd
 
@@ -56,13 +57,36 @@ def is_ceifa_price(value) -> bool:
 
 
 def _load(base: str, archive=ARCHIVE) -> pd.DataFrame:
-    root = archive / base
-    files = sorted(root.rglob("*.parquet")) if root.exists() else []
+    archive = Path(archive)
+    live_archive = archive.with_name(f"{archive.name}_live")
+    roots = (archive / base, live_archive / base)
+    files = [path for root in roots if root.exists()
+             for path in sorted(root.rglob("*.parquet"))]
     if not files:
         return pd.DataFrame()
     df = pd.concat((pd.read_parquet(f) for f in files), ignore_index=True)
+    keys = {
+        "mercado": ["ts_utc", "icao", "dia", "faixa"],
+        "previsao": ["ts_utc", "icao", "dia"],
+        "nowcast": ["ts_utc", "icao", "dia", "observation_time"],
+    }.get(base)
+    if keys:
+        df = df.drop_duplicates(
+            subset=[key for key in keys if key in df.columns], keep="last")
     df["ts"] = pd.to_datetime(df["ts_utc"], utc=True)
     return df.sort_values("ts")
+
+
+def _resolved_price(group: pd.DataFrame, column: str) -> float | None:
+    """Preço final, exigindo 0/1 real quando a linha veio do pacote ao vivo."""
+    value = normalize_market_price(group[column].iloc[-1])
+    if value is None:
+        return None
+    live = group.iloc[-1].get("snapshot_live", False)
+    live = False if live is None or pd.isna(live) else bool(live)
+    if live:
+        return value if value >= 0.999 or value <= 0.001 else None
+    return value if value > 0.90 or value < 0.10 else None
 
 
 def _tz(icao: str):
@@ -306,8 +330,8 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
             ask if checked else e["preco_nao"])
         if entry is None or not (pmin < entry < pmax):
             continue
-        nao_final = float(g["preco_nao"].iloc[-1])
-        if not (nao_final > 0.90 or nao_final < 0.10):
+        nao_final = _resolved_price(g, "preco_nao")
+        if nao_final is None:
             continue                              # dia ainda em aberto
         # FILTRO DE INCERTEZA (no lugar do stop): não entra em dia de ensemble
         # largo na H-1 — é onde o estouro (NÃO → zero) acontece.
@@ -425,8 +449,8 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
     filtered_100c = filtered_0c = 0
     for (icao, day, faixa), group in mkt.groupby(["icao", "dia", "faixa"]):
         group = group.sort_values("ts")
-        final_no = float(group["preco_nao"].iloc[-1])
-        if not (final_no > 0.90 or final_no < 0.10):
+        final_no = _resolved_price(group, "preco_nao")
+        if final_no is None:
             continue
         last_entry_ts = None
         for _, entry_row in group.iterrows():
@@ -567,8 +591,8 @@ def simulate_yes_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
     for (icao, day, faixa), group in market.groupby(
             ["icao", "dia", "faixa"]):
         group = group.sort_values("ts")
-        final_yes = normalize_market_price(group["preco_sim"].iloc[-1])
-        if final_yes is None or not (final_yes > 0.90 or final_yes < 0.10):
+        final_yes = _resolved_price(group, "preco_sim")
+        if final_yes is None:
             continue
         last_entry_ts = None
         for _, entry_row in group.iterrows():

@@ -1,6 +1,8 @@
 # Artefatos gerados
 reports/
 data/
+dados_live/
+dados_low_live/
 
 # Python
 __pycache__/

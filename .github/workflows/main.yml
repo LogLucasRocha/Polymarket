@@ -59,6 +59,34 @@ jobs:
         continue-on-error: true
         run: python -m lowtemp.capture
 
+      # Pacote mutável do dia corrente para o botão Atualizar do dashboard.
+      # Fica como asset de uma release, portanto não cria 144 commits por dia
+      # nem aumenta o histórico do git a cada rodada.
+      - name: Publicar snapshot intradiário do monitor
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZIP_DEFLATED, ZipFile
+
+          roots = (Path("data/capture/buffer"), Path("data_low"))
+          with ZipFile("ceifa-live.zip", "w", ZIP_DEFLATED) as archive:
+              for root in roots:
+                  if not root.exists():
+                      continue
+                  for path in root.rglob("*.jsonl"):
+                      archive.write(path, path.as_posix())
+          PY
+          if ! gh release view ceifa-live >/dev/null 2>&1; then
+            gh release create ceifa-live --prerelease \
+              --title "Ceifa — snapshot intradiário" \
+              --notes "Arquivo automático usado pelo botão Atualizar do monitor."
+          fi
+          gh release upload ceifa-live ceifa-live.zip --clobber
+
       # Arquivo de dados ao vivo: o send_telegram acumula num buffer no cache
       # (data/capture) e, quando o dia UTC fecha, consolida em dados/*.parquet.
       # Este passo commita dados/ só quando há novidade — na prática 1x/dia,
