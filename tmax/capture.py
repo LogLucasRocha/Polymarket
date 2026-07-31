@@ -98,7 +98,9 @@ def record_market(now: dt.datetime, icao: str, dia: dt.date,
     """Todas as faixas do evento de `dia` com seus preços Sim/Não."""
     rows = [{"ts_utc": _iso(now), "icao": icao, "dia": dia.isoformat(),
              "faixa": r.get("label"), "preco_sim": r.get("yes"),
-             "preco_nao": r.get("no"), "ask_nao": r.get("no_ask"),
+             "preco_nao": r.get("no"), "ask_sim": r.get("yes_ask"),
+             "ask_sim_volume": r.get("yes_ask_size"),
+             "ask_nao": r.get("no_ask"),
              "ask_nao_volume": r.get("no_ask_size"),
              "livro_consultado": bool(r.get("book_checked"))} for r in odds]
     _append_jsonl("mercado", now, rows)

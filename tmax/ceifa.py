@@ -221,7 +221,7 @@ def is_warm_target_risk(icao: str, faixa, nowcast_shift, mediana, p90,
 
 
 def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
-             warm_target_filter=True) -> dict:
+             warm_target_filter=True, uncertainty_filter=True) -> dict:
     """Roda a Ceifa (entrada em H-1) nos snapshots e devolve estatísticas no
     formato que backtest.ceifa_report_text espera.
 
@@ -230,6 +230,9 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
     archive: raiz do lago de dados (padrão dados/ = máxima; dados_low/ = mínima).
     warm_target_filter: desliga o veto de nowcast quente nos relatórios de
     mínima, onde a direção de risco é diferente.
+    uncertainty_filter: desliga o veto de ensemble largo. A estratégia de
+    mínima arquiva agora as colunas do ensemble, mas precisa de um limite
+    próprio para a cauda fria antes que esse veto possa ser ativado.
     A base 'previsao' guarda a hora do extremo em pico_hora — para o Lowest é a
     hora mais FRIA, então a entrada em H-1 sai natural sem mudar este código.
     """
@@ -255,8 +258,9 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
     # Incerteza do ensemble = teto_ens − mediana. Guardamos as séries por
     # (icao, dia) para pegar o spread NA H-1, e a mediana por cidade para o
     # filtro relativo (spread alto RELATIVO ao normal daquela estação).
-    # O lago de temperatura mínima guarda somente a hora do extremo; nesse
-    # caso não há métricas de ensemble e os vetos meteorológicos são pulados.
+    # A máxima usa teto - mediana como risco de cauda quente. A mínima já
+    # arquiva sua distribuição, mas o chamador mantém este filtro desligado
+    # até calibrarmos separadamente o risco da cauda fria.
     forecast_cols = {"teto_ens", "mediana"}
     if forecast_cols.issubset(prev.columns):
         ps = prev.dropna(subset=list(forecast_cols)).copy()
@@ -309,7 +313,7 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
         # largo na H-1 — é onde o estouro (NÃO → zero) acontece.
         forecast = previsao_na_entrada(icao, dia, e["ts"])
         spr = float(forecast["spread"]) if forecast is not None else None
-        if is_uncertain(icao, spr, spread_norm):
+        if uncertainty_filter and is_uncertain(icao, spr, spread_norm):
             n_filtrado += 1
             n_filtrado_spread += 1
             if nao_final > 0.5:
@@ -371,13 +375,16 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
 
 def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                       warm_target_filter=True, interval_minutes: int = 5,
-                      stake_frac: float = 0.01) -> dict:
+                      stake_frac: float = 0.01,
+                      uncertainty_filter: bool = True) -> dict:
     """Ceifa parcelada: uma stake relativa a cada rodada elegível da H-1.
 
     A stake de cada parcela é ``stake_frac`` do caixa ainda livre naquele
     instante. Não há teto por contrato nem alavancagem; como a parcela diminui
     junto com o saldo disponível, o caixa nunca é esgotado matematicamente.
-    Cada snapshot respeita novamente preço, livro, ensemble, nowcast e platô.
+    Cada snapshot respeita novamente preço e livro. ``warm_target_filter`` e
+    ``uncertainty_filter`` permitem manter os vetos meteorológicos desligados
+    no estudo de mínimas até calibrarmos regras próprias para a cauda fria.
     """
     mkt = _load("mercado", archive)
     prev = _load("previsao", archive)
@@ -448,7 +455,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
             if not pd.isna(forecast.get("teto_ens")) and not pd.isna(
                     forecast.get("mediana")):
                 spread = float(forecast["teto_ens"] - forecast["mediana"])
-            if is_uncertain(icao, spread, spread_norm):
+            if uncertainty_filter and is_uncertain(icao, spread, spread_norm):
                 filtered += 1
                 filtered_spread += 1
                 if final_no > 0.5:
@@ -508,6 +515,101 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
     })
     log(f"ceifa parcelada ({interval_minutes} min): {stats['n']} parcelas · "
         f"{filtered} oportunidades recusadas por incerteza.")
+    return stats
+
+
+def simulate_yes_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
+                          interval_minutes: int = 5,
+                          stake_frac: float = 0.01) -> dict:
+    """Teste paralelo do SIM com oferta executável, sem filtros meteorológicos.
+
+    Só considera snapshots que arquivaram explicitamente a melhor oferta do
+    token SIM. Isso impede que preços indicativos antigos sejam tratados como
+    compras que poderiam ter sido executadas.
+    """
+    market = _load("mercado", archive)
+    forecast = _load("previsao", archive)
+    if icaos is not None:
+        icaos = set(icaos)
+        market = (market[market["icao"].isin(icaos)]
+                  if not market.empty else market)
+        forecast = (forecast[forecast["icao"].isin(icaos)]
+                    if not forecast.empty else forecast)
+    if market.empty or forecast.empty or "ask_sim" not in market:
+        stats = _stats_relative_available_stake([], 0, stake_frac)
+        stats.update({
+            "repeat_minutes": interval_minutes, "side": "SIM",
+            "executable_snapshots": 0,
+        })
+        return stats
+
+    market["hloc"] = market.groupby("icao")["ts"].transform(
+        lambda series: series.dt.tz_convert(_tz(series.name)).dt.hour)
+    forecast_by = {}
+    for key, group in forecast.groupby(["icao", "dia"]):
+        ordered = group.sort_values("ts")
+        forecast_by[key] = (
+            [timestamp.value for timestamp in ordered["ts"]],
+            [row for _, row in ordered.iterrows()],
+        )
+
+    def forecast_at(icao, day, timestamp):
+        lookup = forecast_by.get((icao, day))
+        if lookup is None:
+            return None
+        timestamps, rows = lookup
+        index = bisect_right(timestamps, timestamp.value) - 1
+        return rows[index] if index >= 0 else None
+
+    minimum_gap = pd.Timedelta(minutes=interval_minutes)
+    signals = []
+    executable_snapshots = 0
+    for (icao, day, faixa), group in market.groupby(
+            ["icao", "dia", "faixa"]):
+        group = group.sort_values("ts")
+        final_yes = normalize_market_price(group["preco_sim"].iloc[-1])
+        if final_yes is None or not (final_yes > 0.90 or final_yes < 0.10):
+            continue
+        last_entry_ts = None
+        for _, entry_row in group.iterrows():
+            checked = entry_row.get("livro_consultado")
+            checked = (checked is not None and not pd.isna(checked)
+                       and bool(checked))
+            ask = entry_row.get("ask_sim")
+            if not checked or ask is None or pd.isna(ask):
+                continue
+            executable_snapshots += 1
+
+            entry_forecast = forecast_at(icao, day, entry_row["ts"])
+            if (entry_forecast is None
+                    or pd.isna(entry_forecast.get("pico_hora"))):
+                continue
+            extreme_hour = int(entry_forecast["pico_hora"])
+            if int(entry_row["hloc"]) != (extreme_hour - 1) % 24:
+                continue
+            if (last_entry_ts is not None
+                    and entry_row["ts"] - last_entry_ts < minimum_gap):
+                continue
+
+            price = normalize_market_price(ask)
+            if not is_ceifa_price(price):
+                continue
+            signals.append({
+                "icao": icao, "day": day, "faixa": faixa,
+                "ts": entry_row["ts"], "price": price,
+                "won": final_yes > 0.5, "stopped": False,
+                "loss_frac": None, "spread": None, "side": "SIM",
+            })
+            last_entry_ts = entry_row["ts"]
+
+    stats = _stats_relative_available_stake(
+        signals, market["dia"].nunique(), stake_frac)
+    stats.update({
+        "repeat_minutes": interval_minutes, "side": "SIM",
+        "executable_snapshots": executable_snapshots,
+    })
+    log(f"teste SIM parcelado ({interval_minutes} min): "
+        f"{stats['n']} parcelas executáveis.")
     return stats
 
 

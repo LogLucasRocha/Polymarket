@@ -466,7 +466,7 @@ def _collect_signal_rows(stations, contexts, yes_prob) -> dict:
             print(f"[sinais] ERRO evento {slug}: {exc}", file=sys.stderr)
             continue
         try:
-            polymarket.attach_no_best_asks(event)
+            polymarket.attach_best_asks(event)
         except Exception as exc:  # sem livro, captura indicativo mas não alerta
             print(f"[sinais] ERRO livro {slug}: {exc}", file=sys.stderr)
         odds = polymarket.odds_rows(event, yes_prob)

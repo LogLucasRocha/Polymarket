@@ -107,6 +107,68 @@ def member_maxima_for_day(day: dt.date, ens_times: list[dt.datetime],
     return results
 
 
+def member_minima_for_day(day: dt.date, ens_times: list[dt.datetime],
+                          member_series: dict, bias: dict,
+                          now: dt.datetime | None = None,
+                          shift: float = 0.0,
+                          obs_min: float | None = None) -> list[dict]:
+    """Mínima diária corrigida por membro.
+
+    É o espelho frio de :func:`member_maxima_for_day`: no D0, combina a menor
+    temperatura já observada com as horas futuras corrigidas por viés e
+    nowcast. O resultado é usado para arquivar a distribuição da estratégia de
+    mínimas; não ativa nenhum filtro ou aposta por si só.
+    """
+    idx = [i for i, timestamp in enumerate(ens_times)
+           if timestamp.date() == day]
+    results = []
+    for (model, member), series in member_series.items():
+        family = config.ENS_MODELS.get(model)
+        correction = bias.get(family, {}).get("bias", 0.0) if family else 0.0
+        future = [
+            series[i] - correction + shift
+            for i in idx
+            if series[i] is not None
+            and (now is None or ens_times[i] > now)
+        ]
+        candidates = [value for value in (
+            ([obs_min] if obs_min is not None else []) + future)]
+        if not candidates:
+            continue
+        results.append({
+            "model": model, "member": member, "family": family,
+            "tmin": min(candidates),
+            "future_min": min(future) if future else None,
+        })
+    return results
+
+
+def empirical_extreme_summary(members: list[dict], field: str) -> dict | None:
+    """Resumo empírico dos extremos por membro, sem inventar cauda paramétrica."""
+    values = sorted(float(member[field]) for member in members
+                    if member.get(field) is not None)
+    if not values:
+        return None
+
+    def quantile(probability: float) -> float:
+        if len(values) == 1:
+            return values[0]
+        position = probability * (len(values) - 1)
+        lower = int(math.floor(position))
+        upper = int(math.ceil(position))
+        if lower == upper:
+            return values[lower]
+        fraction = position - lower
+        return values[lower] * (1.0 - fraction) + values[upper] * fraction
+
+    return {
+        "mean": sum(values) / len(values),
+        "min": values[0], "max": values[-1],
+        "p10": quantile(0.10), "median": quantile(0.50),
+        "p90": quantile(0.90), "n_members": len(values),
+    }
+
+
 def build_distribution(member_maxima: list[dict], bias: dict,
                        obs_floor: float | None = None,
                        std_scale: float = 1.0,
