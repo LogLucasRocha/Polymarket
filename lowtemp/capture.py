@@ -1,4 +1,4 @@
-"""Captura ao vivo do mercado de MÍNIMA (lowest temperature) — modo OBSERVAÇÃO.
+"""Captura ao vivo do mercado de MÍNIMA (lowest temperature).
 
 Réplica do que fazemos no Highest, mas para o mercado de temperatura MÍNIMA das
 cidades que a Polymarket cobre. A cada rodada, para cada cidade com mercado de
@@ -7,8 +7,8 @@ que originou o nowcast. A hora mais fria continua em ``pico_hora`` para a Ceifa
 calcular H-1 sem duplicar código.
 
 Grava no lago ``dados_low/`` (mercado/, previsao/, nowcast/ e metar/), com o
-dia UTC corrente no buffer do Actions e consolidação dos dias fechados. NÃO
-aposta e não ativa filtros novos por si só.
+dia UTC corrente no buffer do Actions e consolidação dos dias fechados. Este
+módulo apenas arquiva dados; os alertas ativos ficam em ``send_telegram.py``.
 
 Roda no .github/workflows/lowtemp_live.yml. Uso: python -m lowtemp.capture
 """
@@ -64,14 +64,22 @@ def _minimum_locked(obs_today: list[dict], obs_min: float | None) -> bool:
             and all(hourly_min[hour] > obs_min for hour in last_hours))
 
 
+def minimum_members(ctx: dict, day: dt.date | None = None) -> list[dict]:
+    """Extremo frio corrigido de cada membro para o dia solicitado."""
+    day = day or ctx["d0"]
+    observations = ctx.get("obs_today") or []
+    observed_min = min((item["temp"] for item in observations), default=None)
+    return distribution.member_minima_for_day(
+        day, ctx["ens"]["time"], ctx["ens"]["members"], ctx["bias"],
+        now=ctx["now"], shift=ctx["shift"], obs_min=observed_min)
+
+
 def _forecast_snapshot(ctx: dict, icao: str, day: dt.date,
                        captured_at: dt.datetime) -> dict | None:
     """Estado completo da previsão da mínima disponível nesta rodada."""
     observations = ctx.get("obs_today") or []
     observed_min = min((item["temp"] for item in observations), default=None)
-    members = distribution.member_minima_for_day(
-        day, ctx["ens"]["time"], ctx["ens"]["members"], ctx["bias"],
-        now=ctx["now"], shift=ctx["shift"], obs_min=observed_min)
+    members = minimum_members(ctx, day)
     summary = distribution.empirical_extreme_summary(members, "tmin")
     if not summary:
         return None
@@ -115,6 +123,12 @@ def _forecast_snapshot(ctx: dict, icao: str, day: dt.date,
         "latest_metar_temp_c": latest.get("temp"),
         "latest_metar_raw": latest.get("raw"),
     }
+
+
+def forecast_snapshot(ctx: dict, icao: str, day: dt.date,
+                      captured_at: dt.datetime) -> dict | None:
+    """Interface pública do snapshot usado pela captura e pelos alertas."""
+    return _forecast_snapshot(ctx, icao, day, captured_at)
 
 
 def _nowcast_rows(ctx: dict, icao: str, day: dt.date,
@@ -167,7 +181,7 @@ def coletar():
             pm.attach_best_asks(ev)
         except Exception:  # noqa: BLE001
             continue
-        rows = pm.odds_rows(ev) if ev.get("rows") else []
+        rows = pm.odds_rows(ev, include_all=True) if ev.get("rows") else []
         if not rows:
             continue                       # cidade sem mercado de mínima hoje
         achou += 1

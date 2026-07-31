@@ -292,7 +292,7 @@ def event_slug(icao: str, date) -> str | None:
             f"{_MONTHS[date.month - 1]}-{date.day}-{date.year}")
 
 
-def odds_rows(event: dict, prob_fn=None) -> list[dict]:
+def odds_rows(event: dict, prob_fn=None, *, include_all: bool = False) -> list[dict]:
     """Faixas relevantes de um evento, já com mercado vs. nossa previsão.
 
     `prob_fn(question, end) -> float | None` devolve a nossa prob. do Yes; None
@@ -305,7 +305,7 @@ def odds_rows(event: dict, prob_fn=None) -> list[dict]:
         yes, no = r.get("yes"), r.get("no")
         mp = prob_fn(r.get("question"), end)
         # Corta as faixas irrelevantes (mercado ~0 e nossa previsão ~0).
-        if (yes or 0) < 0.01 and (mp or 0) < 0.01:
+        if (not include_all and (yes or 0) < 0.01 and (mp or 0) < 0.01):
             continue
         rows.append({
             "label": str(r.get("label") or "?"),

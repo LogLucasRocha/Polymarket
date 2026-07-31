@@ -75,6 +75,20 @@ class ExecutableBookTests(unittest.TestCase):
         self.assertIsNone(event["rows"][0]["no_ask"])
         self.assertIsNone(event["rows"][0]["no_ask_size"])
 
+    def test_minimum_capture_keeps_no_offer_up_to_exclusive_995_limit(self):
+        event = {"rows": [{
+            "label": "13°C", "yes": 0.006, "no": 0.994,
+            "book_checked": True, "no_ask": 0.994,
+            "no_ask_size": 25.0,
+        }]}
+
+        default_rows = polymarket.odds_rows(event)
+        complete_rows = polymarket.odds_rows(event, include_all=True)
+
+        self.assertEqual(default_rows, [])
+        self.assertEqual(len(complete_rows), 1)
+        self.assertEqual(complete_rows[0]["no_ask"], 0.994)
+
 
 class PortfolioCapitalTests(unittest.TestCase):
     @patch("tmax.polymarket.fetch_positions_value", return_value=618.42)

@@ -183,10 +183,10 @@ def run_strategy() -> dict:
 
 
 def run_minimum_strategy() -> dict:
-    """Executa o monitor oficial da Ceifa de temperaturas mínimas.
+    """Executa a Ceifa ativa de temperaturas mínimas.
 
-    A estratégia permanece em observação. Testa parcelas de 1% do caixa livre a
-    cada cinco minutos na H-1, sem os filtros meteorológicos das máximas.
+    Usa parcelas de 1% do caixa livre a cada cinco minutos na H-1, sem os
+    filtros meteorológicos das máximas.
     """
     stats = ceifa.simulate_repeated(
         icaos=set(config.STATIONS), archive=MINIMUM_ARCHIVE,
@@ -208,6 +208,36 @@ def run_yes_strategy(archive_kind: str) -> dict:
         stake_frac=config.CEIFA_STAKE_FRAC)
     stats["archive_kind"] = archive_kind
     stats["side"] = "SIM"
+    return stats
+
+
+def combine_active_strategies(maximum: dict, minimum: dict) -> dict:
+    """Recalcula máximas + mínimas como uma única banca compartilhada."""
+    signals = [
+        dict(signal, extreme="maximum", archive_kind="maximum")
+        for signal in maximum.get("signals", [])
+    ] + [
+        dict(signal, extreme="minimum", archive_kind="minimum")
+        for signal in minimum.get("signals", [])
+    ]
+    days = len({str(signal["day"]) for signal in signals})
+    stats = ceifa._stats_relative_available_stake(
+        signals, days=days, stake_frac=config.CEIFA_STAKE_FRAC)
+    stats.update({
+        "repeat_minutes": config.CEIFA_REPEAT_MINUTES,
+        "archive_kind": "consolidated",
+        "side": "NAO",
+        "active_components": {
+            "maximum": maximum.get("n", 0),
+            "minimum": minimum.get("n", 0),
+        },
+        "n_filtrado": maximum.get("n_filtrado", 0),
+        "n_filtrado_spread": maximum.get("n_filtrado_spread", 0),
+        "n_filtrado_nowcast": maximum.get("n_filtrado_nowcast", 0),
+        "n_filtrado_plateau": maximum.get("n_filtrado_plateau", 0),
+        "n_filtrado_100c": maximum.get("n_filtrado_100c", 0),
+        "n_filtrado_0c": maximum.get("n_filtrado_0c", 0),
+    })
     return stats
 
 
@@ -233,6 +263,7 @@ def slice_strategy(stats: dict, lookback_days: int | None) -> dict:
         "archive_kind": stats.get("archive_kind", "maximum"),
         "side": stats.get("side", "NAO"),
         "executable_snapshots": stats.get("executable_snapshots", 0),
+        "active_components": stats.get("active_components"),
     })
     for key in (
         "n_filtrado", "n_filtrado_spread", "n_filtrado_nowcast",
@@ -505,6 +536,16 @@ def error_timeline(icao: str, day: str, faixa: str, entry_utc: str,
 
 
 def data_freshness(archive_kind: str = "maximum") -> dict:
+    if archive_kind == "consolidated":
+        snapshots = [data_freshness("maximum"), data_freshness("minimum")]
+        updated_values = [item["updated"] for item in snapshots
+                          if item["updated"] is not None]
+        days = [item["latest_day"] for item in snapshots if item["latest_day"]]
+        return {
+            "files": sum(item["files"] for item in snapshots),
+            "updated": max(updated_values) if updated_values else None,
+            "latest_day": max(days) if days else None,
+        }
     archive = MAXIMUM_ARCHIVE if archive_kind == "maximum" else MINIMUM_ARCHIVE
     live_archive = archive.with_name(f"{archive.name}_live")
     files = [path for root in (archive, live_archive)
