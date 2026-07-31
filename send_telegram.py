@@ -284,16 +284,15 @@ def main() -> int:
             icao = v["icao"]
             if v["yes"] is None:
                 continue
-            price = v.get("no_ask")           # oferta realmente comprável do NÃO
+            price = ceifa.normalize_market_price(
+                v.get("no_ask"))              # oferta realmente comprável do NÃO
             if price is None:
-                indicative = v.get("no")
-                if (indicative is not None
-                        and config.CEIFA_PRICE_MIN < indicative
-                        < config.CEIFA_PRICE_MAX):
+                indicative = ceifa.normalize_market_price(v.get("no"))
+                if ceifa.is_ceifa_price(indicative):
                     print(f"[ceifa] {icao}: sem oferta executável para NÃO "
                           f"{v['label']} (indicativo=${indicative:.3f}).")
                 continue
-            if not (config.CEIFA_PRICE_MIN < price < config.CEIFA_PRICE_MAX):
+            if not ceifa.is_ceifa_price(price):
                 continue
             H = peak_by_icao.get(icao)
             ctx_i = contexts.get(icao)

@@ -34,6 +34,27 @@ BACKTEST_ARCHIVE = config.ROOT / "backtest_data"
 STAKE_FRAC = 0.10
 
 
+def normalize_market_price(value) -> float | None:
+    """Remove somente o ruído binário antes de comparar os limites.
+
+    Valores vindos de subtrações em ponto flutuante podem transformar 0,950
+    em 0,9500000000000001 e atravessar indevidamente o limite exclusivo. Seis
+    casas preservam preços válidos subcentavo, como 0,9505.
+    """
+    if value is None or pd.isna(value):
+        return None
+    return round(float(value), 6)
+
+
+def is_ceifa_price(value) -> bool:
+    """Preço normalizado está estritamente dentro da faixa ativa da Ceifa?"""
+    price = normalize_market_price(value)
+    return (
+        price is not None
+        and config.CEIFA_PRICE_MIN < price < config.CEIFA_PRICE_MAX
+    )
+
+
 def _load(base: str, archive=ARCHIVE) -> pd.DataFrame:
     root = archive / base
     files = sorted(root.rglob("*.parquet")) if root.exists() else []
@@ -277,8 +298,9 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
         ask = e.get("ask_nao")
         if checked and (ask is None or pd.isna(ask)):
             continue                              # não havia oferta para comprar
-        entry = float(ask if checked else e["preco_nao"])
-        if not (pmin < entry < pmax):
+        entry = normalize_market_price(
+            ask if checked else e["preco_nao"])
+        if entry is None or not (pmin < entry < pmax):
             continue
         nao_final = float(g["preco_nao"].iloc[-1])
         if not (nao_final > 0.90 or nao_final < 0.10):
@@ -417,8 +439,9 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
             ask = entry_row.get("ask_nao")
             if checked and (ask is None or pd.isna(ask)):
                 continue
-            price = float(ask if checked else entry_row["preco_nao"])
-            if not (pmin < price < pmax):
+            price = normalize_market_price(
+                ask if checked else entry_row["preco_nao"])
+            if price is None or not (pmin < price < pmax):
                 continue
 
             spread = None
