@@ -682,11 +682,13 @@ def simulate_ceifa(log=lambda m: None, data=None) -> dict:
 
 
 def ceifa_report_text(st: dict, titulo: str | None = None,
-                      nota: str | None = None) -> str:
+                      nota: str | None = None,
+                      extreme_label: str = "pico") -> str:
     """Relatório compacto da Ceifa (HTML do Telegram).
 
     titulo: cabeçalho alternativo (ex.: relatório separado das cidades °F).
     nota: linha extra logo abaixo do cabeçalho (ex.: aviso de monitoramento).
+    extreme_label: nome do extremo na frase de H-1 (``pico`` ou ``mínimo``).
     """
     cab = titulo or "🌾 <b>Ceifa — desempenho (nossos snapshots)</b>"
     faixa = f"{config.CEIFA_PRICE_MIN:.3f}–{config.CEIFA_PRICE_MAX:.3f}"
@@ -710,7 +712,8 @@ def ceifa_report_text(st: dict, titulo: str | None = None,
     linhas = [
         cab,
         *([nota] if nota else []),
-        f"Comprar NÃO em <b>{faixa}</b>, na hora antes do pico (H-1) · "
+        f"Comprar NÃO em <b>{faixa}</b>, na hora antes do {extreme_label} "
+        f"(H-1) · "
         f"{ndias} dia(s) com apostas",
         f"• <b>{count_label}:</b> {st['n']}",
         f"• <b>Assertividade:</b> {st['hit']:.1%} "

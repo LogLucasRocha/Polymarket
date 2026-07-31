@@ -1,5 +1,39 @@
 # Polymarket
 
+## Monitor Ceifa
+
+O painel local da estratégia fica em `ceifa_monitor.py`. Ele reúne o backtest
+dos snapshots, curva patrimonial, retorno diário, desempenho por cidade,
+eficiência dos filtros e uma autópsia visual de cada erro. Os seletores
+superiores alternam entre máximas/mínimas e entre a estratégia de NÃO e o teste
+separado de SIM. A navegação fica fixada no rodapé do próprio painel.
+
+No Windows, abra `Monitor Ceifa.cmd` ou use o atalho de mesmo nome criado na
+Área de Trabalho. O iniciador sobe o Streamlit em segundo plano e abre
+`http://localhost:8765` no navegador; cliques posteriores apenas reabrem o
+painel já iniciado.
+
+### Arquivo meteorológico das mínimas
+
+A captura das temperaturas mínimas continua apenas em observação, mas guarda a
+cada rodada material suficiente para uma autópsia meteorológica futura:
+
+- `dados_low/mercado/`: preço, melhor oferta de SIM/NÃO e volume disponível;
+- `dados_low/previsao/`: mediana, P10, P90, extremos do ensemble, spread frio,
+  amplitude total, mínima já observada e resumo do nowcast;
+- `dados_low/nowcast/`: cada observação usada no cálculo, ensemble da hora,
+  desvio bruto, amortecimento e shift aplicado;
+- `dados_low/metar/`: série completa de observações e METAR bruto do dia.
+
+Também são preservadas mediana/P10/P90 brutas, antes da correção, para que a
+correção de viés possa ser comparada com o ensemble original. A coleta não
+promove as mínimas para apostas nem reutiliza automaticamente o filtro de
+incerteza das máximas: o limite da cauda fria será calibrado separadamente.
+
+O backtest das mínimas usa parcelas de 1% do caixa livre a cada cinco minutos
+enquanto preço, oferta e H-1 continuarem elegíveis, sem teto por contrato e sem
+alavancagem. Trata-se apenas de monitoramento; nenhum alerta executa uma aposta.
+
 Previsão de TMax para Guarulhos, Buenos Aires e Moscou, D0 e D+1.
 
 Pipeline que combina múltiplos modelos numéricos, ensembles, correção de viés

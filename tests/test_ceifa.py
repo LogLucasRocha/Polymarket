@@ -90,7 +90,7 @@ class WarmTargetRiskTests(unittest.TestCase):
         self.assertTrue(ceifa.is_warm_target_risk(
             "KLGA", "81°F", 1.1, 26.0, 27.0))
 
-    def test_minimum_archive_without_ensemble_columns_still_runs(self):
+    def test_minimum_archive_with_rich_forecast_keeps_maximum_filter_off(self):
         with TemporaryDirectory() as tmp:
             archive = Path(tmp)
             (archive / "mercado").mkdir()
@@ -105,11 +105,14 @@ class WarmTargetRiskTests(unittest.TestCase):
             ]).to_parquet(archive / "mercado" / "day.parquet", index=False)
             pd.DataFrame([
                 {"ts_utc": "2026-07-26T13:00:00Z", "icao": "EGLC",
-                 "dia": "2026-07-26", "pico_hora": 15},
+                 "dia": "2026-07-26", "pico_hora": 15,
+                 "mediana": 17.0, "teto_ens": 21.0,
+                 "piso_ens": 13.0, "spread_frio": 4.0},
             ]).to_parquet(archive / "previsao" / "day.parquet", index=False)
 
             result = ceifa.simulate(
-                icaos={"EGLC"}, archive=archive, warm_target_filter=False)
+                icaos={"EGLC"}, archive=archive, warm_target_filter=False,
+                uncertainty_filter=False)
 
             self.assertEqual(result["n"], 1)
             self.assertEqual(result["wins"], 1)
@@ -159,11 +162,13 @@ class WarmTargetRiskTests(unittest.TestCase):
             pd.DataFrame([{
                 "ts_utc": "2026-07-26T12:59:00Z", "icao": "EGLC",
                 "dia": "2026-07-26", "pico_hora": 15,
+                "mediana": 16.0, "teto_ens": 20.0,
             }]).to_parquet(archive / "previsao" / "day.parquet", index=False)
 
             result = ceifa.simulate_repeated(
                 icaos={"EGLC"}, archive=archive, warm_target_filter=False,
-                interval_minutes=5, stake_frac=0.01)
+                uncertainty_filter=False, interval_minutes=5,
+                stake_frac=0.01)
 
             self.assertEqual(result["n"], 3)
             self.assertEqual(result["wins"], 3)
@@ -174,6 +179,68 @@ class WarmTargetRiskTests(unittest.TestCase):
             self.assertAlmostEqual(
                 result["real_mult"],
                 0.99 ** 3 + sum(stake / 0.98 for stake in stakes))
+
+    def test_yes_strategy_uses_only_executable_yes_asks(self):
+        with TemporaryDirectory() as tmp:
+            archive = Path(tmp)
+            (archive / "mercado").mkdir()
+            (archive / "previsao").mkdir()
+            pd.DataFrame([
+                {"ts_utc": "2026-07-26T13:00:00Z", "icao": "EGLC",
+                 "dia": "2026-07-26", "faixa": "30°C",
+                 "preco_sim": 0.96, "preco_nao": 0.04,
+                 "ask_sim": 0.960, "livro_consultado": True},
+                {"ts_utc": "2026-07-26T13:05:00Z", "icao": "EGLC",
+                 "dia": "2026-07-26", "faixa": "30°C",
+                 "preco_sim": 0.97, "preco_nao": 0.03,
+                 "ask_sim": 0.970, "livro_consultado": True},
+                {"ts_utc": "2026-07-26T18:00:00Z", "icao": "EGLC",
+                 "dia": "2026-07-26", "faixa": "30°C",
+                 "preco_sim": 0.99, "preco_nao": 0.01,
+                 "ask_sim": None, "livro_consultado": True},
+            ]).to_parquet(
+                archive / "mercado" / "day.parquet", index=False)
+            pd.DataFrame([{
+                "ts_utc": "2026-07-26T12:59:00Z", "icao": "EGLC",
+                "dia": "2026-07-26", "pico_hora": 15,
+            }]).to_parquet(
+                archive / "previsao" / "day.parquet", index=False)
+
+            result = ceifa.simulate_yes_repeated(
+                icaos={"EGLC"}, archive=archive, interval_minutes=5,
+                stake_frac=0.01)
+
+            self.assertEqual(result["n"], 2)
+            self.assertEqual(result["wins"], 2)
+            self.assertEqual(result["side"], "SIM")
+            self.assertTrue(all(signal["side"] == "SIM"
+                                for signal in result["signals"]))
+
+    def test_yes_strategy_does_not_use_legacy_indicative_price(self):
+        with TemporaryDirectory() as tmp:
+            archive = Path(tmp)
+            (archive / "mercado").mkdir()
+            (archive / "previsao").mkdir()
+            pd.DataFrame([
+                {"ts_utc": "2026-07-26T13:00:00Z", "icao": "EGLC",
+                 "dia": "2026-07-26", "faixa": "30°C",
+                 "preco_sim": 0.97, "preco_nao": 0.03},
+                {"ts_utc": "2026-07-26T18:00:00Z", "icao": "EGLC",
+                 "dia": "2026-07-26", "faixa": "30°C",
+                 "preco_sim": 0.99, "preco_nao": 0.01},
+            ]).to_parquet(
+                archive / "mercado" / "day.parquet", index=False)
+            pd.DataFrame([{
+                "ts_utc": "2026-07-26T12:59:00Z", "icao": "EGLC",
+                "dia": "2026-07-26", "pico_hora": 15,
+            }]).to_parquet(
+                archive / "previsao" / "day.parquet", index=False)
+
+            result = ceifa.simulate_yes_repeated(
+                icaos={"EGLC"}, archive=archive)
+
+            self.assertEqual(result["n"], 0)
+            self.assertEqual(result["executable_snapshots"], 0)
 
 
 if __name__ == "__main__":

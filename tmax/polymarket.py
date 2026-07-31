@@ -180,9 +180,10 @@ def fetch_event(slug: str, timeout: int = 30) -> dict:
     """Escada completa de um evento de temperatura via Gamma API: cada faixa
     (market) com preço de Yes/No. Levanta em erro HTTP.
 
-    Retorna {title, end, rows:[{question, label, yes, no, no_token_id}]}.
-    `yes`/`no` são preços indicativos; a Ceifa usa separadamente o ask
-    executável do token NÃO."""
+    Retorna {title, end, rows:[{question, label, yes, no,
+    yes_token_id, no_token_id}]}.
+    `yes`/`no` são preços indicativos; os estudos da Ceifa usam separadamente
+    os asks executáveis dos tokens SIM e NÃO."""
     r = requests.get(
         f"{GAMMA_API}/events", params={"slug": slug},
         headers={"User-Agent": config.USER_AGENT}, timeout=timeout)
@@ -198,7 +199,7 @@ def fetch_event(slug: str, timeout: int = 30) -> dict:
         prices = _as_list(m.get("outcomePrices"))
         token_ids = _as_list(m.get("clobTokenIds"))
         yes = no = None
-        no_token_id = None
+        yes_token_id = no_token_id = None
         for o, price in zip(outcomes, prices):
             try:
                 fp = float(price)
@@ -208,6 +209,10 @@ def fetch_event(slug: str, timeout: int = 30) -> dict:
                 yes = fp
             elif o == "no":
                 no = fp
+        if "yes" in outcomes:
+            i = outcomes.index("yes")
+            if i < len(token_ids):
+                yes_token_id = str(token_ids[i])
         if "no" in outcomes:
             i = outcomes.index("no")
             if i < len(token_ids):
@@ -215,20 +220,26 @@ def fetch_event(slug: str, timeout: int = 30) -> dict:
         rows.append({
             "question": m.get("question"),
             "label": m.get("groupItemTitle") or m.get("question") or "?",
-            "yes": yes, "no": no, "no_token_id": no_token_id,
+            "yes": yes, "no": no, "yes_token_id": yes_token_id,
+            "no_token_id": no_token_id,
         })
     return {"title": ev.get("title") or slug,
             "end": ev.get("endDate"), "rows": rows}
 
 
-def attach_no_best_asks(event: dict, timeout: int = 30) -> dict:
-    """Anexa o menor ask executável do token NÃO a cada faixa do evento.
+def attach_best_asks(event: dict, timeout: int = 30) -> dict:
+    """Anexa o menor ask executável dos tokens SIM e NÃO a cada faixa.
 
     O preço exibido pela Gamma pode ser midpoint ou último negócio e não
     garante que exista vendedor. Sem ask no livro, a Ceifa não deve alertar.
     """
     rows = event.get("rows", [])
-    token_ids = [r.get("no_token_id") for r in rows if r.get("no_token_id")]
+    token_ids = [
+        token_id
+        for row in rows
+        for token_id in (row.get("yes_token_id"), row.get("no_token_id"))
+        if token_id
+    ]
     books_by_token = {}
     if token_ids:
         response = requests.post(
@@ -245,22 +256,28 @@ def attach_no_best_asks(event: dict, timeout: int = 30) -> dict:
 
     for row in rows:
         row["book_checked"] = True
-        row["no_ask"] = None
-        row["no_ask_size"] = None
-        book = books_by_token.get(str(row.get("no_token_id")))
-        asks = book.get("asks", []) if book else []
-        valid = []
-        for ask in asks:
-            try:
-                price, size = float(ask["price"]), float(ask["size"])
-            except (KeyError, TypeError, ValueError):
-                continue
-            if 0 < price < 1 and size > 0:
-                valid.append((price, size))
-        if valid:
-            price, size = min(valid, key=lambda item: item[0])
-            row["no_ask"], row["no_ask_size"] = price, size
+        for side in ("yes", "no"):
+            row[f"{side}_ask"] = None
+            row[f"{side}_ask_size"] = None
+            book = books_by_token.get(str(row.get(f"{side}_token_id")))
+            asks = book.get("asks", []) if book else []
+            valid = []
+            for ask in asks:
+                try:
+                    price, size = float(ask["price"]), float(ask["size"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if 0 < price < 1 and size > 0:
+                    valid.append((price, size))
+            if valid:
+                price, size = min(valid, key=lambda item: item[0])
+                row[f"{side}_ask"], row[f"{side}_ask_size"] = price, size
     return event
+
+
+def attach_no_best_asks(event: dict, timeout: int = 30) -> dict:
+    """Compatibilidade: consulta agora os dois lados do livro."""
+    return attach_best_asks(event, timeout)
 
 
 def event_slug(icao: str, date) -> str | None:
@@ -280,7 +297,7 @@ def odds_rows(event: dict, prob_fn=None) -> list[dict]:
 
     `prob_fn(question, end) -> float | None` devolve a nossa prob. do Yes; None
     quando não sabemos casar com uma estação/dia. Cada item:
-    {label, yes, no, no_ask, no_ask_size, mp, mp_no} (0..1 ou None)."""
+    {label, yes, no, yes_ask, no_ask, tamanhos, mp, mp_no}."""
     prob_fn = prob_fn or (lambda _q, _e: None)
     end = event.get("end")
     rows = []
@@ -294,6 +311,8 @@ def odds_rows(event: dict, prob_fn=None) -> list[dict]:
             "label": str(r.get("label") or "?"),
             "yes": yes, "no": no,
             "book_checked": r.get("book_checked", False),
+            "yes_ask": r.get("yes_ask"),
+            "yes_ask_size": r.get("yes_ask_size"),
             "no_ask": r.get("no_ask"),
             "no_ask_size": r.get("no_ask_size"),
             "mp": mp, "mp_no": None if mp is None else 1.0 - mp,

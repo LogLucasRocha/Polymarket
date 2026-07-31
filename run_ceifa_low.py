@@ -41,9 +41,13 @@ def main() -> int:
     args = ap.parse_args()
 
     log = lambda msg: print(msg, flush=True)  # noqa: E731
-    st = ceifa.simulate(log, icaos=minimum_station_icaos(), archive=ARCHIVE,
-                        warm_target_filter=False)
-    text = backtest.ceifa_report_text(st, titulo=TITULO, nota=NOTA)
+    st = ceifa.simulate_repeated(
+        log, icaos=minimum_station_icaos(), archive=ARCHIVE,
+        warm_target_filter=False, uncertainty_filter=False,
+        interval_minutes=config.CEIFA_REPEAT_MINUTES,
+        stake_frac=config.CEIFA_STAKE_FRAC)
+    text = backtest.ceifa_report_text(
+        st, titulo=TITULO, nota=NOTA, extreme_label="mínimo previsto")
 
     print("\n" + text.replace("<b>", "").replace("</b>", "")
           .replace("<i>", "").replace("</i>", ""))

@@ -7,7 +7,10 @@ from tmax import polymarket
 class ExecutableBookTests(unittest.TestCase):
     @staticmethod
     def _event():
-        return {"rows": [{"label": "30°C", "no_token_id": "no-30"}]}
+        return {"rows": [{
+            "label": "30°C", "yes_token_id": "yes-30",
+            "no_token_id": "no-30",
+        }]}
 
     @patch("tmax.polymarket.requests.get")
     def test_event_maps_no_outcome_to_its_clob_token(self, get):
@@ -23,23 +26,35 @@ class ExecutableBookTests(unittest.TestCase):
 
         event = polymarket.fetch_event("toronto")
 
+        self.assertEqual(event["rows"][0]["yes_token_id"], "yes-30")
         self.assertEqual(event["rows"][0]["no_token_id"], "no-30")
         self.assertEqual(event["rows"][0]["no"], 0.97)
 
     @patch("tmax.polymarket.requests.post")
     def test_uses_lowest_executable_no_ask_and_its_size(self, post):
         response = Mock()
-        response.json.return_value = [{
-            "asset_id": "no-30",
-            "asks": [
-                {"price": "0.980", "size": "20"},
-                {"price": "0.970", "size": "12.5"},
-            ],
-        }]
+        response.json.return_value = [
+            {
+                "asset_id": "yes-30",
+                "asks": [
+                    {"price": "0.965", "size": "8"},
+                    {"price": "0.960", "size": "5"},
+                ],
+            },
+            {
+                "asset_id": "no-30",
+                "asks": [
+                    {"price": "0.980", "size": "20"},
+                    {"price": "0.970", "size": "12.5"},
+                ],
+            },
+        ]
         post.return_value = response
 
-        event = polymarket.attach_no_best_asks(self._event())
+        event = polymarket.attach_best_asks(self._event())
 
+        self.assertEqual(event["rows"][0]["yes_ask"], 0.96)
+        self.assertEqual(event["rows"][0]["yes_ask_size"], 5.0)
         self.assertEqual(event["rows"][0]["no_ask"], 0.97)
         self.assertEqual(event["rows"][0]["no_ask_size"], 12.5)
         response.raise_for_status.assert_called_once()
@@ -53,8 +68,10 @@ class ExecutableBookTests(unittest.TestCase):
         }]
         post.return_value = response
 
-        event = polymarket.attach_no_best_asks(self._event())
+        event = polymarket.attach_best_asks(self._event())
 
+        self.assertIsNone(event["rows"][0]["yes_ask"])
+        self.assertIsNone(event["rows"][0]["yes_ask_size"])
         self.assertIsNone(event["rows"][0]["no_ask"])
         self.assertIsNone(event["rows"][0]["no_ask_size"])
 
