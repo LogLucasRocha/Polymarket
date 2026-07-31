@@ -243,6 +243,9 @@ def slice_strategy(stats: dict, lookback_days: int | None) -> dict:
 
 
 def city_frame(stats: dict) -> pd.DataFrame:
+    columns = [
+        "Cidade", "ICAO", "Parcelas", "Acertos", "Erros", "Assertividade",
+    ]
     rows = []
     for icao, (count, wins) in stats.get("by_city", {}).items():
         station = config.STATIONS.get(icao)
@@ -254,7 +257,7 @@ def city_frame(stats: dict) -> pd.DataFrame:
             "Erros": int(count - wins),
             "Assertividade": wins / count if count else 0.0,
         })
-    return pd.DataFrame(rows).sort_values(
+    return pd.DataFrame(rows, columns=columns).sort_values(
         ["Erros", "Parcelas"], ascending=[False, False], ignore_index=True)
 
 
