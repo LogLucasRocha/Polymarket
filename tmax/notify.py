@@ -236,6 +236,60 @@ def ceifa_chart_png(ctx: dict) -> bytes:
     return buf.getvalue()
 
 
+def ceifa_minimum_chart_png(ctx: dict, member_values: list[float]) -> bytes:
+    """Trajetória horária e distribuição empírica da mínima diária."""
+    fig = plt.figure(figsize=(9, 8))
+    gs = fig.add_gridspec(2, 1, height_ratios=[1.05, 1], hspace=0.35)
+    _draw_hourly(fig.add_subplot(gs[0, 0]), ctx)
+    ax = fig.add_subplot(gs[1, 0])
+    unit = ctx["station"].unit
+    values = [temperature_for_unit(value, unit) for value in member_values]
+    if values:
+        width = 2.0 if unit == "F" else 1.0
+        lower = width * math.floor(min(values) / width)
+        upper = width * math.ceil(max(values) / width) + width
+        edges = []
+        cursor = lower
+        while cursor <= upper + 1e-9:
+            edges.append(cursor)
+            cursor += width
+        counts = [
+            sum(edge <= value < edge + width for value in values)
+            for edge in edges[:-1]
+        ]
+        probabilities = [count / len(values) * 100 for count in counts]
+        centers = [edge + width / 2 for edge in edges[:-1]]
+        bars = ax.bar(centers, probabilities, width=width * 0.92,
+                      color=BLUE, alpha=0.75)
+        for bar, probability in zip(bars, probabilities):
+            if probability >= 5:
+                ax.annotate(
+                    f"{probability:.0f}%",
+                    (bar.get_x() + bar.get_width() / 2, probability),
+                    ha="center", va="bottom", fontsize=7, color="#333")
+        median = sorted(values)[len(values) // 2]
+        ax.axvline(median, color=RED, lw=1.5, ls="--",
+                   label=f"Mediana {median:.1f}")
+        ax.set_xticks(centers)
+        ax.set_xticklabels([
+            (f"{edge:.0f}–{edge + width:.0f}" if width > 1
+             else _tick_label(edge))
+            for edge in edges[:-1]
+        ])
+        ax.set_ylim(0, max(probabilities) * 1.25 + 2)
+        ax.legend(loc="upper right", fontsize=7.5, framealpha=0.9)
+    ax.set_xlabel(f"Faixa da mínima (°{unit})")
+    ax.set_ylabel("Prob. (%)")
+    ax.set_title(f"Hoje ({ctx['d0'].strftime('%d/%m')})", fontsize=10)
+    station = ctx["station"]
+    fig.suptitle(f"{station.city} — {station.icao} · MÍNIMA",
+                 fontsize=13, fontweight="bold")
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=110, bbox_inches="tight")
+    plt.close(fig)
+    return buf.getvalue()
+
+
 # --------------------------------------------------------- tabela de odds PNG
 
 # Divergência (nossa prob. − preço do mercado) a partir da qual destacamos a

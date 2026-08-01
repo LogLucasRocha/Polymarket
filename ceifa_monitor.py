@@ -188,7 +188,8 @@ def daily_chart(stats: dict) -> go.Figure:
     return dark_figure(fig)
 
 
-def overview(stats: dict, full_stats: dict, minimum: bool, side: str) -> None:
+def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
+             consolidated: bool = False) -> None:
     risk = monitor.risk_metrics(stats)
     unique_n, unique_losses = monitor.unique_contracts(stats)
     errors = stats.get("n", 0) - stats.get("wins", 0)
@@ -218,7 +219,15 @@ def overview(stats: dict, full_stats: dict, minimum: bool, side: str) -> None:
                   "∞" if math.isinf(risk["profit_factor"])
                   else f"{risk['profit_factor']:.2f}x")
         r4.metric("Contratos com erro", str(unique_losses))
-        if side == "SIM":
+        if consolidated:
+            components = full_stats.get("active_components") or {}
+            st.markdown(
+                "<div class='section-note'><b>Estratégias ativas consolidadas</b><br>"
+                f"Máximas: {components.get('maximum', 0):,} parcelas · "
+                f"Mínimas: {components.get('minimum', 0):,} parcelas · "
+                "uma única banca compartilhada entre todos os sinais.</div>"
+                .replace(",", "."), unsafe_allow_html=True)
+        elif side == "SIM":
             st.markdown(
                 "<div class='section-note'><b>Teste separado do SIM</b><br>"
                 "Somente ofertas executáveis acima de 95¢ e abaixo de 99,5¢, "
@@ -230,9 +239,9 @@ def overview(stats: dict, full_stats: dict, minimum: bool, side: str) -> None:
                 .replace(",", "."))
         elif minimum:
             st.markdown(
-                "<div class='section-note'><b>Estratégia em observação</b><br>"
-                "A Ceifa de mínimas testa parcelas de 1% do caixa livre a cada "
-                "cinco minutos e ainda não possui filtro meteorológico de "
+                "<div class='section-note'><b>Estratégia ativa de mínimas</b><br>"
+                "Parcelas de 1% do caixa livre a cada cinco minutos na H-1. "
+                "A estratégia ainda não possui filtro meteorológico de "
                 "incerteza próprio.</div>",
                 unsafe_allow_html=True)
         else:
@@ -256,6 +265,37 @@ def overview(stats: dict, full_stats: dict, minimum: bool, side: str) -> None:
 
 
 def errors_page(stats: dict) -> None:
+    if stats.get("archive_kind") == "consolidated":
+        losing = [signal for signal in monitor.signals_with_stakes(stats)
+                  if not signal.get("won")]
+        if not losing:
+            st.success("Nenhum erro no período selecionado.")
+            return
+        rows = []
+        for signal in losing:
+            station = config.STATIONS.get(signal.get("icao"))
+            rows.append({
+                "Data": str(signal.get("day")),
+                "Estratégia": ("Mínima" if signal.get("extreme") == "minimum"
+                               else "Máxima"),
+                "Cidade": station.city if station else signal.get("icao"),
+                "ICAO": signal.get("icao"),
+                "Faixa": signal.get("faixa"),
+                "Preço (¢)": float(signal.get("price") or 0) * 100,
+                "Parcela (% banca inicial)": float(signal.get("stake") or 0) * 100,
+            })
+        losses = pd.DataFrame(rows).sort_values(
+            ["Data", "Estratégia", "Cidade"], ascending=[False, True, True])
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Erros", len(losses))
+        c2.metric("Máximas", int((losses["Estratégia"] == "Máxima").sum()))
+        c3.metric("Mínimas", int((losses["Estratégia"] == "Mínima").sum()))
+        st.info(
+            "Esta é a lista consolidada. Para abrir a autópsia meteorológica "
+            "de um contrato, selecione Máximas ou Mínimas no topo.")
+        st.dataframe(losses, hide_index=True, width="stretch")
+        return
+
     minimum = stats.get("archive_kind") == "minimum"
     side = stats.get("side", "NAO")
     losses = load_losses(stats)
@@ -450,7 +490,8 @@ def errors_page(stats: dict) -> None:
     st.dataframe(table, hide_index=True, width="stretch")
 
 
-def cities_page(stats: dict, full_stats: dict) -> None:
+def cities_page(stats: dict, full_stats: dict,
+                consolidated: bool = False) -> None:
     minimum = stats.get("archive_kind") == "minimum"
     side = stats.get("side", "NAO")
     cities = monitor.city_frame(stats)
@@ -461,14 +502,25 @@ def cities_page(stats: dict, full_stats: dict) -> None:
         st.dataframe(view, hide_index=True, width="stretch", height=460)
 
     st.subheader("Filtro de incerteza")
-    if side == "SIM":
+    if consolidated:
+        components = full_stats.get("active_components") or {}
+        st.info(
+            "O consolidado soma as duas estratégias ativas usando a mesma "
+            "banca. Os filtros meteorológicos abaixo pertencem às máximas; "
+            "as mínimas ainda operam sem filtro de incerteza próprio.")
+        f1, f2, f3 = st.columns(3)
+        f1.metric("Parcelas de máximas", components.get("maximum", 0))
+        f2.metric("Parcelas de mínimas", components.get("minimum", 0))
+        f3.metric("Entradas evitadas nas máximas",
+                  full_stats.get("n_filtrado", 0))
+    elif side == "SIM":
         st.info(
             "O teste do SIM ainda não usa filtro de ensemble, nowcast ou platô. "
             "Ele mede apenas H-1, preço e liquidez executável.")
     elif minimum:
         st.warning(
-            "A estratégia de mínimas ainda não aplica filtro de ensemble, "
-            "nowcast ou platô. Ela permanece apenas em monitoramento.")
+            "A estratégia ativa de mínimas ainda não aplica filtro de "
+            "ensemble, nowcast ou platô.")
     else:
         f1, f2, f3, f4 = st.columns(4)
         f1.metric("Entradas evitadas", full_stats.get("n_filtrado", 0))
@@ -497,13 +549,16 @@ def cities_page(stats: dict, full_stats: dict) -> None:
     h4.metric("Última atualização local",
               freshness["updated"].strftime("%d/%m %H:%M")
               if freshness["updated"] else "—")
-    if minimum:
+    if consolidated:
         st.caption(
-            f"Regra monitorada: NÃO entre {config.CEIFA_PRICE_MIN * 100:.1f}¢ e "
+            "Consolidado ativo: NÃO de máximas + NÃO de mínimas · "
+            "uma única banca · sem alavancagem.")
+    elif minimum:
+        st.caption(
+            f"Regra ativa: NÃO entre {config.CEIFA_PRICE_MIN * 100:.1f}¢ e "
             f"{config.CEIFA_PRICE_MAX * 100:.1f}¢ · H-1 do mínimo previsto · "
             f"{config.CEIFA_STAKE_FRAC:.0%} do caixa livre a cada "
-            f"{config.CEIFA_REPEAT_MINUTES} minutos · sem teto por contrato · "
-            "ainda sem apostar.")
+            f"{config.CEIFA_REPEAT_MINUTES} minutos · sem teto por contrato.")
     else:
         st.caption(
             f"Regra ativa: NÃO entre {config.CEIFA_PRICE_MIN * 100:.1f}¢ e "
@@ -534,11 +589,13 @@ def main() -> None:
             [1.8, 1.45, 1.25, .65], vertical_alignment="bottom")
         strategy_label = strategy_col.radio(
             "Estratégia monitorada",
-            ["🌡️ Máximas", "❄️ Mínimas"], horizontal=True,
+            ["📊 Ativas consolidadas", "🌡️ Máximas", "❄️ Mínimas"],
+            horizontal=True,
             key="strategy_navigation")
+        consolidated = strategy_label == "📊 Ativas consolidadas"
         side_label = side_col.radio(
             "Lado testado", ["NÃO", "SIM"], horizontal=True,
-            key="side_navigation")
+            key="side_navigation", disabled=consolidated)
         period_label = period_col.selectbox(
             "Período",
             ["Todo o histórico", "Últimos 30 dias", "Últimos 14 dias",
@@ -553,16 +610,21 @@ def main() -> None:
             st.session_state["refresh_notice"] = refresh_result
             st.rerun()
 
-    kind = "minimum" if strategy_label == "❄️ Mínimas" else "maximum"
+    kind = ("consolidated" if consolidated else
+            "minimum" if strategy_label == "❄️ Mínimas" else "maximum")
     minimum = kind == "minimum"
-    side = side_label
-    if side == "SIM":
+    side = "NÃO" if consolidated else side_label
+    if consolidated:
+        subtitle = (
+            "Retorno conjunto do NÃO de máximas e mínimas, calculado com "
+            "uma única banca compartilhada.")
+    elif side == "SIM":
         subtitle = (
             f"Temperaturas {'mínimas' if minimum else 'máximas'} · teste do SIM "
             "em observação, sem apostas reais.")
     else:
         subtitle = (
-            "Temperaturas mínimas · observação separada, ainda sem apostas reais."
+            "Temperaturas mínimas · estratégia ativa, parcelada a cada cinco minutos."
             if minimum else
             "Temperaturas máximas · estratégia ativa, parcelada a cada cinco minutos.")
     hero(subtitle)
@@ -575,14 +637,20 @@ def main() -> None:
         "Todo o histórico": None, "Últimos 30 dias": 30,
         "Últimos 14 dias": 14, "Últimos 7 dias": 7,
     }[period_label]
-    full_stats = load_strategy(kind, side)
+    if consolidated:
+        full_stats = monitor.combine_active_strategies(
+            load_strategy("maximum", "NÃO"),
+            load_strategy("minimum", "NÃO"),
+        )
+    else:
+        full_stats = load_strategy(kind, side)
     stats = monitor.slice_strategy(full_stats, lookback)
     if "Visão geral" in page:
-        overview(stats, full_stats, minimum, side)
+        overview(stats, full_stats, minimum, side, consolidated)
     elif "Erros" in page:
         errors_page(stats)
     else:
-        cities_page(stats, full_stats)
+        cities_page(stats, full_stats, consolidated)
 
 
 if __name__ == "__main__":

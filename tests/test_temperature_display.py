@@ -77,7 +77,8 @@ class TemperatureDisplayTests(unittest.TestCase):
         message = send_telegram._ceifa_text(
             station, ctx, [("key", "78-79°F", 0.97, 20, 5.0)])
 
-        self.assertIn("Mediana: <b>78.8 °F</b>", message)
+        self.assertIn("MÁXIMA", message)
+        self.assertIn("Mediana da máxima: <b>78.8 °F</b>", message)
         self.assertIn("P10 77.0 · P90 80.6", message)
         self.assertIn("Teto ens. 82.4 °F", message)
 

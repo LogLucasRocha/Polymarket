@@ -9,15 +9,16 @@ Na nuvem roda pelo GitHub Actions (.github/workflows/main.yml), com o
 token e o chat_id guardados como *secrets* do repositório.
 
 Modo silencioso — o Telegram só recebe:
-  1. Alertas de compra — estratégia CEIFA (a única ativa; Edge e Colheita
-     desligadas). Compra o NÃO na hora local ANTERIOR ao pico previsto (H-1)
+  1. Alertas de compra — estratégias CEIFA de MÁXIMA e MÍNIMA (Edge e
+     Colheita desligadas). Compra o NÃO na hora local anterior ao extremo
+     previsto (H-1)
      quando CEIFA_PRICE_MIN < preço do NÃO < CEIFA_PRICE_MAX (só o preço, mas
      só na janela H-1 — perto do pico há pouca incerteza). O alerta REPETE a
      cada rodada de 5 minutos da H-1, mesmo se já houver posição: cada aviso é
      uma nova parcela de 1% do saldo livre no momento do sinal. A 1ª
      aparição leva o bloco enxuto: um gráfico com a TRAJETÓRIA hora a hora + a
-     distribuição (ensemble + TAF + mediana), e texto com o horário local,
-     o pico previsto e a mediana (P10/P90) — SEM tabela de probabilidades;
+     distribuição, e texto com o horário local, o extremo previsto, a
+     mediana, P10/P90 e o piso/teto do ensemble — SEM tabela de probabilidades;
      as repetições vêm em texto curto. O desempenho da Ceifa vai num relatório
      diário às 06:00 (run_ceifa.py), medido SÓ nos nossos snapshots (dados/).
   2. Para cidades com posição aberta: SEM bloco — apenas avisos pontuais em
@@ -64,6 +65,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 
 from tmax import (calibration, capture, ceifa, config, distribution, notify,
                   pipeline, polymarket)
+from lowtemp import capture as minimum_capture
 
 
 def main() -> int:
@@ -161,6 +163,11 @@ def main() -> int:
     # Sinais são computados cedo para identificar oportunidades novas; as
     # repetições posteriores vêm sozinhas em texto.
     signal_rows = _collect_signal_rows(stations, contexts, yes_prob)
+    if config.CEIFA_MINIMUM_ENABLED:
+        (minimum_signal_rows, minimum_forecasts,
+         minimum_members) = _collect_minimum_signal_rows(stations, contexts)
+    else:
+        minimum_signal_rows, minimum_forecasts, minimum_members = {}, {}, {}
     prev_probs = state.get("signal_probs", {})
     # Estratégia Edge pausada (config.EDGE_ENABLED): sem edge, o digest opera só
     # a colheita. Zerar aqui propaga para sig_msgs, fresh_icaos e a captura.
@@ -257,7 +264,7 @@ def main() -> int:
                 print(f"[{station.icao}] ERRO no alerta {kind}: {exc}",
                       file=sys.stderr)
 
-    # 2d) Ceifa (estratégia ATIVA e única): comprar o NÃO quando
+    # 2d) Ceifa de máximas (ativa): comprar o NÃO quando
     # CEIFA_PRICE_MIN < preço do NÃO < CEIFA_PRICE_MAX, na H-1, desde que os
     # vetos de incerteza (ensemble largo / nowcast quente) permitam. O
     # alerta REPETE em toda rodada elegível, mesmo quando já existe posição:
@@ -265,8 +272,9 @@ def main() -> int:
     ceifa_seen = set(state.get("ceifa", []))
     ceifa_last_sent = state.get("ceifa_last_sent", {})
     run_now_utc = dt.datetime.now(dt.timezone.utc)
-    ceifa_pending: dict[str, list] = {}     # icao -> [(chave, faixa, ask, volume)]
-    ceifa_fresh: set = set()                # cidades com oportunidade NOVA
+    ceifa_pending: dict[str, list] = {}     # máximas: icao -> contratos
+    minimum_pending: dict[str, list] = {}   # mínimas: icao -> contratos
+    ceifa_fresh: set[tuple[str, str]] = set()  # (extremo, icao) novo
     ceifa_keep: list = []
     # H-1: a entrada é SÓ na hora local ANTERIOR ao pico previsto pelo modelo
     # (H = hora do pico). Perto do pico há pouca incerteza — é onde o mercado
@@ -327,29 +335,82 @@ def main() -> int:
             ceifa_pending.setdefault(icao, []).append(
                 (k, v["label"], price, v.get("no_ask_size")))
             if k not in ceifa_seen:
-                ceifa_fresh.add(icao)
+                ceifa_fresh.add(("maximum", icao))
+
+    # MÍNIMAS ATIVAS: mesma banda, livro executável, H-1 e repetição das
+    # máximas. Os vetos de cauda quente não se aplicam ao extremo frio; o
+    # backtest promovido foi medido sem esses filtros.
+    if config.CEIFA_MINIMUM_ENABLED:
+        for k, value in minimum_signal_rows.items():
+            icao = value["icao"]
+            price = ceifa.normalize_market_price(value.get("no_ask"))
+            if price is None:
+                indicative = ceifa.normalize_market_price(value.get("no"))
+                if ceifa.is_ceifa_price(indicative):
+                    print(f"[ceifa mínima] {icao}: sem oferta executável para "
+                          f"NÃO {value['label']} "
+                          f"(indicativo=${indicative:.3f}).")
+                continue
+            if not ceifa.is_ceifa_price(price):
+                continue
+            forecast = minimum_forecasts.get(icao) or {}
+            cold_hour = forecast.get("pico_hora")
+            ctx_i = contexts.get(icao)
+            if (cold_hour is None or ctx_i is None
+                    or ctx_i["now"].hour != (int(cold_hour) - 1) % 24):
+                continue
+            ceifa_keep.append(k)
+            if not _ceifa_send_due(
+                    ceifa_last_sent.get(k), run_now_utc,
+                    config.CEIFA_REPEAT_MINUTES):
+                continue
+            minimum_pending.setdefault(icao, []).append(
+                (k, value["label"], price, value.get("no_ask_size")))
+            if k not in ceifa_seen:
+                ceifa_fresh.add(("minimum", icao))
 
     # Stake relativa: no instante de cada rodada com oportunidade, recomenda
     # 1% do pUSD livre. Se as compras anteriores foram executadas, o próprio
     # saldo menor reduz naturalmente a parcela seguinte.
     free_pusd = None
-    if ceifa_pending:
+    if ceifa_pending or minimum_pending:
         if not wallet:
             print("[ceifa] ERRO ao apurar stake atual: carteira não definida.",
                   file=sys.stderr)
-            ceifa_pending = {}
+            ceifa_pending, minimum_pending = {}, {}
         else:
             try:
                 free_pusd, first_stake = _current_ceifa_stake(wallet)
-                ceifa_pending = _allocate_relative_stakes(
-                    ceifa_pending, stations, free_pusd,
+                combined_pending, order = {}, []
+                for station in stations:
+                    for extreme, pending in (
+                            ("maximum", ceifa_pending),
+                            ("minimum", minimum_pending)):
+                        contracts = pending.get(station.icao)
+                        if not contracts:
+                            continue
+                        group = f"{extreme}:{station.icao}"
+                        combined_pending[group] = contracts
+                        order.append(group)
+                allocated = _allocate_relative_stakes(
+                    combined_pending, order, free_pusd,
                     config.CEIFA_STAKE_FRAC)
+                ceifa_pending = {
+                    station.icao: allocated[f"maximum:{station.icao}"]
+                    for station in stations
+                    if f"maximum:{station.icao}" in allocated
+                }
+                minimum_pending = {
+                    station.icao: allocated[f"minimum:{station.icao}"]
+                    for station in stations
+                    if f"minimum:{station.icao}" in allocated
+                }
                 print(f"[ceifa] primeira stake atual: ${first_stake:.2f} "
                       f"de ${free_pusd:.2f} livres.")
             except Exception as exc:
                 print(f"[ceifa] ERRO ao apurar stake atual: {exc}",
                       file=sys.stderr)
-                ceifa_pending = {}
+                ceifa_pending, minimum_pending = {}, {}
 
     # 3) Um alerta por cidade com oportunidade de Ceifa. A PRIMEIRA aparição
     # leva o bloco enxuto (gráfico da distribuição do ensemble + TAF + mediana,
@@ -363,16 +424,18 @@ def main() -> int:
         ctx = contexts.get(icao)
         fp = fps[icao]
         try:
-            if icao in ceifa_fresh and ctx is not None:
+            if ("maximum", icao) in ceifa_fresh and ctx is not None:
                 _send_ceifa_block(
-                    token, chat_id, station, ctx, contratos)
+                    token, chat_id, station, ctx, contratos,
+                    extreme="maximum")
                 _cap(lambda st=station, c=ctx: capture.record_report(
                     c["now"], st.icao, c["d0"], _report_snapshot(st, c)))
                 marca = "bloco"
             else:
                 notify.send_message(
                     token, chat_id,
-                    _ceifa_repeat_text(station, ctx, contratos))
+                    _ceifa_repeat_text(
+                        station, ctx, contratos, extreme="maximum"))
                 marca = "repetição"
             if fp is not None:
                 station_state[icao] = fp
@@ -382,11 +445,42 @@ def main() -> int:
         except Exception as exc:  # noqa: BLE001 — falha de uma cidade não derruba as demais
             print(f"[ceifa] {icao}: ERRO: {exc}", file=sys.stderr)
 
+    for station in stations:
+        icao = station.icao
+        contratos = minimum_pending.get(icao)
+        if not contratos:
+            continue
+        ctx = contexts.get(icao)
+        forecast = minimum_forecasts.get(icao)
+        try:
+            if ("minimum", icao) in ceifa_fresh and ctx is not None:
+                _send_ceifa_block(
+                    token, chat_id, station, ctx, contratos,
+                    extreme="minimum", forecast=forecast,
+                    member_values=minimum_members.get(icao, []))
+                marca = "bloco"
+            else:
+                notify.send_message(
+                    token, chat_id,
+                    _ceifa_repeat_text(
+                        station, ctx, contratos, extreme="minimum",
+                        forecast=forecast))
+                marca = "repetição"
+            for key, *_rest in contratos:
+                ceifa_last_sent[key] = run_now_utc.isoformat()
+            print(f"[ceifa mínima] {icao}: {len(contratos)} contrato(s) "
+                  f"({marca}).")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[ceifa mínima] {icao}: ERRO: {exc}", file=sys.stderr)
+
     # Captura dos alertas de estratégia desta rodada (Ceifa).
     _cap(lambda: capture.record_alerts(
         dt.datetime.now(dt.timezone.utc),
-        _ceifa_alert_rows(
-            ceifa_pending, ceifa_seen, signal_rows)))
+        (_ceifa_alert_rows(
+            ceifa_pending, ceifa_seen, signal_rows, extreme="maximum")
+         + _ceifa_alert_rows(
+             minimum_pending, ceifa_seen, minimum_signal_rows,
+             extreme="minimum"))))
 
     # 4) Comandos e cliques de botão recebidos desde a última rodada
     # (getUpdates). É aqui que o relatório completo sai, sob demanda —
@@ -433,7 +527,8 @@ def _allocate_relative_stakes(pending: dict, stations, free_pusd: float,
     remaining = free_pusd
     allocated = {}
     for station in stations:
-        contracts = pending.get(station.icao, [])
+        key = station if isinstance(station, str) else station.icao
+        contracts = pending.get(key, [])
         if not contracts:
             continue
         rows = []
@@ -441,7 +536,7 @@ def _allocate_relative_stakes(pending: dict, stations, free_pusd: float,
             stake = remaining * stake_frac
             remaining -= stake
             rows.append((*contract, stake))
-        allocated[station.icao] = rows
+        allocated[key] = rows
     return allocated
 
 
@@ -484,6 +579,58 @@ def _collect_signal_rows(stations, contexts, yes_prob) -> dict:
                           "no_ask_size": r.get("no_ask_size"),
                           "mp": r["mp"]}
     return json.loads(json.dumps(rows))
+
+
+def _collect_minimum_signal_rows(stations, contexts) -> tuple[dict, dict, dict]:
+    """Mercados de mínima D0 com livro e distribuição usados pelo alerta."""
+    rows: dict = {}
+    forecasts: dict = {}
+    members_by_icao: dict = {}
+    captured_at = dt.datetime.now(dt.timezone.utc)
+    for station in stations:
+        ctx = contexts.get(station.icao)
+        if ctx is None:
+            continue
+        day = ctx["d0"]
+        forecast = _cap(
+            minimum_capture.forecast_snapshot,
+            ctx, station.icao, day, captured_at)
+        if not forecast or forecast.get("travada"):
+            continue
+        slug = minimum_capture.lowest_slug(station.icao, day)
+        if not slug:
+            continue
+        try:
+            event = polymarket.fetch_event(slug)
+            polymarket.attach_best_asks(event)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[ceifa mínima] {station.icao}: ERRO livro {slug}: {exc}",
+                  file=sys.stderr)
+            continue
+        # Nas mínimas precisamos preservar também o NÃO entre 99,0¢ e
+        # 99,5¢. Sem uma probabilidade do modelo, o corte visual padrão de
+        # ``odds_rows`` descartaria justamente essas faixas.
+        odds = polymarket.odds_rows(event, include_all=True)
+        forecasts[station.icao] = forecast
+        members = _cap(minimum_capture.minimum_members, ctx, day) or []
+        members_by_icao[station.icao] = [
+            float(member["tmin"]) for member in members
+            if member.get("tmin") is not None
+        ]
+        for row in odds:
+            if row.get("no") is None:
+                continue
+            key = f"min:{station.icao}:{day.isoformat()}:{row['label']}"
+            rows[key] = {
+                "icao": station.icao, "label": row["label"],
+                "day_label": f"hoje {day.strftime('%d/%m')}",
+                "yes": row.get("yes"), "no": row.get("no"),
+                "book_checked": row.get("book_checked", False),
+                "no_ask": row.get("no_ask"),
+                "no_ask_size": row.get("no_ask_size"),
+                "extreme": "minimum",
+            }
+    return json.loads(json.dumps(rows)), forecasts, members_by_icao
 
 
 def _stop_alerts(positions: list) -> str | None:
@@ -838,68 +985,116 @@ def _peak_hour(ctx):
     return max(valid, key=lambda tv: tv[1])[0].hour if valid else None
 
 
-def _ceifa_distribution_line(station, ctx) -> str:
-    """Resumo da distribuição corrigida exibido em todo aviso de parcela."""
-    q = ctx["dist_d0"]["quantiles"]
+def _ceifa_distribution_line(station, ctx, extreme="maximum",
+                             forecast=None) -> str:
+    """Resumo completo da distribuição corrigida do extremo anunciado."""
     unit = station.unit
-    q10 = notify.temperature_for_unit(q.get(10), unit)
-    q50 = notify.temperature_for_unit(q.get(50), unit)
-    q90 = notify.temperature_for_unit(q.get(90), unit)
-    member_values = [
-        component[0] for component in ctx["dist_d0"].get("comps", [])
-        if component and component[0] is not None
-    ]
-    ceiling = (notify.temperature_for_unit(max(member_values), unit)
-               if member_values else None)
+    if extreme == "minimum":
+        values = forecast or {}
+        q10 = notify.temperature_for_unit(values.get("p10"), unit)
+        q50 = notify.temperature_for_unit(values.get("mediana"), unit)
+        q90 = notify.temperature_for_unit(values.get("p90"), unit)
+        floor = notify.temperature_for_unit(values.get("piso_ens"), unit)
+        ceiling = notify.temperature_for_unit(values.get("teto_ens"), unit)
+        label = "mínima"
+    else:
+        q = ctx["dist_d0"]["quantiles"]
+        q10 = notify.temperature_for_unit(q.get(10), unit)
+        q50 = notify.temperature_for_unit(q.get(50), unit)
+        q90 = notify.temperature_for_unit(q.get(90), unit)
+        member_values = [
+            component[0] for component in ctx["dist_d0"].get("comps", [])
+            if component and component[0] is not None
+        ]
+        floor = (notify.temperature_for_unit(min(member_values), unit)
+                 if member_values else None)
+        ceiling = (notify.temperature_for_unit(max(member_values), unit)
+                   if member_values else None)
+        label = "máxima"
     details = f"P10 {q10:.1f} · P90 {q90:.1f}"
+    if floor is not None:
+        details += f" · Piso ens. {floor:.1f} °{unit}"
     if ceiling is not None:
         details += f" · Teto ens. {ceiling:.1f} °{unit}"
-    return f"📊 Mediana: <b>{q50:.1f} °{unit}</b> ({details})"
+    return (f"📊 Mediana da {label}: <b>{q50:.1f} °{unit}</b> "
+            f"({details})")
 
 
-def _ceifa_text(station, ctx, contratos) -> str:
-    """Alerta de Ceifa: compras, pico, quantis e teto do ensemble corrigido."""
-    pico = _peak_hour(ctx)
-    linhas = [f"🌾 <b>Ceifa — {station.flag} {html.escape(station.city)} "
-              f"({station.icao})</b>"]
+def _ceifa_timing_line(ctx, extreme="maximum", forecast=None) -> str:
+    hour = ((forecast or {}).get("pico_hora") if extreme == "minimum"
+            else _peak_hour(ctx))
+    now = ctx.get("now")
+    now_text = now.strftime("%H:%M") if now is not None else "—"
+    hour_text = f"{int(hour):02d}h" if hour is not None else "—"
+    icon, label = (("📉", "Mínimo previsto") if extreme == "minimum"
+                   else ("📈", "Pico previsto"))
+    return (f"🕐 Agora: <b>{now_text}</b> (local) · {icon} {label}: "
+            f"<b>{hour_text}</b>")
+
+
+def _ceifa_text(station, ctx, contratos, extreme="maximum", forecast=None) -> str:
+    """Alerta de Ceifa com extremo, preço, liquidez e distribuição completa."""
+    title = "❄️ MÍNIMA" if extreme == "minimum" else "🌡️ MÁXIMA"
+    linhas = [f"🌾 <b>Ceifa — {title} — {station.flag} "
+              f"{html.escape(station.city)} ({station.icao})</b>"]
     for _k, faixa, price, size, stake in contratos:
+        available = f"{size:g} cota(s)" if size is not None else "—"
         linhas.append(f"• Comprar <b>NÃO {html.escape(str(faixa))}</b> "
                       f"@ ${price:.3f} · stake: <b>${stake:,.2f}</b> "
-                      f"· disponível: {size:g} cota(s)")
-    agora = ctx["now"].strftime("%H:%M")
-    pico_txt = f"{pico:02d}h" if pico is not None else "—"
-    linhas.append(f"🕐 Agora: <b>{agora}</b> (local) · 📈 Pico previsto: "
-                  f"<b>{pico_txt}</b>")
-    linhas.append(_ceifa_distribution_line(station, ctx))
+                      f"· disponível: {available}")
+    linhas.append(_ceifa_timing_line(ctx, extreme, forecast))
+    linhas.append(_ceifa_distribution_line(
+        station, ctx, extreme, forecast))
     return "\n".join(linhas)
 
 
-def _ceifa_repeat_text(station, ctx, contratos) -> str:
+def _ceifa_repeat_text(station, ctx, contratos, extreme="maximum",
+                       forecast=None) -> str:
     """Nova parcela com preço, stake e resumo atual do ensemble."""
-    linhas = [f"🌾 <b>Ceifa — {station.flag} {html.escape(station.city)} "
-              f"({station.icao})</b> <i>(nova parcela)</i>"]
+    title = "❄️ MÍNIMA" if extreme == "minimum" else "🌡️ MÁXIMA"
+    linhas = [f"🌾 <b>Ceifa — {title} — {station.flag} "
+              f"{html.escape(station.city)} ({station.icao})</b> "
+              f"<i>(nova parcela)</i>"]
     for _k, faixa, price, size, stake in contratos:
+        available = f"{size:g} cota(s)" if size is not None else "—"
         linhas.append(f"• Comprar <b>NÃO {html.escape(str(faixa))}</b> "
                       f"@ ${price:.3f} · stake: <b>${stake:,.2f}</b> "
-                      f"· disponível: {size:g} cota(s)")
-    linhas.append(_ceifa_distribution_line(station, ctx))
+                      f"· disponível: {available}")
+    try:
+        linhas.append(_ceifa_timing_line(ctx, extreme, forecast))
+    except (KeyError, TypeError, ValueError):
+        pass
+    linhas.append(_ceifa_distribution_line(
+        station, ctx, extreme, forecast))
     return "\n".join(linhas)
 
 
-def _send_ceifa_block(token, chat_id, station, ctx, contratos) -> None:
+def _send_ceifa_block(token, chat_id, station, ctx, contratos,
+                      extreme="maximum", forecast=None,
+                      member_values=None) -> None:
     """Bloco enxuto da Ceifa: divisor, texto (compra + pico + mediana) e o
     gráfico da distribuição (ensemble + TAF + mediana). Sem tabela de
     probabilidades e sem hora a hora."""
     notify.send_message(token, chat_id, notify.station_divider(station))
     notify.send_message(
-        token, chat_id, _ceifa_text(station, ctx, contratos))
+        token, chat_id,
+        _ceifa_text(station, ctx, contratos, extreme, forecast))
+    if extreme == "minimum":
+        chart = notify.ceifa_minimum_chart_png(ctx, member_values or [])
+        caption = (f"📉 <b>{html.escape(station.city)}</b> — trajetória hora "
+                   "a hora + distribuição da MÍNIMA de hoje (ensemble · "
+                   "mediana)")
+    else:
+        chart = notify.ceifa_chart_png(ctx)
+        caption = (f"📈 <b>{html.escape(station.city)}</b> — trajetória hora "
+                   "a hora + distribuição da MÁXIMA de hoje (ensemble · TAF "
+                   "· mediana)")
     notify.send_photo(
-        token, chat_id, notify.ceifa_chart_png(ctx),
-        f"📈 <b>{html.escape(station.city)}</b> — trajetória hora a hora + "
-        "distribuição da máxima de hoje (ensemble · TAF · mediana)")
+        token, chat_id, chart, caption)
 
 
-def _ceifa_alert_rows(ceifa_pending, ceifa_seen, signal_rows) -> list:
+def _ceifa_alert_rows(ceifa_pending, ceifa_seen, signal_rows,
+                      extreme="maximum") -> list:
     """Linhas estruturadas dos alertas de Ceifa desta rodada (para a captura),
     com a flag repeticao separando a entrada das repetições."""
     rows = []
@@ -908,10 +1103,15 @@ def _ceifa_alert_rows(ceifa_pending, ceifa_seen, signal_rows) -> list:
         for k, faixa, price, size, stake_usd in contratos:
             v = signal_rows.get(k, {})
             mp = v.get("mp")
+            parts = k.split(":")
+            day = parts[2] if k.startswith("min:") else parts[1]
             rows.append({
-                "icao": icao, "dia": k.split(":")[1], "estrategia": "ceifa",
+                "icao": icao, "dia": day,
+                "estrategia": f"ceifa_{'minima' if extreme == 'minimum' else 'maxima'}",
+                "extremo": extreme,
                 "faixa": faixa, "lado": "NAO", "preco": round(price, 4),
-                "volume_disponivel": round(size, 4),
+                "volume_disponivel": (round(size, 4)
+                                       if size is not None else None),
                 "stake_usd": round(stake_usd, 4),
                 "modelo": (round(1.0 - mp, 4) if mp is not None else None),
                 "edge_pp": None, "hora_local": hloc,

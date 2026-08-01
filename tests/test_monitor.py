@@ -186,6 +186,37 @@ class MonitorTest(unittest.TestCase):
         self.assertAlmostEqual(stakes[0], 0.01)
         self.assertAlmostEqual(stakes[1], 0.0099)
 
+    def test_consolidated_active_strategies_share_one_bankroll(self):
+        maximum = {
+            "n": 1,
+            "signals": [{
+                "icao": "EGLC", "day": "2026-07-31", "faixa": "36°C",
+                "ts": dt.datetime(2026, 7, 31, 13, 0), "price": 0.98,
+                "won": True, "stopped": False, "loss_frac": None,
+            }],
+            "n_filtrado": 3,
+        }
+        minimum = {
+            "n": 1,
+            "signals": [{
+                "icao": "CYYZ", "day": "2026-07-31", "faixa": "13°C",
+                "ts": dt.datetime(2026, 7, 31, 13, 5), "price": 0.97,
+                "won": False, "stopped": False, "loss_frac": None,
+            }],
+        }
+
+        stats = monitor.combine_active_strategies(maximum, minimum)
+
+        self.assertEqual(stats["archive_kind"], "consolidated")
+        self.assertEqual(stats["active_components"], {
+            "maximum": 1, "minimum": 1})
+        self.assertEqual(stats["n"], 2)
+        self.assertEqual(stats["n_filtrado"], 3)
+        self.assertAlmostEqual(stats["signals"][0]["stake"], 0.01)
+        self.assertAlmostEqual(stats["signals"][1]["stake"], 0.0099)
+        self.assertEqual(stats["signals"][0]["extreme"], "maximum")
+        self.assertEqual(stats["signals"][1]["extreme"], "minimum")
+
     def test_loss_date_filter_orders_days_and_selects_only_requested_day(self):
         losses = pd.DataFrame([
             {"Dia": "2026-07-23", "Chave": "WMKK · 2026-07-23 · 32°C"},

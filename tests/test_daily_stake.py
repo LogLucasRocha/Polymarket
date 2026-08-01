@@ -11,6 +11,9 @@ class DailyStakeTests(unittest.TestCase):
     def test_automatic_positions_summary_is_disabled(self):
         self.assertFalse(config.POSITIONS_SUMMARY_ENABLED)
 
+    def test_minimum_no_strategy_is_enabled(self):
+        self.assertTrue(config.CEIFA_MINIMUM_ENABLED)
+
     @patch("send_telegram.polymarket.fetch_pusd_balance", return_value=410.12)
     def test_uses_one_percent_of_current_free_balance(self, balance):
         free, stake = send_telegram._current_ceifa_stake(
@@ -41,8 +44,32 @@ class DailyStakeTests(unittest.TestCase):
 
         self.assertIn("stake: <b>$10.32</b>", text)
         self.assertIn("Comprar <b>NÃO 30°C</b>", text)
-        self.assertIn("Mediana: <b>26.0 °C</b>", text)
+        self.assertIn("MÁXIMA", text)
+        self.assertIn("Mediana da máxima: <b>26.0 °C</b>", text)
+        self.assertIn("Piso ens. 25.5 °C", text)
         self.assertIn("Teto ens. 28.2 °C", text)
+
+    def test_minimum_purchase_message_is_explicit_and_complete(self):
+        station = SimpleNamespace(
+            flag="🇬🇧", city="Londres", icao="EGLC", unit="C")
+        ctx = {"now": dt.datetime(2026, 7, 31, 4, 5), "dist_d0": {}}
+        forecast = {
+            "pico_hora": 5, "mediana": 14.0, "p10": 13.2, "p90": 14.8,
+            "piso_ens": 12.5, "teto_ens": 15.4,
+        }
+
+        text = send_telegram._ceifa_repeat_text(
+            station, ctx, [("min:key", "13°C", 0.97, 20, 8.25)],
+            extreme="minimum", forecast=forecast)
+
+        self.assertIn("MÍNIMA", text)
+        self.assertIn("Comprar <b>NÃO 13°C</b>", text)
+        self.assertIn("Mínimo previsto: <b>05h</b>", text)
+        self.assertIn("Mediana da mínima: <b>14.0 °C</b>", text)
+        self.assertIn("P10 13.2", text)
+        self.assertIn("P90 14.8", text)
+        self.assertIn("Piso ens. 12.5 °C", text)
+        self.assertIn("Teto ens. 15.4 °C", text)
 
     def test_allocates_each_simultaneous_signal_from_remaining_cash(self):
         stations = [SimpleNamespace(icao="A"), SimpleNamespace(icao="B")]
@@ -57,6 +84,22 @@ class DailyStakeTests(unittest.TestCase):
         self.assertAlmostEqual(result["A"][0][-1], 10.0)
         self.assertAlmostEqual(result["A"][1][-1], 9.9)
         self.assertAlmostEqual(result["B"][0][-1], 9.801)
+
+    @patch("send_telegram.dt.datetime")
+    def test_minimum_alert_is_archived_with_its_strategy_and_day(self, now):
+        now.now.return_value = dt.datetime(2026, 7, 31, 4, 5)
+        pending = {
+            "EGLC": [("min:EGLC:2026-07-31:13°C", "13°C",
+                      0.97, None, 8.25)],
+        }
+
+        rows = send_telegram._ceifa_alert_rows(
+            pending, set(), {}, extreme="minimum")
+
+        self.assertEqual(rows[0]["dia"], "2026-07-31")
+        self.assertEqual(rows[0]["estrategia"], "ceifa_minima")
+        self.assertEqual(rows[0]["extremo"], "minimum")
+        self.assertIsNone(rows[0]["volume_disponivel"])
 
 
 if __name__ == "__main__":
