@@ -217,6 +217,27 @@ class MonitorTest(unittest.TestCase):
         self.assertEqual(stats["signals"][0]["extreme"], "maximum")
         self.assertEqual(stats["signals"][1]["extreme"], "minimum")
 
+    def test_filter_frame_explains_rules_and_preserves_plateau_subset(self):
+        stats = {
+            "archive_kind": "consolidated",
+            "n_filtrado_spread": 11,
+            "n_filtrado_nowcast": 7,
+            "n_filtrado_plateau": 2,
+            "n_filtrado_taf": 5,
+        }
+
+        frame = monitor.filter_frame(stats)
+
+        self.assertEqual(frame["Filtro"].tolist(), [
+            "Ensemble largo", "Desvio/nowcast quente",
+            "Platô observado", "TAF convectivo",
+        ])
+        self.assertEqual(frame["Entradas bloqueadas"].tolist(), [11, 7, 2, 5])
+        plateau = frame[frame["Filtro"] == "Platô observado"].iloc[0]
+        self.assertIn("Subconjunto", plateau["Observação"])
+        taf = frame[frame["Filtro"] == "TAF convectivo"].iloc[0]
+        self.assertIn("TSRA ou VCTS", taf["Quando bloqueia"])
+
     def test_loss_date_filter_orders_days_and_selects_only_requested_day(self):
         losses = pd.DataFrame([
             {"Dia": "2026-07-23", "Chave": "WMKK · 2026-07-23 · 32°C"},

@@ -279,6 +279,62 @@ def slice_strategy(stats: dict, lookback_days: int | None) -> dict:
     return sliced
 
 
+def filter_frame(stats: dict) -> pd.DataFrame:
+    """Descrição auditável dos filtros ativos e de suas contagens."""
+    kind = stats.get("archive_kind", "maximum")
+    spread_abs = f"{config.CEIFA_SPREAD_ABS:.1f}".replace(".", ",")
+    spread_rel = f"{config.CEIFA_SPREAD_REL:.1f}".replace(".", ",")
+    deviation = f"{config.CEIFA_OBS_DEVIATION_MIN:.1f}".replace(".", ",")
+    margin = f"{config.CEIFA_TARGET_MARGIN:.1f}".replace(".", ",")
+    rows = []
+    if kind in {"maximum", "consolidated"}:
+        rows.extend([
+            {
+                "Estratégia": "Máxima",
+                "Filtro": "Ensemble largo",
+                "Quando bloqueia": (
+                    f"Teto − mediana ≥ {spread_abs} °C "
+                    f"ou ≥ {spread_rel}× o spread normal "
+                    "da cidade."),
+                "Entradas bloqueadas": stats.get("n_filtrado_spread", 0),
+                "Observação": "Filtro independente.",
+            },
+            {
+                "Estratégia": "Máxima",
+                "Filtro": "Desvio/nowcast quente",
+                "Quando bloqueia": (
+                    f"Desvio observado ou shift ≥ "
+                    f"{deviation} °C e a faixa está entre mediana − "
+                    f"{margin} °C e P90 + {margin} °C."),
+                "Entradas bloqueadas": stats.get("n_filtrado_nowcast", 0),
+                "Observação": "Inclui os casos identificados por platô.",
+            },
+            {
+                "Estratégia": "Máxima",
+                "Filtro": "Platô observado",
+                "Quando bloqueia": (
+                    f"A máxima observada fica parada por ≥ "
+                    f"{config.CEIFA_PLATEAU_HOURS:.0f}h; o platô amplia o "
+                    "limite inferior da faixa plausível."),
+                "Entradas bloqueadas": stats.get("n_filtrado_plateau", 0),
+                "Observação": "Subconjunto do desvio/nowcast; não somar novamente.",
+            },
+        ])
+    if kind in {"minimum", "consolidated"}:
+        rows.append({
+            "Estratégia": "Mínima",
+            "Filtro": "TAF convectivo",
+            "Quando bloqueia": (
+                "O TAF prevê TSRA ou VCTS entre a análise e o fim do dia "
+                "local da cidade."),
+            "Entradas bloqueadas": stats.get("n_filtrado_taf", 0),
+            "Observação": (
+                "CB, TEMPO ou PROB isolados não bloqueiam; contagem desde "
+                "a ativação do filtro."),
+        })
+    return pd.DataFrame(rows)
+
+
 def city_frame(stats: dict) -> pd.DataFrame:
     columns = [
         "Cidade", "ICAO", "Parcelas", "Acertos", "Erros", "Assertividade",

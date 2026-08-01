@@ -501,21 +501,16 @@ def cities_page(stats: dict, full_stats: dict,
         view["Assertividade"] = view["Assertividade"].map(lambda value: f"{value:.1%}")
         st.dataframe(view, hide_index=True, width="stretch", height=460)
 
-    st.subheader("Filtro de incerteza")
+    st.subheader("Filtros ativos")
     if consolidated:
         components = full_stats.get("active_components") or {}
         st.info(
             "O consolidado soma as duas estratégias ativas usando a mesma "
             "banca. As máximas usam ensemble/nowcast/platô; as mínimas "
             "bloqueiam TSRA/VCTS previstos no TAF.")
-        f1, f2, f3, f4 = st.columns(4)
+        f1, f2 = st.columns(2)
         f1.metric("Parcelas de máximas", components.get("maximum", 0))
         f2.metric("Parcelas de mínimas", components.get("minimum", 0))
-        f3.metric("Vetos das máximas",
-                  full_stats.get("n_filtrado", 0)
-                  - full_stats.get("n_filtrado_taf", 0))
-        f4.metric("Vetos TAF nas mínimas",
-                  full_stats.get("n_filtrado_taf", 0))
     elif side == "SIM":
         st.info(
             "O teste do SIM ainda não usa filtro de ensemble, nowcast ou platô. "
@@ -525,26 +520,43 @@ def cities_page(stats: dict, full_stats: dict,
             "As mínimas bloqueiam entradas quando o TAF prevê TSRA ou VCTS "
             "no restante do dia local. Ensemble, nowcast e platô continuam "
             "exclusivos das máximas.")
-        st.metric("Entradas evitadas por TSRA/VCTS",
-                  full_stats.get("n_filtrado_taf", 0))
-    else:
-        f1, f2, f3, f4 = st.columns(4)
-        f1.metric("Entradas evitadas", full_stats.get("n_filtrado", 0))
-        f2.metric("Ensemble largo", full_stats.get("n_filtrado_spread", 0))
-        f3.metric("Nowcast/desvio quente", full_stats.get("n_filtrado_nowcast", 0))
-        f4.metric("Por platô", full_stats.get("n_filtrado_plateau", 0))
-        outcomes = pd.DataFrame({
-            "Desfecho": ["Terminaria em 100¢", "Terminaria em 0¢"],
-            "Entradas": [full_stats.get("n_filtrado_100c", 0),
-                         full_stats.get("n_filtrado_0c", 0)],
-        })
-        fig = px.bar(outcomes, x="Entradas", y="Desfecho", orientation="h",
-                     color="Desfecho", color_discrete_map={
-                         "Terminaria em 100¢": MUTED,
-                         "Terminaria em 0¢": GREEN})
-        fig.update_layout(height=230, showlegend=False,
-                          margin=dict(l=10, r=10, t=10, b=10))
-        st.plotly_chart(dark_figure(fig), width="stretch")
+    if side != "SIM":
+        filters = monitor.filter_frame(full_stats)
+        st.dataframe(
+            filters, hide_index=True, width="stretch",
+            column_config={
+                "Estratégia": st.column_config.TextColumn(width="small"),
+                "Filtro": st.column_config.TextColumn(width="medium"),
+                "Quando bloqueia": st.column_config.TextColumn(width="large"),
+                "Entradas bloqueadas": st.column_config.NumberColumn(
+                    width="small", format="%d"),
+                "Observação": st.column_config.TextColumn(width="large"),
+            })
+
+        f1, f2, f3 = st.columns(3)
+        f1.metric("Total de entradas bloqueadas",
+                  full_stats.get("n_filtrado", 0))
+        f2.metric("Terminariam em 100¢",
+                  full_stats.get("n_filtrado_100c", 0))
+        f3.metric("Terminariam em 0¢",
+                  full_stats.get("n_filtrado_0c", 0))
+        st.caption(
+            "A contagem de platô já está incluída em desvio/nowcast. "
+            "Os desfechos aparecem depois que o contrato é resolvido.")
+
+        if full_stats.get("n_filtrado", 0):
+            outcomes = pd.DataFrame({
+                "Desfecho": ["Terminaria em 100¢", "Terminaria em 0¢"],
+                "Entradas": [full_stats.get("n_filtrado_100c", 0),
+                             full_stats.get("n_filtrado_0c", 0)],
+            })
+            fig = px.bar(outcomes, x="Entradas", y="Desfecho", orientation="h",
+                         color="Desfecho", color_discrete_map={
+                             "Terminaria em 100¢": MUTED,
+                             "Terminaria em 0¢": GREEN})
+            fig.update_layout(height=230, showlegend=False,
+                              margin=dict(l=10, r=10, t=10, b=10))
+            st.plotly_chart(dark_figure(fig), width="stretch")
 
     freshness = monitor.data_freshness(stats.get("archive_kind", "maximum"))
     st.subheader("Saúde do monitor")
