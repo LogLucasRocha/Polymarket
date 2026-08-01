@@ -154,6 +154,36 @@ class WarmTargetRiskTests(unittest.TestCase):
 
             self.assertEqual(result["n"], 0)
 
+    def test_minimum_taf_filter_replays_archived_block(self):
+        with TemporaryDirectory() as tmp:
+            archive = Path(tmp)
+            (archive / "mercado").mkdir()
+            (archive / "previsao").mkdir()
+            pd.DataFrame([
+                {"ts_utc": "2026-07-26T13:10:00Z", "icao": "EGLC",
+                 "dia": "2026-07-26", "faixa": "17°C",
+                 "preco_sim": 0.02, "preco_nao": 0.98},
+                {"ts_utc": "2026-07-26T18:00:00Z", "icao": "EGLC",
+                 "dia": "2026-07-26", "faixa": "17°C",
+                 "preco_sim": 0.01, "preco_nao": 0.99},
+            ]).to_parquet(archive / "mercado" / "day.parquet", index=False)
+            pd.DataFrame([{
+                "ts_utc": "2026-07-26T13:00:00Z", "icao": "EGLC",
+                "dia": "2026-07-26", "pico_hora": 15,
+                "taf_convective_blocked": True,
+                "taf_convective_codes": "VCTS",
+            }]).to_parquet(
+                archive / "previsao" / "day.parquet", index=False)
+
+            result = ceifa.simulate_repeated(
+                icaos={"EGLC"}, archive=archive,
+                warm_target_filter=False, uncertainty_filter=False,
+                minimum_taf_filter=True)
+
+            self.assertEqual(result["n"], 0)
+            self.assertEqual(result["n_filtrado_taf"], 1)
+            self.assertEqual(result["n_filtrado_100c"], 1)
+
     def test_repeated_strategy_uses_one_percent_of_free_cash(self):
         with TemporaryDirectory() as tmp:
             archive = Path(tmp)

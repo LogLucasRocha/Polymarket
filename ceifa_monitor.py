@@ -506,21 +506,27 @@ def cities_page(stats: dict, full_stats: dict,
         components = full_stats.get("active_components") or {}
         st.info(
             "O consolidado soma as duas estratégias ativas usando a mesma "
-            "banca. Os filtros meteorológicos abaixo pertencem às máximas; "
-            "as mínimas ainda operam sem filtro de incerteza próprio.")
-        f1, f2, f3 = st.columns(3)
+            "banca. As máximas usam ensemble/nowcast/platô; as mínimas "
+            "bloqueiam TSRA/VCTS previstos no TAF.")
+        f1, f2, f3, f4 = st.columns(4)
         f1.metric("Parcelas de máximas", components.get("maximum", 0))
         f2.metric("Parcelas de mínimas", components.get("minimum", 0))
-        f3.metric("Entradas evitadas nas máximas",
-                  full_stats.get("n_filtrado", 0))
+        f3.metric("Vetos das máximas",
+                  full_stats.get("n_filtrado", 0)
+                  - full_stats.get("n_filtrado_taf", 0))
+        f4.metric("Vetos TAF nas mínimas",
+                  full_stats.get("n_filtrado_taf", 0))
     elif side == "SIM":
         st.info(
             "O teste do SIM ainda não usa filtro de ensemble, nowcast ou platô. "
             "Ele mede apenas H-1, preço e liquidez executável.")
     elif minimum:
-        st.warning(
-            "A estratégia ativa de mínimas ainda não aplica filtro de "
-            "ensemble, nowcast ou platô.")
+        st.info(
+            "As mínimas bloqueiam entradas quando o TAF prevê TSRA ou VCTS "
+            "no restante do dia local. Ensemble, nowcast e platô continuam "
+            "exclusivos das máximas.")
+        st.metric("Entradas evitadas por TSRA/VCTS",
+                  full_stats.get("n_filtrado_taf", 0))
     else:
         f1, f2, f3, f4 = st.columns(4)
         f1.metric("Entradas evitadas", full_stats.get("n_filtrado", 0))

@@ -400,15 +400,17 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
 def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                       warm_target_filter=True, interval_minutes: int = 5,
                       stake_frac: float = 0.01,
-                      uncertainty_filter: bool = True) -> dict:
+                      uncertainty_filter: bool = True,
+                      minimum_taf_filter: bool = False) -> dict:
     """Ceifa parcelada: uma stake relativa a cada rodada elegível da H-1.
 
     A stake de cada parcela é ``stake_frac`` do caixa ainda livre naquele
     instante. Não há teto por contrato nem alavancagem; como a parcela diminui
     junto com o saldo disponível, o caixa nunca é esgotado matematicamente.
     Cada snapshot respeita novamente preço e livro. ``warm_target_filter`` e
-    ``uncertainty_filter`` permitem manter os vetos meteorológicos desligados
-    no estudo de mínimas até calibrarmos regras próprias para a cauda fria.
+    ``uncertainty_filter`` permitem manter os vetos meteorológicos das máximas
+    desligados no estudo de mínimas. ``minimum_taf_filter`` reproduz o veto
+    operacional de TSRA/VCTS quando essa informação existe no snapshot.
     """
     mkt = _load("mercado", archive)
     prev = _load("previsao", archive)
@@ -446,6 +448,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
     min_gap = pd.Timedelta(minutes=interval_minutes)
     signals = []
     filtered = filtered_spread = filtered_nowcast = filtered_plateau = 0
+    filtered_taf = 0
     filtered_100c = filtered_0c = 0
     for (icao, day, faixa), group in mkt.groupby(["icao", "dia", "faixa"]):
         group = group.sort_values("ts")
@@ -473,6 +476,19 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
             price = normalize_market_price(
                 ask if checked else entry_row["preco_nao"])
             if price is None or not (pmin < price < pmax):
+                continue
+
+            taf_blocked = forecast.get("taf_convective_blocked")
+            taf_blocked = (taf_blocked is not None
+                           and not pd.isna(taf_blocked)
+                           and bool(taf_blocked))
+            if minimum_taf_filter and taf_blocked:
+                filtered += 1
+                filtered_taf += 1
+                if final_no > 0.5:
+                    filtered_100c += 1
+                else:
+                    filtered_0c += 1
                 continue
 
             spread = None
@@ -534,6 +550,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
         "n_filtrado_spread": filtered_spread,
         "n_filtrado_nowcast": filtered_nowcast,
         "n_filtrado_plateau": filtered_plateau,
+        "n_filtrado_taf": filtered_taf,
         "n_filtrado_100c": filtered_100c,
         "n_filtrado_0c": filtered_0c,
     })

@@ -73,10 +73,14 @@ def build_context(station: Station = config.DEFAULT_STATION,
                    and all(hour_max[h] < obs_max_today for h in last_hours))
 
     log("Buscando TAF...")
-    taf = fetch.fetch_taf(station)
+    taf_data = fetch.fetch_taf_data(station)
+    taf = taf_data["raw"]
+    taf_forecasts = taf_data["forecasts"]
     taf_tx = fetch.parse_taf_tx(taf, now, station) if taf else []
     taf_tx_d0 = next((t["temp"] for t in taf_tx if t["local_date"] == d0), None)
     taf_tx_d1 = next((t["temp"] for t in taf_tx if t["local_date"] == d1), None)
+    taf_minimum_convection = fetch.minimum_convection_windows(
+        taf_forecasts, now, station)
 
     log("Calculando correção de viés (cache diário)...")
     try:
@@ -154,5 +158,7 @@ def build_context(station: Station = config.DEFAULT_STATION,
         "tmax_locked": tmax_locked,
         "nowcast": nowcast,
         "taf": taf, "taf_tx": taf_tx,
+        "taf_forecasts": taf_forecasts,
+        "taf_minimum_convection": taf_minimum_convection,
         "taf_tx_d0": taf_tx_d0, "taf_tx_d1": taf_tx_d1,
     }

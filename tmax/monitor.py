@@ -191,6 +191,7 @@ def run_minimum_strategy() -> dict:
     stats = ceifa.simulate_repeated(
         icaos=set(config.STATIONS), archive=MINIMUM_ARCHIVE,
         warm_target_filter=False, uncertainty_filter=False,
+        minimum_taf_filter=config.CEIFA_MINIMUM_TAF_FILTER,
         interval_minutes=config.CEIFA_REPEAT_MINUTES,
         stake_frac=config.CEIFA_STAKE_FRAC)
     stats["archive_kind"] = "minimum"
@@ -231,12 +232,16 @@ def combine_active_strategies(maximum: dict, minimum: dict) -> dict:
             "maximum": maximum.get("n", 0),
             "minimum": minimum.get("n", 0),
         },
-        "n_filtrado": maximum.get("n_filtrado", 0),
+        "n_filtrado": (maximum.get("n_filtrado", 0)
+                        + minimum.get("n_filtrado", 0)),
         "n_filtrado_spread": maximum.get("n_filtrado_spread", 0),
         "n_filtrado_nowcast": maximum.get("n_filtrado_nowcast", 0),
         "n_filtrado_plateau": maximum.get("n_filtrado_plateau", 0),
-        "n_filtrado_100c": maximum.get("n_filtrado_100c", 0),
-        "n_filtrado_0c": maximum.get("n_filtrado_0c", 0),
+        "n_filtrado_taf": minimum.get("n_filtrado_taf", 0),
+        "n_filtrado_100c": (maximum.get("n_filtrado_100c", 0)
+                             + minimum.get("n_filtrado_100c", 0)),
+        "n_filtrado_0c": (maximum.get("n_filtrado_0c", 0)
+                           + minimum.get("n_filtrado_0c", 0)),
     })
     return stats
 
@@ -267,7 +272,8 @@ def slice_strategy(stats: dict, lookback_days: int | None) -> dict:
     })
     for key in (
         "n_filtrado", "n_filtrado_spread", "n_filtrado_nowcast",
-        "n_filtrado_plateau", "n_filtrado_100c", "n_filtrado_0c",
+        "n_filtrado_plateau", "n_filtrado_taf", "n_filtrado_100c",
+        "n_filtrado_0c",
     ):
         sliced[key] = stats.get(key, 0)
     return sliced

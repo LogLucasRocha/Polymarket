@@ -338,8 +338,10 @@ def main() -> int:
                 ceifa_fresh.add(("maximum", icao))
 
     # MÍNIMAS ATIVAS: mesma banda, livro executável, H-1 e repetição das
-    # máximas. Os vetos de cauda quente não se aplicam ao extremo frio; o
-    # backtest promovido foi medido sem esses filtros.
+    # máximas. Os vetos de cauda quente não se aplicam ao extremo frio. Em
+    # contrapartida, TSRA/VCTS previstos no TAF para o restante do dia local
+    # bloqueiam a entrada, pois chuva convectiva pode criar uma nova mínima.
+    minimum_taf_logged: set[str] = set()
     if config.CEIFA_MINIMUM_ENABLED:
         for k, value in minimum_signal_rows.items():
             icao = value["icao"]
@@ -358,6 +360,15 @@ def main() -> int:
             ctx_i = contexts.get(icao)
             if (cold_hour is None or ctx_i is None
                     or ctx_i["now"].hour != (int(cold_hour) - 1) % 24):
+                continue
+            taf_risk = ctx_i.get("taf_minimum_convection") or []
+            if config.CEIFA_MINIMUM_TAF_FILTER and taf_risk:
+                if icao not in minimum_taf_logged:
+                    codes = sorted({code for window in taf_risk
+                                    for code in window.get("codes", [])})
+                    print(f"[ceifa mínima] {icao}: filtrado pelo TAF "
+                          f"({', '.join(codes)} no restante do dia local).")
+                    minimum_taf_logged.add(icao)
                 continue
             ceifa_keep.append(k)
             if not _ceifa_send_due(

@@ -59,7 +59,8 @@ class MinimumCaptureTest(unittest.TestCase):
             row["spread_ens"], row["teto_ens"] - row["piso_ens"])
         self.assertIn("mediana_bruta", row)
         self.assertEqual(row["bias_source"], "tmax_station_lookback")
-        self.assertEqual(row["schema_version"], 2)
+        self.assertEqual(row["schema_version"], 3)
+        self.assertFalse(row["taf_convective_blocked"])
 
     def test_builds_complete_nowcast_and_metar_rows(self):
         context = self._context()

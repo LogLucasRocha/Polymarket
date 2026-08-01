@@ -254,6 +254,7 @@ POSITIONS_SUMMARY_ENABLED = False
 # Assertividade = preço do NÃO convergindo para 1,0 (o NÃO resolveu).
 CEIFA_ENABLED = True
 CEIFA_MINIMUM_ENABLED = True  # NÃO de mínimas promovido em 31/07/2026
+CEIFA_MINIMUM_TAF_FILTER = True  # bloqueia TSRA/VCTS no restante do dia local
 CEIFA_PRICE_MIN = 0.95      # exclusivo: preço do NÃO > 0,95
 CEIFA_PRICE_MAX = 0.995     # exclusivo: preço do NÃO < 0,995
 CEIFA_STAKE_FRAC = 0.01     # parcela relativa ao saldo livre de cada rodada

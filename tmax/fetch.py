@@ -78,17 +78,73 @@ def fetch_metars(station: Station, hours: int = 48) -> list[dict]:
     return out
 
 
-def fetch_taf(station: Station) -> str | None:
-    """TAF mais recente da estação (texto bruto)."""
+def fetch_taf_data(station: Station) -> dict:
+    """TAF mais recente com o texto bruto e os períodos decodificados."""
     try:
         r = _get(
             "https://aviationweather.gov/api/data/taf",
-            params={"ids": station.icao, "format": "raw"},
+            params={"ids": station.icao, "format": "json"},
         )
-        text = r.text.strip()
-        return text or None
+        payload = r.json()
+        item = payload[0] if isinstance(payload, list) and payload else {}
+        return {
+            "raw": item.get("rawTAF") or None,
+            "forecasts": item.get("fcsts") or [],
+        }
     except Exception:
-        return None
+        return {"raw": None, "forecasts": []}
+
+
+def fetch_taf(station: Station) -> str | None:
+    """TAF mais recente da estação (texto bruto)."""
+    return fetch_taf_data(station)["raw"]
+
+
+def minimum_convection_windows(forecasts: list[dict], now: dt.datetime,
+                               station: Station) -> list[dict]:
+    """Períodos futuros de TSRA/VCTS até o fim do dia local da estação.
+
+    O AWC fornece ``timeFrom``/``timeTo`` em epoch UTC. O filtro ignora
+    trovoadas que já terminaram e previsões que só começam no dia seguinte.
+    ``CB`` isolado não entra nesta regra: a decisão operacional é bloquear
+    especificamente TSRA e VCTS.
+    """
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=station.tz)
+    local_now = now.astimezone(station.tz)
+    local_end = dt.datetime.combine(
+        local_now.date() + dt.timedelta(days=1), dt.time.min,
+        tzinfo=station.tz)
+    start_epoch = local_now.timestamp()
+    end_epoch = local_end.timestamp()
+    windows = []
+    for forecast in forecasts or []:
+        try:
+            time_from = float(forecast.get("timeFrom"))
+            time_to = float(forecast.get("timeTo"))
+        except (TypeError, ValueError):
+            continue
+        if time_to <= start_epoch or time_from >= end_epoch:
+            continue
+        weather = str(forecast.get("wxString") or "").upper()
+        tokens = [token.lstrip("+-") for token in weather.split()]
+        codes = []
+        if any("TSRA" in token for token in tokens):
+            codes.append("TSRA")
+        if "VCTS" in tokens:
+            codes.append("VCTS")
+        if not codes:
+            continue
+        windows.append({
+            "from_utc": dt.datetime.fromtimestamp(
+                time_from, tz=UTC).isoformat(),
+            "to_utc": dt.datetime.fromtimestamp(
+                time_to, tz=UTC).isoformat(),
+            "codes": codes,
+            "change": forecast.get("fcstChange"),
+            "probability": forecast.get("probability"),
+        })
+    return windows
 
 
 _TX_RE = re.compile(r"TX(M?)(\d{2})/(\d{2})(\d{2})Z")

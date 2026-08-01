@@ -89,6 +89,9 @@ def _forecast_snapshot(ctx: dict, icao: str, day: dt.date,
     raw_summary = distribution.empirical_extreme_summary(raw_members, "tmin") or {}
     nowcast = ctx.get("nowcast") or {}
     latest = ctx.get("latest_metar") or {}
+    taf_windows = ctx.get("taf_minimum_convection") or []
+    taf_codes = sorted({code for window in taf_windows
+                        for code in window.get("codes", [])})
     median = summary["median"]
     return {
         "ts_utc": captured_at.isoformat(), "icao": icao,
@@ -111,7 +114,7 @@ def _forecast_snapshot(ctx: dict, icao: str, day: dt.date,
         "p90_bruto": (round(raw_summary["p90"], 2)
                        if raw_summary else None),
         "bias_source": "tmax_station_lookback",
-        "schema_version": 2,
+        "schema_version": 3,
         "pico_hora": _cold_hour(ctx),
         "obs_min": observed_min,
         "nowcast_shift": ctx.get("shift"),
@@ -122,6 +125,10 @@ def _forecast_snapshot(ctx: dict, icao: str, day: dt.date,
         "latest_metar_time": latest.get("time"),
         "latest_metar_temp_c": latest.get("temp"),
         "latest_metar_raw": latest.get("raw"),
+        "taf_raw": ctx.get("taf"),
+        "taf_convective_blocked": bool(taf_windows),
+        "taf_convective_codes": ",".join(taf_codes) or None,
+        "taf_convective_windows": json.dumps(taf_windows),
     }
 
 
