@@ -1,46 +1,46 @@
 {
  "min_conf": 0.9,
- "days": 3998,
+ "days": 4037,
  "por_faixa_dia": {
   "CYYZ": {
-   "n": 1024,
-   "acerto": 0.8818,
-   "conf_media": 0.9903
+   "n": 1031,
+   "acerto": 0.8826,
+   "conf_media": 0.9902
   },
   "EDDM": {
-   "n": 953,
-   "acerto": 0.8499,
+   "n": 960,
+   "acerto": 0.851,
    "conf_media": 0.997
   },
   "EFHK": {
-   "n": 918,
-   "acerto": 0.8736,
-   "conf_media": 0.993
+   "n": 928,
+   "acerto": 0.875,
+   "conf_media": 0.9928
   },
   "EGLC": {
-   "n": 1038,
-   "acerto": 0.8776,
-   "conf_media": 0.9937
+   "n": 1045,
+   "acerto": 0.8785,
+   "conf_media": 0.9936
   },
   "EHAM": {
-   "n": 1076,
-   "acerto": 0.8838,
-   "conf_media": 0.994
+   "n": 1083,
+   "acerto": 0.8846,
+   "conf_media": 0.9939
   },
   "EPWA": {
-   "n": 1065,
-   "acerto": 0.877,
-   "conf_media": 0.9957
+   "n": 1073,
+   "acerto": 0.8779,
+   "conf_media": 0.9956
   },
   "FACT": {
-   "n": 900,
-   "acerto": 0.8856,
-   "conf_media": 0.9905
+   "n": 908,
+   "acerto": 0.8866,
+   "conf_media": 0.99
   },
   "KATL": {
-   "n": 1070,
-   "acerto": 0.8533,
-   "conf_media": 0.9961
+   "n": 1078,
+   "acerto": 0.8544,
+   "conf_media": 0.996
   },
   "KBKF": {
    "n": 1063,
@@ -48,196 +48,196 @@
    "conf_media": 0.9967
   },
   "KDAL": {
-   "n": 1026,
-   "acerto": 0.885,
-   "conf_media": 0.9944
+   "n": 1034,
+   "acerto": 0.8859,
+   "conf_media": 0.9943
   },
   "KHOU": {
-   "n": 1016,
-   "acerto": 0.8829,
+   "n": 1023,
+   "acerto": 0.8837,
    "conf_media": 0.9942
   },
   "KLAX": {
-   "n": 1042,
-   "acerto": 0.8983,
-   "conf_media": 0.9841
+   "n": 1052,
+   "acerto": 0.8992,
+   "conf_media": 0.9838
   },
   "KLGA": {
-   "n": 1030,
-   "acerto": 0.8835,
-   "conf_media": 0.994
+   "n": 1036,
+   "acerto": 0.8842,
+   "conf_media": 0.9939
   },
   "KMIA": {
-   "n": 1039,
-   "acerto": 0.8672,
+   "n": 1046,
+   "acerto": 0.8681,
    "conf_media": 0.9932
   },
   "KORD": {
-   "n": 1069,
-   "acerto": 0.8924,
-   "conf_media": 0.9955
+   "n": 1077,
+   "acerto": 0.8932,
+   "conf_media": 0.9954
   },
   "KSEA": {
-   "n": 1037,
-   "acerto": 0.8775,
+   "n": 1043,
+   "acerto": 0.8782,
    "conf_media": 0.9952
   },
   "LEMD": {
-   "n": 1096,
-   "acerto": 0.8604,
+   "n": 1104,
+   "acerto": 0.8614,
    "conf_media": 0.9966
   },
   "LFPB": {
-   "n": 1052,
-   "acerto": 0.8688,
-   "conf_media": 0.9957
+   "n": 1059,
+   "acerto": 0.8697,
+   "conf_media": 0.9956
   },
   "LIMC": {
-   "n": 949,
-   "acerto": 0.8514,
-   "conf_media": 0.9969
+   "n": 955,
+   "acerto": 0.8524,
+   "conf_media": 0.9968
   },
   "LLBG": {
-   "n": 942,
-   "acerto": 0.8524,
+   "n": 950,
+   "acerto": 0.8537,
    "conf_media": 0.9943
   },
   "LTAC": {
-   "n": 1083,
-   "acerto": 0.856,
-   "conf_media": 0.9956
+   "n": 1091,
+   "acerto": 0.857,
+   "conf_media": 0.9954
   },
   "LTFM": {
-   "n": 1019,
-   "acerto": 0.9078,
-   "conf_media": 0.9897
+   "n": 1028,
+   "acerto": 0.9086,
+   "conf_media": 0.9896
   },
   "MMMX": {
-   "n": 978,
-   "acerto": 0.8804,
-   "conf_media": 0.9892
+   "n": 985,
+   "acerto": 0.8812,
+   "conf_media": 0.989
   },
   "NZWN": {
-   "n": 1038,
-   "acerto": 0.9335,
-   "conf_media": 0.9931
+   "n": 1049,
+   "acerto": 0.9323,
+   "conf_media": 0.993
   },
   "RCSS": {
-   "n": 878,
-   "acerto": 0.8929,
-   "conf_media": 0.9916
+   "n": 885,
+   "acerto": 0.8938,
+   "conf_media": 0.9912
   },
   "RJTT": {
-   "n": 1009,
-   "acerto": 0.9158,
-   "conf_media": 0.9857
+   "n": 1013,
+   "acerto": 0.9161,
+   "conf_media": 0.9856
   },
   "RKSI": {
-   "n": 1009,
-   "acerto": 0.9098,
-   "conf_media": 0.9864
+   "n": 1018,
+   "acerto": 0.9106,
+   "conf_media": 0.9863
   },
   "RPLL": {
-   "n": 881,
-   "acerto": 0.899,
-   "conf_media": 0.9931
+   "n": 891,
+   "acerto": 0.9001,
+   "conf_media": 0.993
   },
   "SAEZ": {
-   "n": 1008,
-   "acerto": 0.8849,
+   "n": 1019,
+   "acerto": 0.8852,
    "conf_media": 0.9914
   },
   "SBGR": {
-   "n": 1045,
-   "acerto": 0.8794,
-   "conf_media": 0.9927
+   "n": 1052,
+   "acerto": 0.8802,
+   "conf_media": 0.9926
   },
   "UUWW": {
-   "n": 1030,
-   "acerto": 0.8845,
+   "n": 1037,
+   "acerto": 0.8852,
    "conf_media": 0.9895
   },
   "WMKK": {
-   "n": 836,
-   "acerto": 0.8995,
-   "conf_media": 0.9885
+   "n": 842,
+   "acerto": 0.9002,
+   "conf_media": 0.9884
   },
   "WSSS": {
-   "n": 986,
-   "acerto": 0.9239,
-   "conf_media": 0.9908
+   "n": 994,
+   "acerto": 0.9245,
+   "conf_media": 0.9907
   },
   "ZBAA": {
-   "n": 1059,
-   "acerto": 0.8697,
-   "conf_media": 0.9944
+   "n": 1065,
+   "acerto": 0.8704,
+   "conf_media": 0.9943
   },
   "ZGGG": {
-   "n": 844,
-   "acerto": 0.8993,
-   "conf_media": 0.9904
+   "n": 850,
+   "acerto": 0.9,
+   "conf_media": 0.9902
   },
   "ZGSZ": {
-   "n": 918,
-   "acerto": 0.9118,
-   "conf_media": 0.9925
+   "n": 925,
+   "acerto": 0.9124,
+   "conf_media": 0.9924
   },
   "ZHHH": {
-   "n": 892,
-   "acerto": 0.8901,
-   "conf_media": 0.9911
+   "n": 900,
+   "acerto": 0.8911,
+   "conf_media": 0.9909
   },
   "ZSPD": {
-   "n": 1073,
-   "acerto": 0.8928,
-   "conf_media": 0.989
+   "n": 1080,
+   "acerto": 0.8935,
+   "conf_media": 0.9889
   },
   "ZUUU": {
-   "n": 879,
-   "acerto": 0.8737,
-   "conf_media": 0.9922
+   "n": 886,
+   "acerto": 0.8747,
+   "conf_media": 0.9919
   }
  },
  "por_avaliacao": {
   "CYYZ": {
-   "n": 5147,
-   "acerto": 0.8904,
-   "conf_media": 0.9913
+   "n": 5168,
+   "acerto": 0.8909,
+   "conf_media": 0.9912
   },
   "EDDM": {
-   "n": 5172,
-   "acerto": 0.8732,
+   "n": 5193,
+   "acerto": 0.8737,
    "conf_media": 0.9963
   },
   "EFHK": {
-   "n": 6458,
-   "acerto": 0.8992,
-   "conf_media": 0.9928
+   "n": 6584,
+   "acerto": 0.9011,
+   "conf_media": 0.9926
   },
   "EGLC": {
-   "n": 6903,
-   "acerto": 0.8982,
+   "n": 6931,
+   "acerto": 0.8986,
    "conf_media": 0.9943
   },
   "EHAM": {
-   "n": 8315,
-   "acerto": 0.9121,
+   "n": 8337,
+   "acerto": 0.9123,
    "conf_media": 0.994
   },
   "EPWA": {
-   "n": 4803,
-   "acerto": 0.8892,
-   "conf_media": 0.9954
+   "n": 4825,
+   "acerto": 0.8897,
+   "conf_media": 0.9953
   },
   "FACT": {
-   "n": 7052,
-   "acerto": 0.9104,
-   "conf_media": 0.9904
+   "n": 7077,
+   "acerto": 0.9107,
+   "conf_media": 0.9902
   },
   "KATL": {
-   "n": 5376,
-   "acerto": 0.8625,
-   "conf_media": 0.9956
+   "n": 5400,
+   "acerto": 0.8631,
+   "conf_media": 0.9955
   },
   "KBKF": {
    "n": 5243,
@@ -245,155 +245,155 @@
    "conf_media": 0.9965
   },
   "KDAL": {
-   "n": 4249,
-   "acerto": 0.8892,
-   "conf_media": 0.9945
+   "n": 4273,
+   "acerto": 0.8898,
+   "conf_media": 0.9944
   },
   "KHOU": {
-   "n": 5439,
-   "acerto": 0.9022,
+   "n": 5460,
+   "acerto": 0.9026,
    "conf_media": 0.9951
   },
   "KLAX": {
-   "n": 8879,
-   "acerto": 0.9234,
-   "conf_media": 0.9849
+   "n": 8970,
+   "acerto": 0.9242,
+   "conf_media": 0.9848
   },
   "KLGA": {
-   "n": 5413,
-   "acerto": 0.8967,
-   "conf_media": 0.9932
+   "n": 5431,
+   "acerto": 0.8971,
+   "conf_media": 0.9931
   },
   "KMIA": {
-   "n": 7648,
-   "acerto": 0.8891,
+   "n": 7676,
+   "acerto": 0.8895,
    "conf_media": 0.9935
   },
   "KORD": {
-   "n": 7442,
-   "acerto": 0.912,
-   "conf_media": 0.9949
+   "n": 7466,
+   "acerto": 0.9123,
+   "conf_media": 0.9948
   },
   "KSEA": {
-   "n": 5145,
-   "acerto": 0.8812,
+   "n": 5163,
+   "acerto": 0.8817,
    "conf_media": 0.9948
   },
   "LEMD": {
-   "n": 3704,
-   "acerto": 0.8615,
+   "n": 3728,
+   "acerto": 0.8624,
    "conf_media": 0.9967
   },
   "LFPB": {
-   "n": 3821,
-   "acerto": 0.8699,
-   "conf_media": 0.9958
+   "n": 3842,
+   "acerto": 0.8706,
+   "conf_media": 0.9957
   },
   "LIMC": {
-   "n": 5007,
-   "acerto": 0.8706,
+   "n": 5025,
+   "acerto": 0.871,
    "conf_media": 0.9964
   },
   "LLBG": {
-   "n": 4740,
-   "acerto": 0.8662,
+   "n": 4780,
+   "acerto": 0.8674,
    "conf_media": 0.9944
   },
   "LTAC": {
-   "n": 4540,
-   "acerto": 0.8654,
-   "conf_media": 0.9953
+   "n": 4564,
+   "acerto": 0.8661,
+   "conf_media": 0.9952
   },
   "LTFM": {
-   "n": 8541,
-   "acerto": 0.933,
-   "conf_media": 0.9918
+   "n": 8702,
+   "acerto": 0.9343,
+   "conf_media": 0.9917
   },
   "MMMX": {
-   "n": 5554,
-   "acerto": 0.8936,
-   "conf_media": 0.9907
+   "n": 5581,
+   "acerto": 0.8941,
+   "conf_media": 0.9905
   },
   "NZWN": {
-   "n": 9963,
-   "acerto": 0.9518,
-   "conf_media": 0.9941
+   "n": 10107,
+   "acerto": 0.9513,
+   "conf_media": 0.994
   },
   "RCSS": {
-   "n": 7422,
-   "acerto": 0.9167,
-   "conf_media": 0.9924
+   "n": 7442,
+   "acerto": 0.917,
+   "conf_media": 0.9923
   },
   "RJTT": {
-   "n": 9349,
-   "acerto": 0.9338,
-   "conf_media": 0.9891
+   "n": 9373,
+   "acerto": 0.934,
+   "conf_media": 0.989
   },
   "RKSI": {
-   "n": 7723,
-   "acerto": 0.9221,
+   "n": 7850,
+   "acerto": 0.9233,
    "conf_media": 0.9882
   },
   "RPLL": {
-   "n": 7313,
-   "acerto": 0.9195,
-   "conf_media": 0.9931
+   "n": 7443,
+   "acerto": 0.9209,
+   "conf_media": 0.993
   },
   "SAEZ": {
-   "n": 6685,
-   "acerto": 0.9052,
-   "conf_media": 0.9916
+   "n": 6858,
+   "acerto": 0.9051,
+   "conf_media": 0.9915
   },
   "SBGR": {
-   "n": 8369,
-   "acerto": 0.8995,
+   "n": 8390,
+   "acerto": 0.8998,
    "conf_media": 0.9928
   },
   "UUWW": {
-   "n": 6857,
-   "acerto": 0.9142,
+   "n": 6878,
+   "acerto": 0.9145,
    "conf_media": 0.9891
   },
   "WMKK": {
-   "n": 4786,
-   "acerto": 0.9068,
+   "n": 4804,
+   "acerto": 0.9072,
    "conf_media": 0.9896
   },
   "WSSS": {
-   "n": 7699,
-   "acerto": 0.9327,
+   "n": 7723,
+   "acerto": 0.9329,
    "conf_media": 0.9918
   },
   "ZBAA": {
-   "n": 5320,
-   "acerto": 0.888,
-   "conf_media": 0.9926
+   "n": 5344,
+   "acerto": 0.8885,
+   "conf_media": 0.9924
   },
   "ZGGG": {
-   "n": 7124,
-   "acerto": 0.9134,
-   "conf_media": 0.9907
+   "n": 7154,
+   "acerto": 0.9138,
+   "conf_media": 0.9906
   },
   "ZGSZ": {
-   "n": 10202,
-   "acerto": 0.9213,
+   "n": 10264,
+   "acerto": 0.9218,
    "conf_media": 0.9927
   },
   "ZHHH": {
-   "n": 6581,
-   "acerto": 0.9076,
+   "n": 6621,
+   "acerto": 0.9082,
    "conf_media": 0.991
   },
   "ZSPD": {
-   "n": 9622,
-   "acerto": 0.924,
-   "conf_media": 0.9903
+   "n": 9650,
+   "acerto": 0.9242,
+   "conf_media": 0.9902
   },
   "ZUUU": {
-   "n": 3671,
-   "acerto": 0.8782,
-   "conf_media": 0.9921
+   "n": 3699,
+   "acerto": 0.8792,
+   "conf_media": 0.9918
   }
  },
- "gerado_em": "2026-07-31T09:10:35"
+ "gerado_em": "2026-08-01T09:14:35"
 }
