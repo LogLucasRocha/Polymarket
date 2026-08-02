@@ -170,19 +170,20 @@ def sync_dashboard_data() -> dict:
             "captured": live.get("captured")}
 
 
-def run_strategy() -> dict:
+def run_strategy(single_band: bool = False) -> dict:
     """Executa exatamente o backtest usado no relatório diário."""
     stats = ceifa.simulate_repeated(
         icaos=set(config.STATIONS),
         interval_minutes=config.CEIFA_REPEAT_MINUTES,
         stake_frac=config.CEIFA_STAKE_FRAC,
+        single_band=single_band,
     )
     stats["archive_kind"] = "maximum"
     stats["side"] = "NAO"
     return stats
 
 
-def run_minimum_strategy() -> dict:
+def run_minimum_strategy(single_band: bool = False) -> dict:
     """Executa a Ceifa ativa de temperaturas mínimas.
 
     Usa parcelas de 1% do caixa livre a cada cinco minutos na H-1, sem os
@@ -193,7 +194,8 @@ def run_minimum_strategy() -> dict:
         warm_target_filter=False, uncertainty_filter=False,
         minimum_taf_filter=config.CEIFA_MINIMUM_TAF_FILTER,
         interval_minutes=config.CEIFA_REPEAT_MINUTES,
-        stake_frac=config.CEIFA_STAKE_FRAC)
+        stake_frac=config.CEIFA_STAKE_FRAC,
+        single_band=single_band)
     stats["archive_kind"] = "minimum"
     stats["side"] = "NAO"
     return stats
@@ -228,6 +230,8 @@ def combine_active_strategies(maximum: dict, minimum: dict) -> dict:
         "repeat_minutes": config.CEIFA_REPEAT_MINUTES,
         "archive_kind": "consolidated",
         "side": "NAO",
+        "single_band": bool(maximum.get("single_band")
+                              and minimum.get("single_band")),
         "active_components": {
             "maximum": maximum.get("n", 0),
             "minimum": minimum.get("n", 0),
@@ -237,13 +241,48 @@ def combine_active_strategies(maximum: dict, minimum: dict) -> dict:
         "n_filtrado_spread": maximum.get("n_filtrado_spread", 0),
         "n_filtrado_nowcast": maximum.get("n_filtrado_nowcast", 0),
         "n_filtrado_plateau": maximum.get("n_filtrado_plateau", 0),
+        "n_filtrado_ensemble_band": maximum.get(
+            "n_filtrado_ensemble_band", 0),
+        "n_filtrado_upper_tail": maximum.get(
+            "n_filtrado_upper_tail", 0),
         "n_filtrado_taf": minimum.get("n_filtrado_taf", 0),
+        "n_filtrado_faixa_unica": (
+            maximum.get("n_filtrado_faixa_unica", 0)
+            + minimum.get("n_filtrado_faixa_unica", 0)),
         "n_filtrado_100c": (maximum.get("n_filtrado_100c", 0)
                              + minimum.get("n_filtrado_100c", 0)),
         "n_filtrado_0c": (maximum.get("n_filtrado_0c", 0)
                            + minimum.get("n_filtrado_0c", 0)),
     })
     return stats
+
+
+def single_band_scenario(maximum: dict, minimum: dict) -> dict:
+    """Deriva a faixa única das entradas ativas, sem reler os snapshots."""
+    scenarios = []
+    for source in (maximum, minimum):
+        signals, removed = ceifa._select_single_band_signals(
+            list(source.get("signals", [])))
+        scenario = ceifa._stats_relative_available_stake(
+            signals, days=source.get("days", 0),
+            stake_frac=config.CEIFA_STAKE_FRAC)
+        scenario.update({
+            "repeat_minutes": source.get("repeat_minutes"),
+            "archive_kind": source.get("archive_kind"),
+            "side": "NAO",
+            "single_band": True,
+            "n_filtrado_faixa_unica": removed,
+        })
+        for key in (
+            "n_filtrado", "n_filtrado_spread", "n_filtrado_nowcast",
+            "n_filtrado_plateau", "n_filtrado_ensemble_band",
+            "n_filtrado_upper_tail",
+            "n_filtrado_taf", "n_filtrado_100c",
+            "n_filtrado_0c",
+        ):
+            scenario[key] = source.get(key, 0)
+        scenarios.append(scenario)
+    return combine_active_strategies(*scenarios)
 
 
 def slice_strategy(stats: dict, lookback_days: int | None) -> dict:
@@ -269,11 +308,14 @@ def slice_strategy(stats: dict, lookback_days: int | None) -> dict:
         "side": stats.get("side", "NAO"),
         "executable_snapshots": stats.get("executable_snapshots", 0),
         "active_components": stats.get("active_components"),
+        "single_band": stats.get("single_band", False),
     })
     for key in (
         "n_filtrado", "n_filtrado_spread", "n_filtrado_nowcast",
-        "n_filtrado_plateau", "n_filtrado_taf", "n_filtrado_100c",
-        "n_filtrado_0c",
+        "n_filtrado_plateau", "n_filtrado_ensemble_band",
+        "n_filtrado_upper_tail",
+        "n_filtrado_taf", "n_filtrado_100c",
+        "n_filtrado_0c", "n_filtrado_faixa_unica",
     ):
         sliced[key] = stats.get(key, 0)
     return sliced
@@ -287,6 +329,21 @@ def filter_frame(stats: dict) -> pd.DataFrame:
     deviation = f"{config.CEIFA_OBS_DEVIATION_MIN:.1f}".replace(".", ",")
     margin = f"{config.CEIFA_TARGET_MARGIN:.1f}".replace(".", ",")
     rows = []
+    if stats.get("single_band"):
+        rows.append({
+            "Estratégia": "Ambas" if kind == "consolidated" else (
+                "Máxima" if kind == "maximum" else "Mínima"),
+            "Filtro": "Faixa única por cidade",
+            "Quando bloqueia": (
+                "Na primeira rodada elegível, escolhe o NÃO com maior "
+                "ask executável e mantém essa faixa travada durante todo "
+                "o evento da cidade/data."),
+            "Entradas bloqueadas": stats.get(
+                "n_filtrado_faixa_unica", 0),
+            "Observação": (
+                "Evita exposição simultânea em faixas mutuamente "
+                "exclusivas."),
+        })
     if kind in {"maximum", "consolidated"}:
         rows.extend([
             {
@@ -318,6 +375,32 @@ def filter_frame(stats: dict) -> pd.DataFrame:
                     "limite inferior da faixa plausível."),
                 "Entradas bloqueadas": stats.get("n_filtrado_plateau", 0),
                 "Observação": "Subconjunto do desvio/nowcast; não somar novamente.",
+            },
+            {
+                "Estratégia": "Máxima",
+                "Filtro": "P90/teto dentro da faixa",
+                "Quando bloqueia": (
+                    "O P90 ou o membro mais quente do ensemble pertence ao "
+                    "mesmo bucket de temperatura que o contrato NÃO. Ex.: "
+                    "32°C cobre de 31,5°C até menos de 32,5°C."),
+                "Entradas bloqueadas": stats.get(
+                    "n_filtrado_ensemble_band", 0),
+                "Observação": (
+                    "Aplica a discretização correta também às faixas em "
+                    "Fahrenheit."),
+            },
+            {
+                "Estratégia": "Máxima",
+                "Filtro": "Cauda superior perto do teto",
+                "Quando bloqueia": (
+                    "Em contratos 'X° ou mais', X fica no máximo "
+                    f"{config.CEIFA_UPPER_TAIL_MARGIN:.2f} °C acima do "
+                    "membro mais quente do ensemble."),
+                "Entradas bloqueadas": stats.get(
+                    "n_filtrado_upper_tail", 0),
+                "Observação": (
+                    "Protege contra um pico curto acima da cauda; não se "
+                    "aplica a faixas exatas."),
             },
         ])
     if kind in {"minimum", "consolidated"}:

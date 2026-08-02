@@ -732,12 +732,17 @@ def _ceifa_filter_line(st: dict) -> str:
     n_spread = st.get("n_filtrado_spread", 0)
     n_nowcast = st.get("n_filtrado_nowcast", 0)
     n_plateau = st.get("n_filtrado_plateau", 0)
+    n_ensemble_band = st.get("n_filtrado_ensemble_band", 0)
+    n_upper_tail = st.get("n_filtrado_upper_tail", 0)
     n_100c = st.get("n_filtrado_100c", 0)
     n_0c = st.get("n_filtrado_0c", 0)
-    plateau = f", {n_plateau} por platô" if n_plateau else ""
-    motivos = (f" ({n_spread} ensemble largo · {n_nowcast} desvio/nowcast quente"
-               f"{plateau})"
-               if n_nowcast else "")
+    parts = [f"{n_spread} ensemble largo",
+             f"{n_nowcast} desvio/nowcast quente"]
+    if n_plateau:
+        parts[-1] += f", {n_plateau} por platô"
+    parts.append(f"{n_ensemble_band} P90/teto dentro da faixa")
+    parts.append(f"{n_upper_tail} cauda superior perto do teto")
+    motivos = f" ({' · '.join(parts)})" if n_filt else ""
     return (f"• <b>Filtro de incerteza:</b> {n_filt} entradas evitadas"
             f"{motivos} — desfecho: {n_100c} em 100¢ · {n_0c} em 0¢")
 

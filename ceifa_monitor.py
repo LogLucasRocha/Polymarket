@@ -189,7 +189,8 @@ def daily_chart(stats: dict) -> go.Figure:
 
 
 def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
-             consolidated: bool = False) -> None:
+             consolidated: bool = False,
+             experimental_stats: dict | None = None) -> None:
     risk = monitor.risk_metrics(stats)
     unique_n, unique_losses = monitor.unique_contracts(stats)
     errors = stats.get("n", 0) - stats.get("wins", 0)
@@ -204,6 +205,28 @@ def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
               f"{stats.get('wins', 0)}/{stats.get('n', 0)} {count_name}")
     c4.metric("Erros", str(errors), f"em {unique_n} contratos")
     c5.metric("Drawdown máximo", f"{stats.get('real_dd', 0):.2%}")
+
+    if experimental_stats is not None:
+        comparison = []
+        for label, result in (("Regra ativa", stats),
+                              ("Faixa única (experimental)",
+                               experimental_stats)):
+            total = result.get("n", 0)
+            wins = result.get("wins", 0)
+            comparison.append({
+                "Regra": label,
+                "Parcelas": total,
+                "Acertos": wins,
+                "Erros": total - wins,
+                "Assertividade": f"{result.get('hit', 0):.2%}",
+                "Retorno": pct(result.get("real_mult", 1) - 1, 2),
+            })
+        st.subheader("Regra ativa versus faixa única")
+        st.dataframe(pd.DataFrame(comparison), hide_index=True,
+                     width="stretch")
+        st.caption(
+            "Faixa única é somente um cenário de backtest. Ela não altera "
+            "os alertas, as stakes nem os indicadores da estratégia ativa.")
 
     left, right = st.columns([1.65, 1])
     with left:
@@ -655,16 +678,22 @@ def main() -> None:
         "Todo o histórico": None, "Últimos 30 dias": 30,
         "Últimos 14 dias": 14, "Últimos 7 dias": 7,
     }[period_label]
+    experimental_stats = None
     if consolidated:
+        maximum_stats = load_strategy("maximum", "NÃO")
+        minimum_stats = load_strategy("minimum", "NÃO")
         full_stats = monitor.combine_active_strategies(
-            load_strategy("maximum", "NÃO"),
-            load_strategy("minimum", "NÃO"),
-        )
+            maximum_stats, minimum_stats)
+        experimental_full = monitor.single_band_scenario(
+            maximum_stats, minimum_stats)
+        experimental_stats = monitor.slice_strategy(
+            experimental_full, lookback)
     else:
         full_stats = load_strategy(kind, side)
     stats = monitor.slice_strategy(full_stats, lookback)
     if "Visão geral" in page:
-        overview(stats, full_stats, minimum, side, consolidated)
+        overview(stats, full_stats, minimum, side, consolidated,
+                 experimental_stats)
     elif "Erros" in page:
         errors_page(stats)
     else:

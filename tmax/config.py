@@ -282,6 +282,18 @@ CEIFA_NOWCAST_SHIFT_MIN = 1.0     # ajuste quente mínimo (°C)
 CEIFA_TARGET_MARGIN = 0.5         # faixa: mediana−margem até P90+margem (°C)
 CEIFA_PLATEAU_HOURS = 2.0         # mesma máxima observada por pelo menos 2h
 
+# Não vende uma faixa que já contenha o P90 ou o membro mais quente do
+# ensemble. A comparação respeita o bucket de resolução: 32°C cobre valores
+# contínuos de 31,5°C até menos de 32,5°C; 90–91°F cobre 89,5–91,5°F.
+CEIFA_ENSEMBLE_BAND_FILTER = True
+
+# Contratos superiores abertos ("X°C or higher") perdem com qualquer pico
+# acima de X. Mesmo quando X fica pouco acima do membro mais quente, um erro
+# pequeno ou a discretização horária pode zerar o NÃO. Ex.: Chengdu 29/07:
+# X=34°C e teto=33,33°C; a diferença de 0,67°C não era margem suficiente.
+CEIFA_UPPER_TAIL_FILTER = True
+CEIFA_UPPER_TAIL_MARGIN = 0.75     # bloqueia se X ≤ teto do ensemble + margem
+
 # Colheita de favoritos: APOSENTADA (decisão do Lucas 15/07 — substituída pela
 # Ceifa). Mantida no código, desligada por HARVEST_ENABLED. Parâmetros antigos
 # preservados só para o backtest histórico de comparação.
