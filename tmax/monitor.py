@@ -27,6 +27,42 @@ LIVE_RELEASE_API = (
     "releases/tags/ceifa-live")
 
 
+def _live_version_file() -> Path:
+    return config.DATA_DIR / "dashboard_live_version.json"
+
+
+def _merge_historical_minimum_taf(group: pd.DataFrame, day: str,
+                                  cache: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """Preserva o TAF retroativo ao reconstruir o pacote intradiario."""
+    if day not in cache:
+        path = MINIMUM_ARCHIVE / "previsao" / f"{day}.parquet"
+        cache[day] = pd.read_parquet(path) if path.exists() else pd.DataFrame()
+    historical = cache[day]
+    keys = ["ts_utc", "icao", "dia"]
+    columns = [
+        "taf_raw", "taf_convective_blocked", "taf_convective_codes",
+        "taf_convective_windows",
+    ]
+    if historical.empty or not set(keys).issubset(historical.columns):
+        return group
+    available = [column for column in columns if column in historical]
+    if not available:
+        return group
+    merged = group.merge(
+        historical[keys + available].drop_duplicates(keys, keep="last"),
+        on=keys, how="left", suffixes=("", "_historical"))
+    for column in available:
+        old = f"{column}_historical"
+        if old not in merged:
+            continue
+        if column in group:
+            merged[column] = merged[column].combine_first(merged[old])
+        else:
+            merged[column] = merged[old]
+        merged = merged.drop(columns=old)
+    return merged
+
+
 def _sync_committed_archives() -> dict:
     """Atualiza as partições diárias já consolidadas na branch principal."""
     def run(*args: str):
@@ -64,6 +100,7 @@ def _write_live_frames(rows_by_archive: dict[tuple[str, str], list[dict]]) -> in
         "minimum": build_root / "dados_low_live",
     }
     written = 0
+    minimum_taf_cache: dict[str, pd.DataFrame] = {}
     for (kind, base), rows in rows_by_archive.items():
         if not rows:
             continue
@@ -77,6 +114,9 @@ def _write_live_frames(rows_by_archive: dict[tuple[str, str], list[dict]]) -> in
         for key, group in frame.groupby(groups):
             values = key if isinstance(key, tuple) else (key,)
             day = str(values[-1])
+            if kind == "minimum" and base == "previsao":
+                group = _merge_historical_minimum_taf(
+                    group, day, minimum_taf_cache)
             destination = roots[kind] / base
             if per_icao:
                 destination /= str(values[0])
@@ -111,6 +151,20 @@ def _sync_live_snapshot() -> dict:
         raise ValueError("Snapshot intradiário ainda não foi publicado.")
     url = asset["browser_download_url"]
     version = asset.get("updated_at") or asset.get("id")
+    version_file = _live_version_file()
+    if (version_file.exists()
+            and MAXIMUM_LIVE_ARCHIVE.exists()
+            and MINIMUM_LIVE_ARCHIVE.exists()):
+        try:
+            saved = json.loads(version_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            saved = {}
+        if saved.get("version") == str(version):
+            return {
+                "ok": True, "updated": False,
+                "captured": saved.get("captured"),
+                "message": "Snapshot do dia ja estava atualizado.",
+            }
     response = requests.get(
         f"{url}?v={version}", headers=headers, timeout=60)
     response.raise_for_status()
@@ -136,6 +190,10 @@ def _sync_live_snapshot() -> dict:
     captured = max(
         (str(row.get("ts_utc")) for rows in rows_by_archive.values()
          for row in rows if row.get("ts_utc")), default=None)
+    config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    version_file.write_text(json.dumps({
+        "version": str(version), "captured": captured,
+    }), encoding="utf-8")
     return {"ok": True, "updated": True, "rows": written,
             "captured": captured,
             "message": f"Snapshot do dia atualizado ({written:,} linhas)."
