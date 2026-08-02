@@ -317,21 +317,19 @@ def market_temperature_interval_c(icao: str, faixa) -> tuple[float, float] | Non
     return lower, upper
 
 
-def is_ensemble_inside_market_band_risk(icao: str, faixa, p90,
-                                        ensemble_ceiling) -> bool:
-    """Veta o NÃO quando P90 ou teto pertencem ao bucket vendido."""
+def is_ensemble_inside_market_band_risk(icao: str, faixa, p10, p90) -> bool:
+    """Veta o NÃO quando o bucket vendido toca a faixa central P10–P90."""
     if not config.CEIFA_ENSEMBLE_BAND_FILTER:
         return False
     interval = market_temperature_interval_c(icao, faixa)
-    if interval is None:
+    if (interval is None or p10 is None or p90 is None
+            or pd.isna(p10) or pd.isna(p90)):
         return False
     lower, upper = interval
-    for value in (p90, ensemble_ceiling):
-        if value is None or pd.isna(value):
-            continue
-        if lower <= float(value) < upper:
-            return True
-    return False
+    central_lower, central_upper = sorted((float(p10), float(p90)))
+    # O toque na borda também é risco: 37,5°C deve vetar o bucket de
+    # 37°C, cujo limite superior discreto é justamente 37,5°C.
+    return max(lower, central_lower) <= min(upper, central_upper)
 
 
 def is_upper_tail_ceiling_risk(icao: str, faixa, ensemble_ceiling,
@@ -556,9 +554,10 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
                 n_filtrado_0c += 1
             continue
         ceiling = (forecast.get("teto_ens") if forecast is not None else None)
+        p10 = (forecast.get("p10") if forecast is not None else None)
         p90 = (forecast.get("p90") if forecast is not None else None)
         if (warm_target_filter and is_ensemble_inside_market_band_risk(
-                icao, faixa, p90, ceiling)):
+                icao, faixa, p10, p90)):
             n_filtrado += 1
             n_filtrado_ensemble_band += 1
             if nao_final > 0.5:
@@ -719,7 +718,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                 continue
 
             if (warm_target_filter and is_ensemble_inside_market_band_risk(
-                    icao, faixa, fget("p90"), fget("teto_ens"))):
+                    icao, faixa, fget("p10"), fget("p90"))):
                 filtered += 1
                 filtered_ensemble_band += 1
                 if final_no > 0.5:

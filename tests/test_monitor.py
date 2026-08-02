@@ -277,7 +277,7 @@ class MonitorTest(unittest.TestCase):
 
         self.assertEqual(frame["Filtro"].tolist(), [
             "Ensemble largo", "Desvio/nowcast quente",
-            "Platô observado", "P90/teto dentro da faixa",
+            "Platô observado", "Faixa dentro de P10–P90",
             "Cauda superior perto do teto",
             "TAF convectivo",
         ])

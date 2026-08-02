@@ -114,25 +114,29 @@ class WarmTargetRiskTests(unittest.TestCase):
         self.assertFalse(ceifa.is_upper_tail_ceiling_risk(
             "ZUUU", "34°C", 34.0))
 
-    def test_blocks_exact_band_when_p90_rounds_into_it(self):
+    def test_blocks_exact_band_when_p90_touches_lower_boundary(self):
         self.assertTrue(ceifa.is_ensemble_inside_market_band_risk(
-            "RPLL", "32°C", 31.5, 31.4))
+            "RPLL", "32°C", 29.0, 31.5))
 
-    def test_blocks_exact_band_when_ceiling_rounds_into_it(self):
+    def test_blocks_exact_band_inside_p10_p90(self):
         self.assertTrue(ceifa.is_ensemble_inside_market_band_risk(
-            "RPLL", "32°C", 31.4, 31.8))
+            "RPLL", "32°C", 31.4, 32.2))
 
-    def test_allows_exact_band_above_both_ensemble_markers(self):
+    def test_blocks_tel_aviv_when_p90_touches_upper_boundary(self):
+        self.assertTrue(ceifa.is_ensemble_inside_market_band_risk(
+            "LLBG", "37°C", 36.0, 37.5))
+
+    def test_allows_exact_band_above_p10_p90(self):
         self.assertFalse(ceifa.is_ensemble_inside_market_band_risk(
-            "RPLL", "33°C", 31.5, 31.8))
+            "RPLL", "33°C", 29.0, 31.8))
 
     def test_fahrenheit_range_uses_half_degree_resolution_boundaries(self):
         inside_c = (89.5 - 32.0) * 5.0 / 9.0
         outside_c = (89.4 - 32.0) * 5.0 / 9.0
         self.assertTrue(ceifa.is_ensemble_inside_market_band_risk(
-            "KORD", "90-91°F", inside_c, None))
+            "KORD", "90-91°F", inside_c, inside_c + 1.0))
         self.assertFalse(ceifa.is_ensemble_inside_market_band_risk(
-            "KORD", "90-91°F", outside_c, None))
+            "KORD", "90-91°F", outside_c - 1.0, outside_c))
 
     def test_minimum_archive_with_rich_forecast_keeps_maximum_filter_off(self):
         with TemporaryDirectory() as tmp:
@@ -262,7 +266,8 @@ class WarmTargetRiskTests(unittest.TestCase):
             pd.DataFrame([{
                 "ts_utc": "2026-08-01T02:50:00Z", "icao": "RPLL",
                 "dia": "2026-08-01", "pico_hora": 11,
-                "mediana": 30.0, "p90": 31.5, "teto_ens": 31.8,
+                "mediana": 30.0, "p10": 29.0, "p90": 31.5,
+                "teto_ens": 31.8,
             }]).to_parquet(
                 archive / "previsao" / "day.parquet", index=False)
 

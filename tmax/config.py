@@ -282,9 +282,9 @@ CEIFA_NOWCAST_SHIFT_MIN = 1.0     # ajuste quente mínimo (°C)
 CEIFA_TARGET_MARGIN = 0.5         # faixa: mediana−margem até P90+margem (°C)
 CEIFA_PLATEAU_HOURS = 2.0         # mesma máxima observada por pelo menos 2h
 
-# Não vende uma faixa que já contenha o P90 ou o membro mais quente do
+# Não vende uma faixa que toque ou se sobreponha ao intervalo P10–P90 do
 # ensemble. A comparação respeita o bucket de resolução: 32°C cobre valores
-# contínuos de 31,5°C até menos de 32,5°C; 90–91°F cobre 89,5–91,5°F.
+# contínuos de 31,5°C a 32,5°C; o toque em qualquer borda também bloqueia.
 CEIFA_ENSEMBLE_BAND_FILTER = True
 
 # Contratos superiores abertos ("X°C or higher") perdem com qualquer pico

@@ -317,14 +317,14 @@ def main() -> int:
             ceiling = (float(q.get(50)) + float(spr)
                        if q.get(50) is not None and spr is not None else None)
             if ceifa.is_ensemble_inside_market_band_risk(
-                    icao, v["label"], q.get(90), ceiling):
+                    icao, v["label"], q.get(10), q.get(90)):
+                p10_txt = (f"{float(q.get(10)):.2f}°C"
+                           if q.get(10) is not None else "—")
                 p90_txt = (f"{float(q.get(90)):.2f}°C"
                            if q.get(90) is not None else "—")
-                ceiling_txt = (f"{ceiling:.2f}°C"
-                               if ceiling is not None else "—")
-                print(f"[ceifa] {icao}: filtrado — P90 ou teto dentro da "
-                      f"faixa vendida (faixa={v['label']}, P90={p90_txt}, "
-                      f"teto={ceiling_txt}).")
+                print(f"[ceifa] {icao}: filtrado — faixa vendida toca o "
+                      f"intervalo P10–P90 (faixa={v['label']}, "
+                      f"P10={p10_txt}, P90={p90_txt}).")
                 continue
             if ceifa.is_upper_tail_ceiling_risk(
                     icao, v["label"], ceiling):
