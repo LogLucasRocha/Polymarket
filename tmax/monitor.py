@@ -31,6 +31,10 @@ def _live_version_file() -> Path:
     return config.DATA_DIR / "dashboard_live_version.json"
 
 
+def _archive_version_file() -> Path:
+    return config.DATA_DIR / "dashboard_archive_version.json"
+
+
 def _merge_historical_minimum_taf(group: pd.DataFrame, day: str,
                                   cache: dict[str, pd.DataFrame]) -> pd.DataFrame:
     """Preserva o TAF retroativo ao reconstruir o pacote intradiario."""
@@ -74,19 +78,29 @@ def _sync_committed_archives() -> dict:
     if fetched.returncode:
         return {"ok": False, "updated": False,
                 "message": "Não consegui baixar o histórico do GitHub."}
-    archives = ("dados", "dados_low")
-    compared = run("diff", "--quiet", "origin/main", "--", *archives)
-    if compared.returncode not in (0, 1):
+    revision = run("rev-parse", "origin/main")
+    if revision.returncode or not revision.stdout.strip():
         return {"ok": False, "updated": False,
-                "message": "Não consegui comparar o histórico."}
-    if compared.returncode == 0:
+                "message": "Não consegui identificar o histórico remoto."}
+    version = revision.stdout.strip()
+    version_file = _archive_version_file()
+    try:
+        saved = json.loads(version_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        saved = {}
+    if (saved.get("version") == version
+            and all((config.ROOT / name).exists()
+                    for name in ("dados", "dados_low"))):
         return {"ok": True, "updated": False,
                 "message": "Histórico diário já atualizado."}
+    archives = ("dados", "dados_low")
     restored = run(
         "restore", "--source=origin/main", "--worktree", "--", *archives)
     if restored.returncode:
         return {"ok": False, "updated": False,
                 "message": "Não consegui atualizar os arquivos de dados."}
+    version_file.parent.mkdir(parents=True, exist_ok=True)
+    version_file.write_text(json.dumps({"version": version}), encoding="utf-8")
     return {"ok": True, "updated": True,
             "message": "Histórico diário atualizado."}
 

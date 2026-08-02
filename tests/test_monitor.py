@@ -27,15 +27,19 @@ class MonitorTest(unittest.TestCase):
     def test_dashboard_refresh_updates_only_archive_paths(self):
         replies = [
             SimpleNamespace(returncode=0, stdout="", stderr=""),
-            SimpleNamespace(returncode=1, stdout="", stderr=""),
+            SimpleNamespace(returncode=0, stdout="abc123\n", stderr=""),
             SimpleNamespace(returncode=0, stdout="", stderr=""),
         ]
-        with (mock.patch.object(monitor.subprocess, "run",
-                                side_effect=replies) as invoked,
-              mock.patch.object(monitor, "_sync_live_snapshot",
-                                return_value={"ok": True, "updated": False,
-                                              "message": "live"})):
-            result = monitor.sync_dashboard_data()
+        with TemporaryDirectory() as temporary:
+            marker = Path(temporary) / "archive.json"
+            with (mock.patch.object(monitor.subprocess, "run",
+                                    side_effect=replies) as invoked,
+                  mock.patch.object(monitor, "_archive_version_file",
+                                    return_value=marker),
+                  mock.patch.object(monitor, "_sync_live_snapshot",
+                                    return_value={"ok": True, "updated": False,
+                                                  "message": "live"})):
+                result = monitor.sync_dashboard_data()
 
         self.assertTrue(result["ok"])
         self.assertTrue(result["updated"])
@@ -50,14 +54,19 @@ class MonitorTest(unittest.TestCase):
     def test_dashboard_refresh_keeps_local_code_when_data_is_current(self):
         replies = [
             SimpleNamespace(returncode=0, stdout="", stderr=""),
-            SimpleNamespace(returncode=0, stdout="", stderr=""),
+            SimpleNamespace(returncode=0, stdout="abc123\n", stderr=""),
         ]
-        with (mock.patch.object(monitor.subprocess, "run",
-                                side_effect=replies) as invoked,
-              mock.patch.object(monitor, "_sync_live_snapshot",
-                                return_value={"ok": True, "updated": False,
-                                              "message": "live"})):
-            result = monitor.sync_dashboard_data()
+        with TemporaryDirectory() as temporary:
+            marker = Path(temporary) / "archive.json"
+            marker.write_text('{"version": "abc123"}', encoding="utf-8")
+            with (mock.patch.object(monitor.subprocess, "run",
+                                    side_effect=replies) as invoked,
+                  mock.patch.object(monitor, "_archive_version_file",
+                                    return_value=marker),
+                  mock.patch.object(monitor, "_sync_live_snapshot",
+                                    return_value={"ok": True, "updated": False,
+                                                  "message": "live"})):
+                result = monitor.sync_dashboard_data()
 
         self.assertTrue(result["ok"])
         self.assertFalse(result["updated"])
@@ -68,14 +77,19 @@ class MonitorTest(unittest.TestCase):
     def test_dashboard_refresh_reports_archive_restore_failure(self):
         replies = [
             SimpleNamespace(returncode=0, stdout="", stderr=""),
-            SimpleNamespace(returncode=1, stdout="", stderr=""),
+            SimpleNamespace(returncode=0, stdout="abc123\n", stderr=""),
             SimpleNamespace(returncode=1, stdout="", stderr="failure"),
         ]
-        with (mock.patch.object(monitor.subprocess, "run", side_effect=replies),
-              mock.patch.object(monitor, "_sync_live_snapshot",
-                                return_value={"ok": False, "updated": False,
-                                              "message": "sem live"})):
-            result = monitor.sync_dashboard_data()
+        with TemporaryDirectory() as temporary:
+            marker = Path(temporary) / "archive.json"
+            with (mock.patch.object(
+                    monitor.subprocess, "run", side_effect=replies),
+                  mock.patch.object(monitor, "_archive_version_file",
+                                    return_value=marker),
+                  mock.patch.object(monitor, "_sync_live_snapshot",
+                                    return_value={"ok": False, "updated": False,
+                                                  "message": "sem live"})):
+                result = monitor.sync_dashboard_data()
 
         self.assertFalse(result["ok"])
         self.assertIn("arquivos de dados", result["message"])
