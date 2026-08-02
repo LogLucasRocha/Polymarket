@@ -28,12 +28,16 @@ from functools import lru_cache
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.dataset as pa_dataset
+import pyarrow.parquet as pa_parquet
 
 from . import config
 
 ARCHIVE = config.ROOT / "dados"
 BACKTEST_ARCHIVE = config.ROOT / "backtest_data"
 STAKE_FRAC = 0.10
+_ROOT_FRAME_CACHE: dict[tuple[str, str], tuple[tuple, pd.DataFrame]] = {}
 
 
 def normalize_market_price(value) -> float | None:
@@ -57,15 +61,70 @@ def is_ceifa_price(value) -> bool:
     )
 
 
+def _parquet_schema(files: list[Path]) -> pa.Schema:
+    """Une schemas diarios, normalizando colunas legadas equivalentes."""
+    fields: dict[str, list[pa.DataType]] = defaultdict(list)
+    order = []
+    for path in files:
+        for field in pa_parquet.read_schema(path):
+            if field.name not in fields:
+                order.append(field.name)
+            fields[field.name].append(field.type)
+    unified = []
+    for name in order:
+        types = [kind for kind in fields[name] if not pa.types.is_null(kind)]
+        if name == "livro_consultado":
+            # Arquivos antigos guardavam a ausencia do campo como NaN. Em
+            # float, bool vira 0/1 e NaN continua ausente; converter NaN
+            # diretamente para bool o transformaria incorretamente em True.
+            kind = pa.float64()
+        elif not types:
+            kind = pa.large_string()
+        elif all(pa.types.is_string(kind) or pa.types.is_large_string(kind)
+                 for kind in types):
+            kind = pa.large_string()
+        else:
+            kind = types[0]
+        unified.append(pa.field(name, kind))
+    return pa.schema(unified)
+
+
+def _load_root(root: Path, base: str) -> pd.DataFrame:
+    """Le uma raiz Parquet e a reutiliza enquanto seus arquivos nao mudarem."""
+    if not root.exists():
+        return pd.DataFrame()
+    files = sorted(root.rglob("*.parquet"))
+    signature = tuple(
+        (str(path), stat.st_size, stat.st_mtime_ns)
+        for path in files for stat in (path.stat(),))
+    cache_key = (str(root.resolve()), base)
+    cached = _ROOT_FRAME_CACHE.get(cache_key)
+    if cached is not None and cached[0] == signature:
+        return cached[1]
+    if files:
+        try:
+            schema = _parquet_schema(files)
+            table = pa_dataset.dataset(
+                [str(path) for path in files], format="parquet",
+                schema=schema).to_table()
+            frame = table.to_pandas()
+        except (pa.ArrowException, OSError, ValueError):
+            frame = pd.concat(
+                (pd.read_parquet(path) for path in files), ignore_index=True)
+    else:
+        frame = pd.DataFrame()
+    _ROOT_FRAME_CACHE[cache_key] = (signature, frame)
+    return frame
+
+
 def _load(base: str, archive=ARCHIVE) -> pd.DataFrame:
     archive = Path(archive)
     live_archive = archive.with_name(f"{archive.name}_live")
-    roots = (archive / base, live_archive / base)
-    files = [path for root in roots if root.exists()
-             for path in sorted(root.rglob("*.parquet"))]
-    if not files:
+    frames = [frame for root in (archive / base, live_archive / base)
+              if not (frame := _load_root(root, base)).empty]
+    if not frames:
         return pd.DataFrame()
-    df = pd.concat((pd.read_parquet(f) for f in files), ignore_index=True)
+    df = pd.concat(frames, ignore_index=True)
     keys = {
         "mercado": ["ts_utc", "icao", "dia", "faixa"],
         "previsao": ["ts_utc", "icao", "dia"],
@@ -88,6 +147,84 @@ def _resolved_price(group: pd.DataFrame, column: str) -> float | None:
     if live:
         return value if value >= 0.999 or value <= 0.001 else None
     return value if value > 0.90 or value < 0.10 else None
+
+
+def _resolved_prices(frame: pd.DataFrame, column: str) -> dict[tuple, float]:
+    """Resolve todos os contratos sem materializar um ``group`` por faixa.
+
+    O dashboard antes percorria centenas de milhares de snapshots apenas para
+    descobrir o ultimo preco de cada contrato. A ultima linha por chave contem
+    exatamente a mesma informacao usada por :func:`_resolved_price`.
+    """
+    keys = ["icao", "dia", "faixa"]
+    last = (frame.sort_values("ts")
+            .groupby(keys, sort=False, observed=True)
+            .tail(1).copy())
+    values = pd.to_numeric(last[column], errors="coerce").round(6)
+    if "snapshot_live" in last:
+        live = last["snapshot_live"].fillna(False).astype(bool)
+    else:
+        live = pd.Series(False, index=last.index)
+    resolved = values.notna() & (
+        (live & ((values >= 0.999) | (values <= 0.001)))
+        | (~live & ((values > 0.90) | (values < 0.10))))
+    return {
+        (row.icao, row.dia, row.faixa): float(value)
+        for row, value in zip(last.loc[resolved, keys].itertuples(index=False),
+                              values.loc[resolved])
+    }
+
+
+def _execution_candidates(frame: pd.DataFrame, side: str) -> pd.DataFrame:
+    """Pre-filtra vetorialmente snapshots com oferta executavel da Ceifa."""
+    checked = (frame["livro_consultado"].fillna(False).astype(bool)
+               if "livro_consultado" in frame
+               else pd.Series(False, index=frame.index))
+    price_column = "preco_nao" if side == "NAO" else "preco_sim"
+    ask_column = "ask_nao" if side == "NAO" else "ask_sim"
+    legacy = pd.to_numeric(frame.get(price_column), errors="coerce")
+    ask = pd.to_numeric(frame.get(
+        ask_column, pd.Series(float("nan"), index=frame.index)),
+        errors="coerce")
+    execution = legacy.where(~checked, ask).round(6)
+    eligible = (
+        execution.gt(config.CEIFA_PRICE_MIN)
+        & execution.lt(config.CEIFA_PRICE_MAX)
+        & (~checked | ask.notna())
+    )
+    candidates = frame.loc[eligible].copy()
+    candidates["_entry_price"] = execution.loc[eligible]
+    return candidates
+
+
+def _h1_candidates(candidates: pd.DataFrame,
+                   forecasts: pd.DataFrame) -> pd.DataFrame:
+    """Mantem ofertas na H-1 e anexa a previsao vigente a cada uma."""
+    if candidates.empty or forecasts.empty:
+        return candidates.iloc[0:0].copy()
+    selected = []
+    forecast_groups = {}
+    for key, group in forecasts.groupby(["icao", "dia"]):
+        right = group.sort_values("ts").copy()
+        right["_forecast_ts"] = right["ts"]
+        right = right.rename(columns={
+            column: f"_forecast_{column}" for column in right.columns
+            if column != "ts" and not column.startswith("_forecast_")
+        })
+        forecast_groups[key] = right
+    indexed = candidates.assign(_candidate_index=candidates.index)
+    for key, group in indexed.groupby(["icao", "dia"]):
+        forecast = forecast_groups.get(key)
+        if forecast is None or forecast.empty:
+            continue
+        aligned = pd.merge_asof(
+            group.sort_values("ts"), forecast, on="ts", direction="backward")
+        peak = pd.to_numeric(aligned["_forecast_pico_hora"], errors="coerce")
+        valid = peak.notna() & aligned["hloc"].eq((peak - 1) % 24)
+        if valid.any():
+            selected.append(aligned.loc[valid])
+    return (pd.concat(selected, ignore_index=True).sort_values("ts")
+            if selected else candidates.iloc[0:0].copy())
 
 
 def _tz(icao: str):
@@ -520,13 +657,11 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
         return {"n": 0, "days": 0, "signals": [],
                 "stake_frac": stake_frac, "repeat_minutes": interval_minutes}
 
-    mkt["hloc"] = mkt.groupby("icao")["ts"].transform(
+    resolutions = _resolved_prices(mkt, "preco_nao")
+    candidates = _execution_candidates(mkt, "NAO")
+    candidates["hloc"] = candidates.groupby("icao")["ts"].transform(
         lambda series: series.dt.tz_convert(_tz(series.name)).dt.hour)
-    prev_by = {}
-    for key, group in prev.groupby(["icao", "dia"]):
-        ordered = group.sort_values("ts")
-        prev_by[key] = ([timestamp.value for timestamp in ordered["ts"]],
-                        [row for _, row in ordered.iterrows()])
+    candidates = _h1_candidates(candidates, prev)
     if {"teto_ens", "mediana"}.issubset(prev.columns):
         ps = prev.dropna(subset=["teto_ens", "mediana"]).copy()
         ps["spread"] = ps["teto_ens"] - ps["mediana"]
@@ -534,15 +669,6 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
     else:
         spread_norm = {}
 
-    def forecast_at(icao, day, timestamp):
-        lookup = prev_by.get((icao, day))
-        if lookup is None:
-            return None
-        timestamps, rows = lookup
-        index = bisect_right(timestamps, timestamp.value) - 1
-        return rows[index] if index >= 0 else None
-
-    pmin, pmax = config.CEIFA_PRICE_MIN, config.CEIFA_PRICE_MAX
     min_gap = pd.Timedelta(minutes=interval_minutes)
     signals = []
     filtered = filtered_spread = filtered_nowcast = filtered_plateau = 0
@@ -550,35 +676,23 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
     filtered_upper_tail = 0
     filtered_taf = 0
     filtered_100c = filtered_0c = 0
-    for (icao, day, faixa), group in mkt.groupby(["icao", "dia", "faixa"]):
+    for (icao, day, faixa), group in candidates.groupby(
+            ["icao", "dia", "faixa"], observed=True):
         group = group.sort_values("ts")
-        final_no = _resolved_price(group, "preco_nao")
+        final_no = resolutions.get((icao, day, faixa))
         if final_no is None:
             continue
         last_entry_ts = None
         for _, entry_row in group.iterrows():
-            forecast = forecast_at(icao, day, entry_row["ts"])
-            if forecast is None or pd.isna(forecast.get("pico_hora")):
-                continue
-            peak = int(forecast["pico_hora"])
-            if int(entry_row["hloc"]) != (peak - 1) % 24:
-                continue
+            fget = lambda name, default=None: entry_row.get(  # noqa: E731
+                f"_forecast_{name}", default)
             if (last_entry_ts is not None
                     and entry_row["ts"] - last_entry_ts < min_gap):
                 continue
 
-            checked = entry_row.get("livro_consultado")
-            checked = (checked is not None and not pd.isna(checked)
-                       and bool(checked))
-            ask = entry_row.get("ask_nao")
-            if checked and (ask is None or pd.isna(ask)):
-                continue
-            price = normalize_market_price(
-                ask if checked else entry_row["preco_nao"])
-            if price is None or not (pmin < price < pmax):
-                continue
+            price = float(entry_row["_entry_price"])
 
-            taf_blocked = forecast.get("taf_convective_blocked")
+            taf_blocked = fget("taf_convective_blocked")
             taf_blocked = (taf_blocked is not None
                            and not pd.isna(taf_blocked)
                            and bool(taf_blocked))
@@ -592,9 +706,9 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                 continue
 
             spread = None
-            if not pd.isna(forecast.get("teto_ens")) and not pd.isna(
-                    forecast.get("mediana")):
-                spread = float(forecast["teto_ens"] - forecast["mediana"])
+            if not pd.isna(fget("teto_ens")) and not pd.isna(
+                    fget("mediana")):
+                spread = float(fget("teto_ens") - fget("mediana"))
             if uncertainty_filter and is_uncertain(icao, spread, spread_norm):
                 filtered += 1
                 filtered_spread += 1
@@ -605,8 +719,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                 continue
 
             if (warm_target_filter and is_ensemble_inside_market_band_risk(
-                    icao, faixa, forecast.get("p90"),
-                    forecast.get("teto_ens"))):
+                    icao, faixa, fget("p90"), fget("teto_ens"))):
                 filtered += 1
                 filtered_ensemble_band += 1
                 if final_no > 0.5:
@@ -616,7 +729,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                 continue
 
             if (warm_target_filter and is_upper_tail_ceiling_risk(
-                    icao, faixa, forecast.get("teto_ens"))):
+                    icao, faixa, fget("teto_ens"))):
                 filtered += 1
                 filtered_upper_tail += 1
                 if final_no > 0.5:
@@ -625,23 +738,23 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                     filtered_0c += 1
                 continue
 
-            plateau = forecast.get("plateau_temp")
+            plateau = fget("plateau_temp")
             if plateau is None or pd.isna(plateau):
                 plateau = reconstructed_plateau_temperature(
-                    icao, day, forecast.get("ts"))
-            observed_deviation = forecast.get("nowcast_offset")
+                    icao, day, fget("ts"))
+            observed_deviation = fget("nowcast_offset")
             if observed_deviation is None or pd.isna(observed_deviation):
                 observed_deviation = reconstructed_observed_deviation(
-                    icao, forecast.get("ts"), forecast.get("nowcast_shift"))
+                    icao, fget("ts"), fget("nowcast_shift"))
             warm_without_plateau = (
                 warm_target_filter and is_warm_target_risk(
-                    icao, faixa, forecast.get("nowcast_shift"),
-                    forecast.get("mediana"), forecast.get("p90"),
+                    icao, faixa, fget("nowcast_shift"),
+                    fget("mediana"), fget("p90"),
                     observed_deviation=observed_deviation))
             warm_with_plateau = (
                 warm_target_filter and is_warm_target_risk(
-                    icao, faixa, forecast.get("nowcast_shift"),
-                    forecast.get("mediana"), forecast.get("p90"),
+                    icao, faixa, fget("nowcast_shift"),
+                    fget("mediana"), fget("p90"),
                     observed_deviation=observed_deviation,
                     plateau_temp=plateau))
             if warm_with_plateau:

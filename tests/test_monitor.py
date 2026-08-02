@@ -155,6 +155,38 @@ class MonitorTest(unittest.TestCase):
             self.assertTrue((root / "dados_low_live" / "previsao" / "EGLC" /
                              "2026-07-31.parquet").exists())
 
+    def test_live_refresh_preserves_retroactive_taf_fields(self):
+        row = {
+            "ts_utc": "2026-08-01T09:01:00Z", "icao": "KMIA",
+            "dia": "2026-08-01", "pico_hora": 6,
+        }
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            historical_root = root / "dados_low"
+            (historical_root / "previsao").mkdir(parents=True)
+            pd.DataFrame([dict(
+                row, taf_raw="TAF KMIA VCTS",
+                taf_convective_blocked=True,
+                taf_convective_codes="VCTS",
+                taf_convective_windows="[]",
+            )]).to_parquet(
+                historical_root / "previsao" / "2026-08-01.parquet",
+                index=False)
+            with (mock.patch.object(monitor.config, "DATA_DIR", root / "data"),
+                  mock.patch.object(monitor, "MINIMUM_ARCHIVE",
+                                    historical_root),
+                  mock.patch.object(monitor, "MAXIMUM_LIVE_ARCHIVE",
+                                    root / "dados_live"),
+                  mock.patch.object(monitor, "MINIMUM_LIVE_ARCHIVE",
+                                    root / "dados_low_live")):
+                monitor._write_live_frames({("minimum", "previsao"): [row]})
+
+            live = pd.read_parquet(
+                root / "dados_low_live" / "previsao" / "KMIA" /
+                "2026-08-01.parquet")
+            self.assertTrue(live.iloc[0]["taf_convective_blocked"])
+            self.assertEqual(live.iloc[0]["taf_convective_codes"], "VCTS")
+
     def test_risk_metrics_reconstructs_single_entry_stakes(self):
         signals = [
             {"icao": "EGLC", "day": "2026-07-24", "faixa": "16°C",

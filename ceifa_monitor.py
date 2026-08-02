@@ -645,9 +645,10 @@ def main() -> None:
         if refresh_col.button("↻ Atualizar", width="stretch"):
             with st.spinner("Buscando os dados mais recentes no GitHub…"):
                 refresh_result = monitor.sync_dashboard_data()
-            load_strategy.clear()
-            load_losses.clear()
-            load_timeline.clear()
+            if refresh_result.get("updated"):
+                load_strategy.clear()
+                load_losses.clear()
+                load_timeline.clear()
             st.session_state["refresh_notice"] = refresh_result
             st.rerun()
 
