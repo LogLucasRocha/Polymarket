@@ -223,6 +223,7 @@ class MonitorTest(unittest.TestCase):
             "n_filtrado_spread": 11,
             "n_filtrado_nowcast": 7,
             "n_filtrado_plateau": 2,
+            "n_filtrado_ensemble_band": 3,
             "n_filtrado_taf": 5,
         }
 
@@ -230,13 +231,51 @@ class MonitorTest(unittest.TestCase):
 
         self.assertEqual(frame["Filtro"].tolist(), [
             "Ensemble largo", "Desvio/nowcast quente",
-            "Platô observado", "TAF convectivo",
+            "Platô observado", "P90/teto dentro da faixa",
+            "Cauda superior perto do teto",
+            "TAF convectivo",
         ])
-        self.assertEqual(frame["Entradas bloqueadas"].tolist(), [11, 7, 2, 5])
+        self.assertEqual(
+            frame["Entradas bloqueadas"].tolist(), [11, 7, 2, 3, 0, 5])
         plateau = frame[frame["Filtro"] == "Platô observado"].iloc[0]
         self.assertIn("Subconjunto", plateau["Observação"])
         taf = frame[frame["Filtro"] == "TAF convectivo"].iloc[0]
         self.assertIn("TSRA ou VCTS", taf["Quando bloqueia"])
+
+    def test_filter_frame_labels_single_band_as_experimental_only(self):
+        frame = monitor.filter_frame({
+            "archive_kind": "consolidated", "single_band": True,
+            "n_filtrado_faixa_unica": 13,
+        })
+
+        row = frame.iloc[0]
+        self.assertEqual(row["Filtro"], "Faixa única por cidade")
+        self.assertEqual(row["Entradas bloqueadas"], 13)
+
+    def test_single_band_dashboard_scenario_does_not_change_active_stats(self):
+        base = {
+            "days": 1, "repeat_minutes": 5, "archive_kind": "maximum",
+            "signals": [
+                {"icao": "EGLC", "day": "2026-08-01", "faixa": "30°C",
+                 "ts": pd.Timestamp("2026-08-01T13:00:00Z"),
+                 "price": 0.97, "won": True},
+                {"icao": "EGLC", "day": "2026-08-01", "faixa": "31°C",
+                 "ts": pd.Timestamp("2026-08-01T13:00:00Z"),
+                 "price": 0.98, "won": True},
+            ],
+        }
+        empty = {
+            "days": 0, "repeat_minutes": 5, "archive_kind": "minimum",
+            "signals": [],
+        }
+
+        active = monitor.combine_active_strategies(base, empty)
+        scenario = monitor.single_band_scenario(base, empty)
+
+        self.assertEqual(active["n"], 2)
+        self.assertEqual(scenario["n"], 1)
+        self.assertEqual(scenario["signals"][0]["faixa"], "31°C")
+        self.assertEqual(scenario["n_filtrado_faixa_unica"], 1)
 
     def test_loss_date_filter_orders_days_and_selects_only_requested_day(self):
         losses = pd.DataFrame([

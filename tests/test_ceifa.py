@@ -102,6 +102,38 @@ class WarmTargetRiskTests(unittest.TestCase):
         self.assertTrue(ceifa.is_warm_target_risk(
             "KLGA", "81°F", 1.1, 26.0, 27.0))
 
+    def test_blocks_upper_tail_close_to_ensemble_ceiling(self):
+        self.assertTrue(ceifa.is_upper_tail_ceiling_risk(
+            "ZUUU", "34°C or higher", 33.33))
+
+    def test_allows_upper_tail_with_more_than_safety_margin(self):
+        self.assertFalse(ceifa.is_upper_tail_ceiling_risk(
+            "ZUUU", "35°C or higher", 33.33))
+
+    def test_upper_tail_filter_does_not_apply_to_exact_band(self):
+        self.assertFalse(ceifa.is_upper_tail_ceiling_risk(
+            "ZUUU", "34°C", 34.0))
+
+    def test_blocks_exact_band_when_p90_rounds_into_it(self):
+        self.assertTrue(ceifa.is_ensemble_inside_market_band_risk(
+            "RPLL", "32°C", 31.5, 31.4))
+
+    def test_blocks_exact_band_when_ceiling_rounds_into_it(self):
+        self.assertTrue(ceifa.is_ensemble_inside_market_band_risk(
+            "RPLL", "32°C", 31.4, 31.8))
+
+    def test_allows_exact_band_above_both_ensemble_markers(self):
+        self.assertFalse(ceifa.is_ensemble_inside_market_band_risk(
+            "RPLL", "33°C", 31.5, 31.8))
+
+    def test_fahrenheit_range_uses_half_degree_resolution_boundaries(self):
+        inside_c = (89.5 - 32.0) * 5.0 / 9.0
+        outside_c = (89.4 - 32.0) * 5.0 / 9.0
+        self.assertTrue(ceifa.is_ensemble_inside_market_band_risk(
+            "KORD", "90-91°F", inside_c, None))
+        self.assertFalse(ceifa.is_ensemble_inside_market_band_risk(
+            "KORD", "90-91°F", outside_c, None))
+
     def test_minimum_archive_with_rich_forecast_keeps_maximum_filter_off(self):
         with TemporaryDirectory() as tmp:
             archive = Path(tmp)
@@ -184,6 +216,64 @@ class WarmTargetRiskTests(unittest.TestCase):
             self.assertEqual(result["n_filtrado_taf"], 1)
             self.assertEqual(result["n_filtrado_100c"], 1)
 
+    def test_repeated_strategy_filters_upper_tail_near_ceiling(self):
+        with TemporaryDirectory() as tmp:
+            archive = Path(tmp)
+            (archive / "mercado").mkdir()
+            (archive / "previsao").mkdir()
+            pd.DataFrame([
+                {"ts_utc": "2026-07-29T07:11:00Z", "icao": "ZUUU",
+                 "dia": "2026-07-29", "faixa": "34°C or higher",
+                 "preco_sim": 0.04, "preco_nao": 0.96},
+                {"ts_utc": "2026-07-29T12:00:00Z", "icao": "ZUUU",
+                 "dia": "2026-07-29", "faixa": "34°C or higher",
+                 "preco_sim": 0.99, "preco_nao": 0.01},
+            ]).to_parquet(
+                archive / "mercado" / "day.parquet", index=False)
+            pd.DataFrame([{
+                "ts_utc": "2026-07-29T07:10:00Z", "icao": "ZUUU",
+                "dia": "2026-07-29", "pico_hora": 16,
+                "mediana": 32.2, "p90": 32.8, "teto_ens": 33.33,
+            }]).to_parquet(
+                archive / "previsao" / "day.parquet", index=False)
+
+            result = ceifa.simulate_repeated(
+                icaos={"ZUUU"}, archive=archive,
+                uncertainty_filter=False)
+
+            self.assertEqual(result["n"], 0)
+            self.assertEqual(result["n_filtrado_upper_tail"], 1)
+            self.assertEqual(result["n_filtrado_0c"], 1)
+
+    def test_repeated_strategy_filters_band_containing_p90(self):
+        with TemporaryDirectory() as tmp:
+            archive = Path(tmp)
+            (archive / "mercado").mkdir()
+            (archive / "previsao").mkdir()
+            pd.DataFrame([
+                {"ts_utc": "2026-08-01T02:55:00Z", "icao": "RPLL",
+                 "dia": "2026-08-01", "faixa": "32°C",
+                 "preco_sim": 0.04, "preco_nao": 0.96},
+                {"ts_utc": "2026-08-01T12:00:00Z", "icao": "RPLL",
+                 "dia": "2026-08-01", "faixa": "32°C",
+                 "preco_sim": 0.99, "preco_nao": 0.01},
+            ]).to_parquet(
+                archive / "mercado" / "day.parquet", index=False)
+            pd.DataFrame([{
+                "ts_utc": "2026-08-01T02:50:00Z", "icao": "RPLL",
+                "dia": "2026-08-01", "pico_hora": 11,
+                "mediana": 30.0, "p90": 31.5, "teto_ens": 31.8,
+            }]).to_parquet(
+                archive / "previsao" / "day.parquet", index=False)
+
+            result = ceifa.simulate_repeated(
+                icaos={"RPLL"}, archive=archive,
+                uncertainty_filter=False)
+
+            self.assertEqual(result["n"], 0)
+            self.assertEqual(result["n_filtrado_ensemble_band"], 1)
+            self.assertEqual(result["n_filtrado_0c"], 1)
+
     def test_repeated_strategy_uses_one_percent_of_free_cash(self):
         with TemporaryDirectory() as tmp:
             archive = Path(tmp)
@@ -221,6 +311,57 @@ class WarmTargetRiskTests(unittest.TestCase):
             self.assertAlmostEqual(
                 result["real_mult"],
                 0.99 ** 3 + sum(stake / 0.98 for stake in stakes))
+
+    def test_repeated_strategy_locks_most_expensive_band_on_first_round(self):
+        with TemporaryDirectory() as tmp:
+            archive = Path(tmp)
+            (archive / "mercado").mkdir()
+            (archive / "previsao").mkdir()
+            rows = []
+            for minute, prices in ((0, {"30°C": 0.970, "31°C": 0.985}),
+                                   (5, {"30°C": 0.990, "31°C": 0.975})):
+                for faixa, price in prices.items():
+                    rows.append({
+                        "ts_utc": f"2026-07-26T13:{minute:02d}:00Z",
+                        "icao": "EGLC", "dia": "2026-07-26",
+                        "faixa": faixa, "preco_sim": 1.0 - price,
+                        "preco_nao": price,
+                    })
+            for faixa in ("30°C", "31°C"):
+                rows.append({
+                    "ts_utc": "2026-07-26T18:00:00Z", "icao": "EGLC",
+                    "dia": "2026-07-26", "faixa": faixa,
+                    "preco_sim": 0.01, "preco_nao": 0.99,
+                })
+            pd.DataFrame(rows).to_parquet(
+                archive / "mercado" / "day.parquet", index=False)
+            pd.DataFrame([{
+                "ts_utc": "2026-07-26T12:59:00Z", "icao": "EGLC",
+                "dia": "2026-07-26", "pico_hora": 15,
+            }]).to_parquet(
+                archive / "previsao" / "day.parquet", index=False)
+
+            active = ceifa.simulate_repeated(
+                icaos={"EGLC"}, archive=archive, warm_target_filter=False,
+                uncertainty_filter=False, interval_minutes=5)
+            self.assertEqual(active["n"], 4)
+            self.assertEqual(active["n_filtrado_faixa_unica"], 0)
+            self.assertEqual(
+                {signal["faixa"] for signal in active["signals"]},
+                {"30°C", "31°C"})
+
+            result = ceifa.simulate_repeated(
+                icaos={"EGLC"}, archive=archive, warm_target_filter=False,
+                uncertainty_filter=False, interval_minutes=5,
+                single_band=True)
+
+            self.assertEqual(result["n"], 2)
+            self.assertEqual(result["n_filtrado_faixa_unica"], 2)
+            self.assertEqual(
+                {signal["faixa"] for signal in result["signals"]}, {"31°C"})
+            self.assertEqual(
+                [signal["price"] for signal in result["signals"]],
+                [0.985, 0.975])
 
     def test_yes_strategy_uses_only_executable_yes_asks(self):
         with TemporaryDirectory() as tmp:

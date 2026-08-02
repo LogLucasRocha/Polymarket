@@ -314,6 +314,24 @@ def main() -> int:
                       f"(spread={spr:.1f}°C).")
                 continue                     # dia perigoso → não entra
             q = ctx_i["dist_d0"]["quantiles"]
+            ceiling = (float(q.get(50)) + float(spr)
+                       if q.get(50) is not None and spr is not None else None)
+            if ceifa.is_ensemble_inside_market_band_risk(
+                    icao, v["label"], q.get(90), ceiling):
+                p90_txt = (f"{float(q.get(90)):.2f}°C"
+                           if q.get(90) is not None else "—")
+                ceiling_txt = (f"{ceiling:.2f}°C"
+                               if ceiling is not None else "—")
+                print(f"[ceifa] {icao}: filtrado — P90 ou teto dentro da "
+                      f"faixa vendida (faixa={v['label']}, P90={p90_txt}, "
+                      f"teto={ceiling_txt}).")
+                continue
+            if ceifa.is_upper_tail_ceiling_risk(
+                    icao, v["label"], ceiling):
+                print(f"[ceifa] {icao}: filtrado — cauda superior próxima "
+                      f"do teto (faixa={v['label']}, teto={ceiling:.2f}°C, "
+                      f"margem={config.CEIFA_UPPER_TAIL_MARGIN:.2f}°C).")
+                continue
             observed_deviation = (ctx_i.get("nowcast") or {}).get("offset")
             plateau_temp = ceifa.plateau_temperature(ctx_i["obs_today"])
             if ceifa.is_warm_target_risk(

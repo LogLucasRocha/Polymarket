@@ -8,7 +8,8 @@ Perto do pico há pouca incerteza — é onde o mercado quase-certo é confiáve
 Antes de entrar, dois vetos usam apenas o snapshot da H-1: ensemble largo; ou
 desvio bruto >= +1°C OU nowcast >= +1°C, com a faixa vendida dentro da região
 mediana−0,5°C a P90+0,5°C. Quando a máxima está em platô há pelo menos 2h, o
-limite inferior desce até a temperatura já observada.
+limite inferior desce até a temperatura já observada. Também não vende um
+bucket que contenha o P90 ou o membro mais quente do ensemble.
 
 Resolução pela convergência do preço: o NÃO venceu se o preço do NÃO no fim do
 dia foi para ~1,0. Stop: se depois da entrada o preço do NÃO cair
@@ -142,6 +143,76 @@ def target_temperature_c(icao: str, faixa) -> float | None:
         return None
     value = float(match.group(0).replace(",", "."))
     return (value - 32.0) * 5.0 / 9.0 if _station_unit(icao) == "F" else value
+
+
+def market_temperature_interval_c(icao: str, faixa) -> tuple[float, float] | None:
+    """Converte o bucket discreto do mercado em um intervalo contínuo em °C.
+
+    Um contrato exato de 32°C representa valores que arredondam para 32°C,
+    portanto cobre [31,5; 32,5). Faixas americanas como 90–91°F recebem a
+    mesma margem de meio grau antes da conversão para Celsius.
+    """
+    label = str(faixa or "").lower()
+    raw_values = re.findall(
+        r"(?<![\d.,])-?\d+(?:[.,]\d+)?", label)
+    if not raw_values:
+        return None
+    values = [float(value.replace(",", ".")) for value in raw_values]
+
+    lower_open = any(marker in label for marker in (
+        "or lower", "or below", "or less", "ou menos", "ou abaixo"))
+    upper_open = any(marker in label for marker in (
+        "or higher", "or above", "or more", "ou mais", "ou acima"))
+    if lower_open:
+        lower, upper = float("-inf"), values[0] + 0.5
+    elif upper_open:
+        lower, upper = values[0] - 0.5, float("inf")
+    elif len(values) >= 2:
+        lower, upper = min(values[:2]) - 0.5, max(values[:2]) + 0.5
+    else:
+        lower, upper = values[0] - 0.5, values[0] + 0.5
+
+    if _station_unit(icao) == "F":
+        lower = ((lower - 32.0) * 5.0 / 9.0
+                 if lower != float("-inf") else lower)
+        upper = ((upper - 32.0) * 5.0 / 9.0
+                 if upper != float("inf") else upper)
+    return lower, upper
+
+
+def is_ensemble_inside_market_band_risk(icao: str, faixa, p90,
+                                        ensemble_ceiling) -> bool:
+    """Veta o NÃO quando P90 ou teto pertencem ao bucket vendido."""
+    if not config.CEIFA_ENSEMBLE_BAND_FILTER:
+        return False
+    interval = market_temperature_interval_c(icao, faixa)
+    if interval is None:
+        return False
+    lower, upper = interval
+    for value in (p90, ensemble_ceiling):
+        if value is None or pd.isna(value):
+            continue
+        if lower <= float(value) < upper:
+            return True
+    return False
+
+
+def is_upper_tail_ceiling_risk(icao: str, faixa, ensemble_ceiling,
+                               margin: float | None = None) -> bool:
+    """Veta "X ou mais" quando X está perto demais do teto do ensemble."""
+    if not config.CEIFA_UPPER_TAIL_FILTER:
+        return False
+    label = str(faixa or "").lower()
+    upper_open = any(marker in label for marker in (
+        "or higher", "or above", "or more", "ou mais", "ou acima"))
+    if not upper_open or ensemble_ceiling is None or pd.isna(ensemble_ceiling):
+        return False
+    target = target_temperature_c(icao, faixa)
+    if target is None:
+        return False
+    margin = (config.CEIFA_UPPER_TAIL_MARGIN if margin is None
+              else float(margin))
+    return target <= float(ensemble_ceiling) + margin
 
 
 def plateau_temperature(obs: list[dict], min_hours: float | None = None) -> float | None:
@@ -310,6 +381,8 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
     n_filtrado_spread = 0
     n_filtrado_nowcast = 0
     n_filtrado_plateau = 0
+    n_filtrado_ensemble_band = 0
+    n_filtrado_upper_tail = 0
     n_filtrado_100c = 0
     n_filtrado_0c = 0
     for (icao, dia, faixa), g in mkt.groupby(["icao", "dia", "faixa"]):
@@ -340,6 +413,26 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
         if uncertainty_filter and is_uncertain(icao, spr, spread_norm):
             n_filtrado += 1
             n_filtrado_spread += 1
+            if nao_final > 0.5:
+                n_filtrado_100c += 1
+            else:
+                n_filtrado_0c += 1
+            continue
+        ceiling = (forecast.get("teto_ens") if forecast is not None else None)
+        p90 = (forecast.get("p90") if forecast is not None else None)
+        if (warm_target_filter and is_ensemble_inside_market_band_risk(
+                icao, faixa, p90, ceiling)):
+            n_filtrado += 1
+            n_filtrado_ensemble_band += 1
+            if nao_final > 0.5:
+                n_filtrado_100c += 1
+            else:
+                n_filtrado_0c += 1
+            continue
+        if (warm_target_filter and is_upper_tail_ceiling_risk(
+                icao, faixa, ceiling)):
+            n_filtrado += 1
+            n_filtrado_upper_tail += 1
             if nao_final > 0.5:
                 n_filtrado_100c += 1
             else:
@@ -392,6 +485,8 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
     st["n_filtrado_spread"] = n_filtrado_spread
     st["n_filtrado_nowcast"] = n_filtrado_nowcast
     st["n_filtrado_plateau"] = n_filtrado_plateau
+    st["n_filtrado_ensemble_band"] = n_filtrado_ensemble_band
+    st["n_filtrado_upper_tail"] = n_filtrado_upper_tail
     st["n_filtrado_100c"] = n_filtrado_100c
     st["n_filtrado_0c"] = n_filtrado_0c
     return st
@@ -401,7 +496,8 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                       warm_target_filter=True, interval_minutes: int = 5,
                       stake_frac: float = 0.01,
                       uncertainty_filter: bool = True,
-                      minimum_taf_filter: bool = False) -> dict:
+                      minimum_taf_filter: bool = False,
+                      single_band: bool = False) -> dict:
     """Ceifa parcelada: uma stake relativa a cada rodada elegível da H-1.
 
     A stake de cada parcela é ``stake_frac`` do caixa ainda livre naquele
@@ -411,6 +507,8 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
     ``uncertainty_filter`` permitem manter os vetos meteorológicos das máximas
     desligados no estudo de mínimas. ``minimum_taf_filter`` reproduz o veto
     operacional de TSRA/VCTS quando essa informação existe no snapshot.
+    ``single_band`` ativa apenas o cenário comparativo que trava a faixa com
+    maior ask executável na primeira rodada de cada cidade/data.
     """
     mkt = _load("mercado", archive)
     prev = _load("previsao", archive)
@@ -448,6 +546,8 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
     min_gap = pd.Timedelta(minutes=interval_minutes)
     signals = []
     filtered = filtered_spread = filtered_nowcast = filtered_plateau = 0
+    filtered_ensemble_band = 0
+    filtered_upper_tail = 0
     filtered_taf = 0
     filtered_100c = filtered_0c = 0
     for (icao, day, faixa), group in mkt.groupby(["icao", "dia", "faixa"]):
@@ -504,6 +604,27 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                     filtered_0c += 1
                 continue
 
+            if (warm_target_filter and is_ensemble_inside_market_band_risk(
+                    icao, faixa, forecast.get("p90"),
+                    forecast.get("teto_ens"))):
+                filtered += 1
+                filtered_ensemble_band += 1
+                if final_no > 0.5:
+                    filtered_100c += 1
+                else:
+                    filtered_0c += 1
+                continue
+
+            if (warm_target_filter and is_upper_tail_ceiling_risk(
+                    icao, faixa, forecast.get("teto_ens"))):
+                filtered += 1
+                filtered_upper_tail += 1
+                if final_no > 0.5:
+                    filtered_100c += 1
+                else:
+                    filtered_0c += 1
+                continue
+
             plateau = forecast.get("plateau_temp")
             if plateau is None or pd.isna(plateau):
                 plateau = reconstructed_plateau_temperature(
@@ -542,6 +663,9 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
             })
             last_entry_ts = entry_row["ts"]
 
+    filtered_single_band = 0
+    if single_band:
+        signals, filtered_single_band = _select_single_band_signals(signals)
     stats = _stats_relative_available_stake(
         signals, mkt["dia"].nunique(), stake_frac)
     stats.update({
@@ -550,13 +674,44 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
         "n_filtrado_spread": filtered_spread,
         "n_filtrado_nowcast": filtered_nowcast,
         "n_filtrado_plateau": filtered_plateau,
+        "n_filtrado_ensemble_band": filtered_ensemble_band,
+        "n_filtrado_upper_tail": filtered_upper_tail,
         "n_filtrado_taf": filtered_taf,
+        "n_filtrado_faixa_unica": filtered_single_band,
+        "single_band": single_band,
         "n_filtrado_100c": filtered_100c,
         "n_filtrado_0c": filtered_0c,
     })
     log(f"ceifa parcelada ({interval_minutes} min): {stats['n']} parcelas · "
         f"{filtered} oportunidades recusadas por incerteza.")
     return stats
+
+
+def _select_single_band_signals(signals: list[dict]) -> tuple[list[dict], int]:
+    """Mantém um bucket por cidade/data durante toda a janela H-1.
+
+    A primeira rodada executável escolhe o maior ask do NÃO. A faixa fica
+    travada no restante do evento, reproduzindo o comportamento ao vivo e
+    impedindo exposição correlacionada em buckets da mesma cidade/data.
+    """
+    by_event: dict[tuple, list[dict]] = defaultdict(list)
+    for signal in signals:
+        by_event[(signal["icao"], signal["day"])].append(signal)
+
+    selected: list[dict] = []
+    removed = 0
+    for event_signals in by_event.values():
+        first_ts = min(signal["ts"] for signal in event_signals)
+        first_round = [signal for signal in event_signals
+                       if signal["ts"] == first_ts]
+        best = max(first_round,
+                   key=lambda signal: (float(signal["price"]),
+                                       str(signal["faixa"])))
+        kept = [signal for signal in event_signals
+                if signal["faixa"] == best["faixa"]]
+        selected.extend(kept)
+        removed += len(event_signals) - len(kept)
+    return selected, removed
 
 
 def simulate_yes_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
