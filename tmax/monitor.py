@@ -450,16 +450,16 @@ def filter_frame(stats: dict) -> pd.DataFrame:
             },
             {
                 "Estratégia": "Máxima",
-                "Filtro": "P90/teto dentro da faixa",
+                "Filtro": "Faixa dentro de P10–P90",
                 "Quando bloqueia": (
-                    "O P90 ou o membro mais quente do ensemble pertence ao "
-                    "mesmo bucket de temperatura que o contrato NÃO. Ex.: "
-                    "32°C cobre de 31,5°C até menos de 32,5°C."),
+                    "O bucket de temperatura do contrato NÃO toca ou se "
+                    "sobrepõe ao intervalo central P10–P90 do ensemble. Ex.: "
+                    "P90 de 37,5°C bloqueia o NÃO 37°C."),
                 "Entradas bloqueadas": stats.get(
                     "n_filtrado_ensemble_band", 0),
                 "Observação": (
-                    "Aplica a discretização correta também às faixas em "
-                    "Fahrenheit."),
+                    "O toque na borda bloqueia e a discretização também "
+                    "vale para faixas em Fahrenheit."),
             },
             {
                 "Estratégia": "Máxima",

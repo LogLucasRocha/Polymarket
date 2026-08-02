@@ -740,7 +740,7 @@ def _ceifa_filter_line(st: dict) -> str:
              f"{n_nowcast} desvio/nowcast quente"]
     if n_plateau:
         parts[-1] += f", {n_plateau} por platô"
-    parts.append(f"{n_ensemble_band} P90/teto dentro da faixa")
+    parts.append(f"{n_ensemble_band} faixa dentro de P10–P90")
     parts.append(f"{n_upper_tail} cauda superior perto do teto")
     motivos = f" ({' · '.join(parts)})" if n_filt else ""
     return (f"• <b>Filtro de incerteza:</b> {n_filt} entradas evitadas"
