@@ -1,399 +1,399 @@
 {
  "min_conf": 0.9,
- "days": 4037,
+ "days": 4154,
  "por_faixa_dia": {
   "CYYZ": {
-   "n": 1031,
-   "acerto": 0.8826,
-   "conf_media": 0.9902
+   "n": 1053,
+   "acerto": 0.8832,
+   "conf_media": 0.9899
   },
   "EDDM": {
-   "n": 960,
-   "acerto": 0.851,
-   "conf_media": 0.997
-  },
-  "EFHK": {
-   "n": 928,
-   "acerto": 0.875,
-   "conf_media": 0.9928
-  },
-  "EGLC": {
-   "n": 1045,
-   "acerto": 0.8785,
-   "conf_media": 0.9936
-  },
-  "EHAM": {
-   "n": 1083,
-   "acerto": 0.8846,
-   "conf_media": 0.9939
-  },
-  "EPWA": {
-   "n": 1073,
-   "acerto": 0.8779,
-   "conf_media": 0.9956
-  },
-  "FACT": {
-   "n": 908,
-   "acerto": 0.8866,
-   "conf_media": 0.99
-  },
-  "KATL": {
-   "n": 1078,
-   "acerto": 0.8544,
-   "conf_media": 0.996
-  },
-  "KBKF": {
-   "n": 1063,
-   "acerto": 0.8711,
-   "conf_media": 0.9967
-  },
-  "KDAL": {
-   "n": 1034,
-   "acerto": 0.8859,
-   "conf_media": 0.9943
-  },
-  "KHOU": {
-   "n": 1023,
-   "acerto": 0.8837,
-   "conf_media": 0.9942
-  },
-  "KLAX": {
-   "n": 1052,
-   "acerto": 0.8992,
-   "conf_media": 0.9838
-  },
-  "KLGA": {
-   "n": 1036,
-   "acerto": 0.8842,
-   "conf_media": 0.9939
-  },
-  "KMIA": {
-   "n": 1046,
-   "acerto": 0.8681,
-   "conf_media": 0.9932
-  },
-  "KORD": {
-   "n": 1077,
-   "acerto": 0.8932,
-   "conf_media": 0.9954
-  },
-  "KSEA": {
-   "n": 1043,
-   "acerto": 0.8782,
-   "conf_media": 0.9952
-  },
-  "LEMD": {
-   "n": 1104,
-   "acerto": 0.8614,
+   "n": 981,
+   "acerto": 0.8542,
    "conf_media": 0.9966
   },
-  "LFPB": {
+  "EFHK": {
+   "n": 958,
+   "acerto": 0.8789,
+   "conf_media": 0.992
+  },
+  "EGLC": {
+   "n": 1066,
+   "acerto": 0.8809,
+   "conf_media": 0.9935
+  },
+  "EHAM": {
+   "n": 1111,
+   "acerto": 0.8875,
+   "conf_media": 0.9932
+  },
+  "EPWA": {
+   "n": 1098,
+   "acerto": 0.8807,
+   "conf_media": 0.9949
+  },
+  "FACT": {
+   "n": 932,
+   "acerto": 0.8873,
+   "conf_media": 0.9891
+  },
+  "KATL": {
+   "n": 1101,
+   "acerto": 0.8574,
+   "conf_media": 0.9955
+  },
+  "KBKF": {
+   "n": 1087,
+   "acerto": 0.874,
+   "conf_media": 0.9965
+  },
+  "KDAL": {
+   "n": 1055,
+   "acerto": 0.8882,
+   "conf_media": 0.9942
+  },
+  "KHOU": {
+   "n": 1048,
+   "acerto": 0.8855,
+   "conf_media": 0.994
+  },
+  "KLAX": {
+   "n": 1079,
+   "acerto": 0.8999,
+   "conf_media": 0.9833
+  },
+  "KLGA": {
    "n": 1059,
-   "acerto": 0.8697,
-   "conf_media": 0.9956
+   "acerto": 0.8867,
+   "conf_media": 0.9935
+  },
+  "KMIA": {
+   "n": 1069,
+   "acerto": 0.87,
+   "conf_media": 0.9929
+  },
+  "KORD": {
+   "n": 1104,
+   "acerto": 0.8958,
+   "conf_media": 0.9952
+  },
+  "KSEA": {
+   "n": 1067,
+   "acerto": 0.881,
+   "conf_media": 0.9948
+  },
+  "LEMD": {
+   "n": 1130,
+   "acerto": 0.8646,
+   "conf_media": 0.9964
+  },
+  "LFPB": {
+   "n": 1080,
+   "acerto": 0.8722,
+   "conf_media": 0.9953
   },
   "LIMC": {
-   "n": 955,
-   "acerto": 0.8524,
-   "conf_media": 0.9968
+   "n": 975,
+   "acerto": 0.8554,
+   "conf_media": 0.9962
   },
   "LLBG": {
-   "n": 950,
-   "acerto": 0.8537,
-   "conf_media": 0.9943
+   "n": 975,
+   "acerto": 0.8554,
+   "conf_media": 0.9942
   },
   "LTAC": {
-   "n": 1091,
-   "acerto": 0.857,
-   "conf_media": 0.9954
+   "n": 1116,
+   "acerto": 0.8602,
+   "conf_media": 0.9949
   },
   "LTFM": {
-   "n": 1028,
-   "acerto": 0.9086,
-   "conf_media": 0.9896
-  },
-  "MMMX": {
-   "n": 985,
-   "acerto": 0.8812,
-   "conf_media": 0.989
-  },
-  "NZWN": {
-   "n": 1049,
-   "acerto": 0.9323,
-   "conf_media": 0.993
-  },
-  "RCSS": {
-   "n": 885,
-   "acerto": 0.8938,
-   "conf_media": 0.9912
-  },
-  "RJTT": {
-   "n": 1013,
-   "acerto": 0.9161,
-   "conf_media": 0.9856
-  },
-  "RKSI": {
-   "n": 1018,
-   "acerto": 0.9106,
-   "conf_media": 0.9863
-  },
-  "RPLL": {
-   "n": 891,
-   "acerto": 0.9001,
-   "conf_media": 0.993
-  },
-  "SAEZ": {
-   "n": 1019,
-   "acerto": 0.8852,
-   "conf_media": 0.9914
-  },
-  "SBGR": {
-   "n": 1052,
-   "acerto": 0.8802,
-   "conf_media": 0.9926
-  },
-  "UUWW": {
-   "n": 1037,
-   "acerto": 0.8852,
-   "conf_media": 0.9895
-  },
-  "WMKK": {
-   "n": 842,
-   "acerto": 0.9002,
+   "n": 1063,
+   "acerto": 0.9087,
    "conf_media": 0.9884
   },
-  "WSSS": {
-   "n": 994,
-   "acerto": 0.9245,
-   "conf_media": 0.9907
+  "MMMX": {
+   "n": 1004,
+   "acerto": 0.8835,
+   "conf_media": 0.9885
   },
-  "ZBAA": {
-   "n": 1065,
-   "acerto": 0.8704,
-   "conf_media": 0.9943
-  },
-  "ZGGG": {
-   "n": 850,
-   "acerto": 0.9,
-   "conf_media": 0.9902
-  },
-  "ZGSZ": {
-   "n": 925,
-   "acerto": 0.9124,
+  "NZWN": {
+   "n": 1084,
+   "acerto": 0.9327,
    "conf_media": 0.9924
   },
-  "ZHHH": {
-   "n": 900,
-   "acerto": 0.8911,
+  "RCSS": {
+   "n": 908,
+   "acerto": 0.8965,
+   "conf_media": 0.9903
+  },
+  "RJTT": {
+   "n": 1034,
+   "acerto": 0.9168,
+   "conf_media": 0.9851
+  },
+  "RKSI": {
+   "n": 1019,
+   "acerto": 0.9107,
+   "conf_media": 0.9862
+  },
+  "RPLL": {
+   "n": 919,
+   "acerto": 0.9032,
+   "conf_media": 0.9927
+  },
+  "SAEZ": {
+   "n": 1049,
+   "acerto": 0.8885,
    "conf_media": 0.9909
   },
+  "SBGR": {
+   "n": 1084,
+   "acerto": 0.8828,
+   "conf_media": 0.9916
+  },
+  "UUWW": {
+   "n": 1063,
+   "acerto": 0.8871,
+   "conf_media": 0.9892
+  },
+  "WMKK": {
+   "n": 860,
+   "acerto": 0.9023,
+   "conf_media": 0.988
+  },
+  "WSSS": {
+   "n": 1018,
+   "acerto": 0.9263,
+   "conf_media": 0.9905
+  },
+  "ZBAA": {
+   "n": 1085,
+   "acerto": 0.8728,
+   "conf_media": 0.9937
+  },
+  "ZGGG": {
+   "n": 875,
+   "acerto": 0.9029,
+   "conf_media": 0.9897
+  },
+  "ZGSZ": {
+   "n": 956,
+   "acerto": 0.9079,
+   "conf_media": 0.9919
+  },
+  "ZHHH": {
+   "n": 927,
+   "acerto": 0.8943,
+   "conf_media": 0.9904
+  },
   "ZSPD": {
-   "n": 1080,
-   "acerto": 0.8935,
-   "conf_media": 0.9889
+   "n": 1100,
+   "acerto": 0.8955,
+   "conf_media": 0.9882
   },
   "ZUUU": {
-   "n": 886,
-   "acerto": 0.8747,
-   "conf_media": 0.9919
+   "n": 910,
+   "acerto": 0.8769,
+   "conf_media": 0.9918
   }
  },
  "por_avaliacao": {
   "CYYZ": {
-   "n": 5168,
-   "acerto": 0.8909,
-   "conf_media": 0.9912
+   "n": 5297,
+   "acerto": 0.889,
+   "conf_media": 0.9903
   },
   "EDDM": {
-   "n": 5193,
-   "acerto": 0.8737,
-   "conf_media": 0.9963
+   "n": 5360,
+   "acerto": 0.8718,
+   "conf_media": 0.9946
   },
   "EFHK": {
-   "n": 6584,
-   "acerto": 0.9011,
-   "conf_media": 0.9926
+   "n": 6984,
+   "acerto": 0.9036,
+   "conf_media": 0.991
   },
   "EGLC": {
-   "n": 6931,
-   "acerto": 0.8986,
-   "conf_media": 0.9943
+   "n": 7103,
+   "acerto": 0.8974,
+   "conf_media": 0.993
   },
   "EHAM": {
-   "n": 8337,
-   "acerto": 0.9123,
-   "conf_media": 0.994
+   "n": 8574,
+   "acerto": 0.91,
+   "conf_media": 0.9923
   },
   "EPWA": {
-   "n": 4825,
-   "acerto": 0.8897,
-   "conf_media": 0.9953
-  },
-  "FACT": {
-   "n": 7077,
-   "acerto": 0.9107,
-   "conf_media": 0.9902
-  },
-  "KATL": {
-   "n": 5400,
-   "acerto": 0.8631,
-   "conf_media": 0.9955
-  },
-  "KBKF": {
-   "n": 5243,
-   "acerto": 0.8848,
-   "conf_media": 0.9965
-  },
-  "KDAL": {
-   "n": 4273,
-   "acerto": 0.8898,
+   "n": 4940,
+   "acerto": 0.8913,
    "conf_media": 0.9944
   },
+  "FACT": {
+   "n": 7222,
+   "acerto": 0.9117,
+   "conf_media": 0.9896
+  },
+  "KATL": {
+   "n": 5618,
+   "acerto": 0.8685,
+   "conf_media": 0.995
+  },
+  "KBKF": {
+   "n": 5323,
+   "acerto": 0.8865,
+   "conf_media": 0.9964
+  },
+  "KDAL": {
+   "n": 4350,
+   "acerto": 0.8917,
+   "conf_media": 0.9943
+  },
   "KHOU": {
-   "n": 5460,
-   "acerto": 0.9026,
-   "conf_media": 0.9951
+   "n": 5652,
+   "acerto": 0.9052,
+   "conf_media": 0.9948
   },
   "KLAX": {
-   "n": 8970,
-   "acerto": 0.9242,
-   "conf_media": 0.9848
+   "n": 9231,
+   "acerto": 0.9244,
+   "conf_media": 0.9846
   },
   "KLGA": {
-   "n": 5431,
-   "acerto": 0.8971,
-   "conf_media": 0.9931
+   "n": 5625,
+   "acerto": 0.9003,
+   "conf_media": 0.9929
   },
   "KMIA": {
-   "n": 7676,
-   "acerto": 0.8895,
+   "n": 7768,
+   "acerto": 0.8903,
    "conf_media": 0.9935
   },
   "KORD": {
-   "n": 7466,
-   "acerto": 0.9123,
-   "conf_media": 0.9948
+   "n": 7693,
+   "acerto": 0.9149,
+   "conf_media": 0.9947
   },
   "KSEA": {
-   "n": 5163,
-   "acerto": 0.8817,
-   "conf_media": 0.9948
+   "n": 5359,
+   "acerto": 0.886,
+   "conf_media": 0.9945
   },
   "LEMD": {
-   "n": 3728,
-   "acerto": 0.8624,
-   "conf_media": 0.9967
-  },
-  "LFPB": {
-   "n": 3842,
-   "acerto": 0.8706,
-   "conf_media": 0.9957
-  },
-  "LIMC": {
-   "n": 5025,
-   "acerto": 0.871,
+   "n": 3807,
+   "acerto": 0.8645,
    "conf_media": 0.9964
   },
+  "LFPB": {
+   "n": 3913,
+   "acerto": 0.8717,
+   "conf_media": 0.9953
+  },
+  "LIMC": {
+   "n": 5162,
+   "acerto": 0.8721,
+   "conf_media": 0.9948
+  },
   "LLBG": {
-   "n": 4780,
-   "acerto": 0.8674,
-   "conf_media": 0.9944
+   "n": 4918,
+   "acerto": 0.8691,
+   "conf_media": 0.9937
   },
   "LTAC": {
-   "n": 4564,
-   "acerto": 0.8661,
-   "conf_media": 0.9952
+   "n": 4659,
+   "acerto": 0.868,
+   "conf_media": 0.9944
   },
   "LTFM": {
-   "n": 8702,
-   "acerto": 0.9343,
-   "conf_media": 0.9917
+   "n": 9303,
+   "acerto": 0.9357,
+   "conf_media": 0.9897
   },
   "MMMX": {
-   "n": 5581,
-   "acerto": 0.8941,
-   "conf_media": 0.9905
+   "n": 5709,
+   "acerto": 0.8956,
+   "conf_media": 0.9895
   },
   "NZWN": {
-   "n": 10107,
-   "acerto": 0.9513,
-   "conf_media": 0.994
+   "n": 10479,
+   "acerto": 0.9523,
+   "conf_media": 0.9925
   },
   "RCSS": {
-   "n": 7442,
-   "acerto": 0.917,
-   "conf_media": 0.9923
+   "n": 7615,
+   "acerto": 0.9188,
+   "conf_media": 0.9919
   },
   "RJTT": {
-   "n": 9373,
-   "acerto": 0.934,
-   "conf_media": 0.989
+   "n": 9675,
+   "acerto": 0.9352,
+   "conf_media": 0.9879
   },
   "RKSI": {
-   "n": 7850,
+   "n": 7853,
    "acerto": 0.9233,
    "conf_media": 0.9882
   },
   "RPLL": {
-   "n": 7443,
-   "acerto": 0.9209,
-   "conf_media": 0.993
+   "n": 7850,
+   "acerto": 0.9242,
+   "conf_media": 0.9917
   },
   "SAEZ": {
-   "n": 6858,
-   "acerto": 0.9051,
-   "conf_media": 0.9915
+   "n": 7121,
+   "acerto": 0.908,
+   "conf_media": 0.9907
   },
   "SBGR": {
-   "n": 8390,
-   "acerto": 0.8998,
-   "conf_media": 0.9928
+   "n": 8709,
+   "acerto": 0.9027,
+   "conf_media": 0.9915
   },
   "UUWW": {
-   "n": 6878,
+   "n": 6972,
    "acerto": 0.9145,
-   "conf_media": 0.9891
+   "conf_media": 0.9888
   },
   "WMKK": {
-   "n": 4804,
-   "acerto": 0.9072,
-   "conf_media": 0.9896
+   "n": 4880,
+   "acerto": 0.9086,
+   "conf_media": 0.9891
   },
   "WSSS": {
-   "n": 7723,
-   "acerto": 0.9329,
-   "conf_media": 0.9918
+   "n": 7906,
+   "acerto": 0.9336,
+   "conf_media": 0.9909
   },
   "ZBAA": {
-   "n": 5344,
-   "acerto": 0.8885,
-   "conf_media": 0.9924
+   "n": 5412,
+   "acerto": 0.8897,
+   "conf_media": 0.9921
   },
   "ZGGG": {
-   "n": 7154,
-   "acerto": 0.9138,
-   "conf_media": 0.9906
+   "n": 7436,
+   "acerto": 0.9169,
+   "conf_media": 0.9901
   },
   "ZGSZ": {
-   "n": 10264,
-   "acerto": 0.9218,
-   "conf_media": 0.9927
+   "n": 10720,
+   "acerto": 0.91,
+   "conf_media": 0.9913
   },
   "ZHHH": {
-   "n": 6621,
-   "acerto": 0.9082,
-   "conf_media": 0.991
+   "n": 6909,
+   "acerto": 0.9114,
+   "conf_media": 0.99
   },
   "ZSPD": {
-   "n": 9650,
-   "acerto": 0.9242,
-   "conf_media": 0.9902
+   "n": 9860,
+   "acerto": 0.9253,
+   "conf_media": 0.9889
   },
   "ZUUU": {
-   "n": 3699,
-   "acerto": 0.8792,
+   "n": 3890,
+   "acerto": 0.8841,
    "conf_media": 0.9918
   }
  },
- "gerado_em": "2026-08-01T09:14:35"
+ "gerado_em": "2026-08-04T09:15:08"
 }
