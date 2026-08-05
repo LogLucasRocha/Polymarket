@@ -197,14 +197,19 @@ def daily_chart(stats: dict) -> go.Figure:
     return dark_figure(fig)
 
 
-def _local_hours(stats: dict) -> pd.Series:
-    """Hora do dia (fuso do usuário) de cada parcela executada no histórico."""
+def _local_timestamps(stats: dict) -> pd.Series:
+    """Instantes das parcelas convertidos para o fuso do usuário."""
     stamps = [signal.get("ts") for signal in stats.get("signals", [])
               if signal.get("ts") is not None]
     if not stamps:
-        return pd.Series(dtype="int64")
+        return pd.Series(dtype="datetime64[ns, America/Sao_Paulo]")
     stamps = pd.to_datetime(pd.Series(stamps), utc=True)
-    return stamps.dt.tz_convert(USER_TZ).dt.hour
+    return stamps.dt.tz_convert(USER_TZ)
+
+
+def _local_hours(stats: dict) -> pd.Series:
+    """Hora do dia (fuso do usuário) de cada parcela executada no histórico."""
+    return _local_timestamps(stats).dt.hour
 
 
 def hourly_counts(stats: dict) -> pd.Series:
@@ -215,32 +220,55 @@ def hourly_counts(stats: dict) -> pd.Series:
     return hours.value_counts().reindex(range(24), fill_value=0).sort_index()
 
 
+def hourly_day_count(stats: dict) -> int:
+    """Dias com parcelas, incluindo zero nas horas sem entrada daquele dia."""
+    stamps = _local_timestamps(stats)
+    if stamps.empty:
+        return 0
+    return int(stamps.dt.normalize().nunique())
+
+
+def hourly_average(stats: dict) -> pd.Series:
+    """Média diária de parcelas em cada hora, no período selecionado."""
+    counts = hourly_counts(stats)
+    days = hourly_day_count(stats)
+    if counts.empty or not days:
+        return pd.Series(dtype="float64")
+    return counts.astype(float) / days
+
+
 def hourly_chart(stats: dict) -> go.Figure:
-    """Distribuição das parcelas por horário do dia — quando ficar online.
+    """Média diária das parcelas por horário — quando ficar online.
 
     A linha tracejada marca a média por hora; a barra âmbar é o horário de
     pico e as barras verdes são as horas acima da média.
     """
     counts = hourly_counts(stats)
-    if counts.empty:
+    averages = hourly_average(stats)
+    days = hourly_day_count(stats)
+    if averages.empty:
         return go.Figure()
-    mean = counts.mean()
-    peak = int(counts.idxmax())
+    mean = averages.mean()
+    peak = int(averages.idxmax())
     colors = [AMBER if hour == peak else (GREEN if value >= mean else "#2f6b58")
-              for hour, value in counts.items()]
+              for hour, value in averages.items()]
     fig = go.Figure()
     fig.add_trace(go.Bar(
-        x=[f"{hour:02d}h" for hour in counts.index], y=counts.values,
+        x=[f"{hour:02d}h" for hour in averages.index], y=averages.values,
+        customdata=[[int(counts.loc[hour]), days]
+                    for hour in averages.index],
         marker_color=colors,
-        hovertemplate="%{x} (Brasília)<br>Parcelas: %{y}<extra></extra>",
+        hovertemplate=("%{x} (Brasília)<br>Média: %{y:.2f} parcelas/dia"
+                       "<br>Acumulado: %{customdata[0]}"
+                       "<br>Dias com apostas: %{customdata[1]}<extra></extra>"),
     ))
     fig.add_hline(
         y=mean, line_dash="dash", line_color=INK,
-        annotation_text=f"média {mean:.0f}/h",
+        annotation_text=f"média {mean:.2f}/dia",
         annotation_position="top left", annotation_font_color=INK)
     fig.update_layout(
         height=330, margin=dict(l=15, r=15, t=20, b=10),
-        xaxis_title=None, yaxis_title="Parcelas no histórico",
+        xaxis_title=None, yaxis_title="Média de parcelas por dia",
         showlegend=False, bargap=0.15,
     )
     fig.update_xaxes(showgrid=False)
@@ -348,16 +376,18 @@ def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
 
     counts = hourly_counts(stats)
     if not counts.empty:
+        averages = hourly_average(stats)
+        days = hourly_day_count(stats)
         st.subheader("Parcelas por horário do dia (hora de Brasília)")
         st.plotly_chart(hourly_chart(stats), width="stretch")
-        top = counts.sort_values(ascending=False).head(3)
-        picos = " · ".join(f"{hour:02d}h ({int(value)})"
+        top = averages.sort_values(ascending=False).head(3)
+        picos = " · ".join(f"{hour:02d}h ({value:.2f}/dia)"
                            for hour, value in top.items())
         st.caption(
-            f"Horários com mais parcelas no histórico: {picos}. "
-            f"Em média são {counts.mean():.0f} parcelas por hora "
-            f"(linha tracejada). Use os horários de pico para saber quando "
-            "ficar online — o relógio é o de Brasília.")
+            f"Média por dia nos horários de pico: {picos}. "
+            f"Cálculo sobre {days} dia(s) com apostas, incluindo zero nas "
+            "horas sem entrada. O acumulado continua disponível ao passar "
+            "o mouse — o relógio é o de Brasília.")
 
 
 def errors_page(stats: dict) -> None:
