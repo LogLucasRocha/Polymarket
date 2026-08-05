@@ -30,6 +30,10 @@ BLUE = "#68a8ff"
 PLOT = "#0c1319"
 GRID = "#24323b"
 
+# Fuso do relógio em que o alerta chega para você — usado para mostrar em que
+# horários do dia as parcelas históricas mais aparecem (quando ficar online).
+USER_TZ = "America/Sao_Paulo"
+
 st.set_page_config(
     page_title="Ceifa Monitor",
     page_icon="🌾",
@@ -179,10 +183,65 @@ def daily_chart(stats: dict) -> go.Figure:
         hovertemplate=("%{x|%d/%m}<br>Retorno: %{y:+.2f}%"
                        "<br>Parcelas: %{customdata[0]}"
                        "<br>Acertos: %{customdata[1]}<extra></extra>"))
+    mean_ret = daily["return_pct"].mean()
+    fig.add_hline(
+        y=mean_ret, line_dash="dash", line_color=AMBER,
+        annotation_text=f"média {mean_ret:+.2f}%",
+        annotation_position="top left", annotation_font_color=AMBER)
     fig.update_layout(
         height=330, margin=dict(l=15, r=15, t=10, b=10),
         xaxis_title=None, yaxis_title="Retorno do dia (%)",
         showlegend=False,
+    )
+    fig.update_xaxes(showgrid=False)
+    return dark_figure(fig)
+
+
+def _local_hours(stats: dict) -> pd.Series:
+    """Hora do dia (fuso do usuário) de cada parcela executada no histórico."""
+    stamps = [signal.get("ts") for signal in stats.get("signals", [])
+              if signal.get("ts") is not None]
+    if not stamps:
+        return pd.Series(dtype="int64")
+    stamps = pd.to_datetime(pd.Series(stamps), utc=True)
+    return stamps.dt.tz_convert(USER_TZ).dt.hour
+
+
+def hourly_counts(stats: dict) -> pd.Series:
+    """Total de parcelas por hora do dia (0–23), no fuso do usuário."""
+    hours = _local_hours(stats)
+    if hours.empty:
+        return pd.Series(dtype="int64")
+    return hours.value_counts().reindex(range(24), fill_value=0).sort_index()
+
+
+def hourly_chart(stats: dict) -> go.Figure:
+    """Distribuição das parcelas por horário do dia — quando ficar online.
+
+    A linha tracejada marca a média por hora; a barra âmbar é o horário de
+    pico e as barras verdes são as horas acima da média.
+    """
+    counts = hourly_counts(stats)
+    if counts.empty:
+        return go.Figure()
+    mean = counts.mean()
+    peak = int(counts.idxmax())
+    colors = [AMBER if hour == peak else (GREEN if value >= mean else "#2f6b58")
+              for hour, value in counts.items()]
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=[f"{hour:02d}h" for hour in counts.index], y=counts.values,
+        marker_color=colors,
+        hovertemplate="%{x} (Brasília)<br>Parcelas: %{y}<extra></extra>",
+    ))
+    fig.add_hline(
+        y=mean, line_dash="dash", line_color=INK,
+        annotation_text=f"média {mean:.0f}/h",
+        annotation_position="top left", annotation_font_color=INK)
+    fig.update_layout(
+        height=330, margin=dict(l=15, r=15, t=20, b=10),
+        xaxis_title=None, yaxis_title="Parcelas no histórico",
+        showlegend=False, bargap=0.15,
     )
     fig.update_xaxes(showgrid=False)
     return dark_figure(fig)
@@ -284,7 +343,21 @@ def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
     if daily:
         st.caption(
             f"Período com {len(daily)} dia(s) de apostas · melhor dia "
-            f"{pct(risk['best_day'], 2)} · pior dia {pct(risk['worst_day'], 2)}.")
+            f"{pct(risk['best_day'], 2)} · pior dia {pct(risk['worst_day'], 2)} "
+            "· linha tracejada = retorno médio do dia.")
+
+    counts = hourly_counts(stats)
+    if not counts.empty:
+        st.subheader("Parcelas por horário do dia (hora de Brasília)")
+        st.plotly_chart(hourly_chart(stats), width="stretch")
+        top = counts.sort_values(ascending=False).head(3)
+        picos = " · ".join(f"{hour:02d}h ({int(value)})"
+                           for hour, value in top.items())
+        st.caption(
+            f"Horários com mais parcelas no histórico: {picos}. "
+            f"Em média são {counts.mean():.0f} parcelas por hora "
+            f"(linha tracejada). Use os horários de pico para saber quando "
+            "ficar online — o relógio é o de Brasília.")
 
 
 def errors_page(stats: dict) -> None:
