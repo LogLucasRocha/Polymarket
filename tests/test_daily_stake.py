@@ -43,6 +43,8 @@ class DailyStakeTests(unittest.TestCase):
             station, ctx, [("key", "30°C", 0.97, 25, 10.32)])
 
         self.assertIn("stake: <b>$10.32</b>", text)
+        self.assertNotIn("disponível", text)
+        self.assertNotIn("cota(s)", text)
         self.assertIn("Comprar <b>NÃO 30°C</b>", text)
         self.assertIn("MÁXIMA", text)
         self.assertIn("Mediana da máxima: <b>26.0 °C</b>", text)
@@ -63,6 +65,7 @@ class DailyStakeTests(unittest.TestCase):
             extreme="minimum", forecast=forecast)
 
         self.assertIn("MÍNIMA", text)
+        self.assertNotIn("disponível", text)
         self.assertIn("Comprar <b>NÃO 13°C</b>", text)
         self.assertIn("Mínimo previsto: <b>05h</b>", text)
         self.assertIn("Mediana da mínima: <b>14.0 °C</b>", text)

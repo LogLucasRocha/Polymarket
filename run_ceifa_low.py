@@ -44,6 +44,7 @@ def main() -> int:
     st = ceifa.simulate_repeated(
         log, icaos=minimum_station_icaos(), archive=ARCHIVE,
         warm_target_filter=False, uncertainty_filter=False,
+        ensemble_band_filter=config.CEIFA_ENSEMBLE_BAND_FILTER,
         interval_minutes=config.CEIFA_REPEAT_MINUTES,
         stake_frac=config.CEIFA_STAKE_FRAC)
     text = backtest.ceifa_report_text(

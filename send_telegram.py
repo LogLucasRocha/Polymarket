@@ -388,6 +388,17 @@ def main() -> int:
                           f"({', '.join(codes)} no restante do dia local).")
                     minimum_taf_logged.add(icao)
                 continue
+            if ceifa.is_ensemble_inside_market_band_risk(
+                    icao, value["label"],
+                    forecast.get("p10"), forecast.get("p90")):
+                p10_txt = (f"{float(forecast.get('p10')):.2f}°C"
+                           if forecast.get("p10") is not None else "—")
+                p90_txt = (f"{float(forecast.get('p90')):.2f}°C"
+                           if forecast.get("p90") is not None else "—")
+                print(f"[ceifa mínima] {icao}: filtrado — faixa vendida toca o "
+                      f"intervalo P10–P90 (faixa={value['label']}, "
+                      f"P10={p10_txt}, P90={p90_txt}).")
+                continue
             ceifa_keep.append(k)
             if not _ceifa_send_due(
                     ceifa_last_sent.get(k), run_now_utc,
@@ -1062,15 +1073,13 @@ def _ceifa_timing_line(ctx, extreme="maximum", forecast=None) -> str:
 
 
 def _ceifa_text(station, ctx, contratos, extreme="maximum", forecast=None) -> str:
-    """Alerta de Ceifa com extremo, preço, liquidez e distribuição completa."""
+    """Alerta de Ceifa com extremo, preço, stake e distribuição completa."""
     title = "❄️ MÍNIMA" if extreme == "minimum" else "🌡️ MÁXIMA"
     linhas = [f"🌾 <b>Ceifa — {title} — {station.flag} "
               f"{html.escape(station.city)} ({station.icao})</b>"]
     for _k, faixa, price, size, stake in contratos:
-        available = f"{size:g} cota(s)" if size is not None else "—"
         linhas.append(f"• Comprar <b>NÃO {html.escape(str(faixa))}</b> "
-                      f"@ ${price:.3f} · stake: <b>${stake:,.2f}</b> "
-                      f"· disponível: {available}")
+                      f"@ ${price:.3f} · stake: <b>${stake:,.2f}</b>")
     linhas.append(_ceifa_timing_line(ctx, extreme, forecast))
     linhas.append(_ceifa_distribution_line(
         station, ctx, extreme, forecast))
@@ -1085,10 +1094,8 @@ def _ceifa_repeat_text(station, ctx, contratos, extreme="maximum",
               f"{html.escape(station.city)} ({station.icao})</b> "
               f"<i>(nova parcela)</i>"]
     for _k, faixa, price, size, stake in contratos:
-        available = f"{size:g} cota(s)" if size is not None else "—"
         linhas.append(f"• Comprar <b>NÃO {html.escape(str(faixa))}</b> "
-                      f"@ ${price:.3f} · stake: <b>${stake:,.2f}</b> "
-                      f"· disponível: {available}")
+                      f"@ ${price:.3f} · stake: <b>${stake:,.2f}</b>")
     try:
         linhas.append(_ceifa_timing_line(ctx, extreme, forecast))
     except (KeyError, TypeError, ValueError):

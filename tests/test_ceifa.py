@@ -116,27 +116,32 @@ class WarmTargetRiskTests(unittest.TestCase):
 
     def test_blocks_exact_band_when_p90_touches_lower_boundary(self):
         self.assertTrue(ceifa.is_ensemble_inside_market_band_risk(
-            "RPLL", "32°C", 29.0, 31.5))
+            "RPLL", "32°C", 29.0, 31.5, enabled=True))
 
     def test_blocks_exact_band_inside_p10_p90(self):
         self.assertTrue(ceifa.is_ensemble_inside_market_band_risk(
-            "RPLL", "32°C", 31.4, 32.2))
+            "RPLL", "32°C", 31.4, 32.2, enabled=True))
 
     def test_blocks_tel_aviv_when_p90_touches_upper_boundary(self):
         self.assertTrue(ceifa.is_ensemble_inside_market_band_risk(
-            "LLBG", "37°C", 36.0, 37.5))
+            "LLBG", "37°C", 36.0, 37.5, enabled=True))
 
     def test_allows_exact_band_above_p10_p90(self):
         self.assertFalse(ceifa.is_ensemble_inside_market_band_risk(
-            "RPLL", "33°C", 29.0, 31.8))
+            "RPLL", "33°C", 29.0, 31.8, enabled=True))
 
     def test_fahrenheit_range_uses_half_degree_resolution_boundaries(self):
         inside_c = (89.5 - 32.0) * 5.0 / 9.0
         outside_c = (89.4 - 32.0) * 5.0 / 9.0
         self.assertTrue(ceifa.is_ensemble_inside_market_band_risk(
-            "KORD", "90-91°F", inside_c, inside_c + 1.0))
+            "KORD", "90-91°F", inside_c, inside_c + 1.0, enabled=True))
         self.assertFalse(ceifa.is_ensemble_inside_market_band_risk(
-            "KORD", "90-91°F", outside_c - 1.0, outside_c))
+            "KORD", "90-91°F", outside_c - 1.0, outside_c,
+            enabled=True))
+
+    def test_ensemble_band_rule_is_inactive_operationally(self):
+        self.assertFalse(ceifa.is_ensemble_inside_market_band_risk(
+            "RPLL", "32°C", 29.0, 31.5))
 
     def test_minimum_archive_with_rich_forecast_keeps_maximum_filter_off(self):
         with TemporaryDirectory() as tmp:
@@ -190,6 +195,17 @@ class WarmTargetRiskTests(unittest.TestCase):
 
             self.assertEqual(result["n"], 0)
 
+    def test_available_share_count_does_not_filter_an_ask_price(self):
+        market = pd.DataFrame([{
+            "preco_nao": 0.96, "ask_nao": 0.97,
+            "ask_nao_volume": 0.01, "livro_consultado": True,
+        }])
+
+        candidates = ceifa._execution_candidates(market, "NAO")
+
+        self.assertEqual(len(candidates), 1)
+        self.assertAlmostEqual(candidates.iloc[0]["_entry_price"], 0.97)
+
     def test_minimum_taf_filter_replays_archived_block(self):
         with TemporaryDirectory() as tmp:
             archive = Path(tmp)
@@ -219,6 +235,10 @@ class WarmTargetRiskTests(unittest.TestCase):
             self.assertEqual(result["n"], 0)
             self.assertEqual(result["n_filtrado_taf"], 1)
             self.assertEqual(result["n_filtrado_100c"], 1)
+            performance = result["filter_performance"]["taf"]
+            self.assertEqual(performance["to_100c"], 1)
+            self.assertEqual(performance["to_0c"], 0)
+            self.assertGreater(performance["return"], 0)
 
     def test_repeated_strategy_filters_upper_tail_near_ceiling(self):
         with TemporaryDirectory() as tmp:
@@ -273,11 +293,52 @@ class WarmTargetRiskTests(unittest.TestCase):
 
             result = ceifa.simulate_repeated(
                 icaos={"RPLL"}, archive=archive,
-                uncertainty_filter=False)
+                uncertainty_filter=False, ensemble_band_filter=True)
 
             self.assertEqual(result["n"], 0)
             self.assertEqual(result["n_filtrado_ensemble_band"], 1)
             self.assertEqual(result["n_filtrado_0c"], 1)
+
+    def test_repeated_minimum_band_filter_is_optional(self):
+        """Mínimas: o veto P10–P90 só age quando ligado explicitamente.
+
+        Reproduz o caso do Paris (LFPB): faixa 21°C com P90 21,0 °C encosta
+        no intervalo P10–P90 e deve ser vetada quando ``ensemble_band_filter``
+        está ligado, sem herdar os vetos de cauda quente das máximas.
+        """
+        with TemporaryDirectory() as tmp:
+            archive = Path(tmp)
+            (archive / "mercado").mkdir()
+            (archive / "previsao").mkdir()
+            pd.DataFrame([
+                {"ts_utc": "2026-08-01T03:05:00Z", "icao": "LFPB",
+                 "dia": "2026-08-01", "faixa": "21°C",
+                 "preco_sim": 0.01, "preco_nao": 0.99},
+                {"ts_utc": "2026-08-01T12:00:00Z", "icao": "LFPB",
+                 "dia": "2026-08-01", "faixa": "21°C",
+                 "preco_sim": 0.01, "preco_nao": 0.99},
+            ]).to_parquet(archive / "mercado" / "day.parquet", index=False)
+            pd.DataFrame([{
+                "ts_utc": "2026-08-01T03:00:00Z", "icao": "LFPB",
+                "dia": "2026-08-01", "pico_hora": 6,
+                "mediana": 21.0, "p10": 19.7, "p90": 21.0,
+            }]).to_parquet(
+                archive / "previsao" / "day.parquet", index=False)
+
+            base = ceifa.simulate_repeated(
+                icaos={"LFPB"}, archive=archive,
+                warm_target_filter=False, uncertainty_filter=False)
+            self.assertEqual(base["n"], 1)
+            self.assertEqual(base["n_filtrado_ensemble_band"], 1)
+            self.assertEqual(
+                base["filter_performance"]["ensemble_band"]["to_100c"], 1)
+
+            filtered = ceifa.simulate_repeated(
+                icaos={"LFPB"}, archive=archive,
+                warm_target_filter=False, uncertainty_filter=False,
+                ensemble_band_filter=True)
+            self.assertEqual(filtered["n"], 0)
+            self.assertEqual(filtered["n_filtrado_ensemble_band"], 1)
 
     def test_repeated_strategy_uses_one_percent_of_free_cash(self):
         with TemporaryDirectory() as tmp:
