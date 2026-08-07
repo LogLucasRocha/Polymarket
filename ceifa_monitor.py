@@ -812,11 +812,20 @@ def spy_page() -> None:
         "Fase de observação — sem apostas reais.")
 
     if not any(stats.get("n", 0) for _, stats in variants):
-        st.info(
-            "Ainda sem parcelas capturadas do SPY. A coleta roda a cada 10 min "
-            "no GitHub Actions; assim que houver um dia com o Up ou o Down na "
-            "faixa (95–99,6¢), os números aparecem aqui. Clique em **Atualizar** "
-            "para puxar o snapshot mais recente.")
+        progress = spy_study.today_progress()
+        if progress["snapshots"]:
+            st.info(
+                f"Capturando o dia **{progress['day']}**: "
+                f"{progress['snapshots']} snapshots, **{progress['parcelas']} "
+                "parcela(s) em aberto** (lado na faixa 95–99,6¢). Os resultados "
+                "financeiros aparecem depois do fechamento do mercado (16:00 ET), "
+                "quando o dia resolve. Clique em **Atualizar** para puxar os "
+                "snapshots mais recentes.")
+        else:
+            st.info(
+                "Ainda sem captura do SPY. A coleta roda a cada rodada no GitHub "
+                "Actions; assim que houver snapshots do dia, o andamento aparece "
+                "aqui. Clique em **Atualizar** para puxar o mais recente.")
         return
 
     rows = []

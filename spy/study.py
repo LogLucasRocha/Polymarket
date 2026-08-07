@@ -145,3 +145,36 @@ def latest_day() -> str | None:
     if df.empty:
         return None
     return str(df["dia"].max())
+
+
+def today_progress() -> dict:
+    """Andamento do dia mais recente capturado, mesmo antes de resolver.
+
+    Deixa o painel mostrar 'capturando: N snapshots, M parcelas em aberto'
+    enquanto o mercado do dia não fecha (16:00 ET).
+    """
+    df = _load_market()
+    if df.empty:
+        return {"day": None, "snapshots": 0, "parcelas": 0, "resolved": False}
+    day = str(df["dia"].max())
+    group = df[df["dia"] == day].sort_values("ts")
+    resolved = (_resolved(group, "preco_up") is not None
+                or _resolved(group, "preco_down") is not None)
+    parcelas, last_ts = 0, None
+    for _, row in group.iterrows():
+        in_band = False
+        for name in ("up", "down"):
+            price = row.get(f"preco_{name}")
+            if price is not None and not pd.isna(price) \
+                    and BAND[0] < float(price) < BAND[1]:
+                in_band = True
+                break
+        if not in_band:
+            continue
+        if last_ts is not None and \
+                (row["ts"] - last_ts) < pd.Timedelta(minutes=INTERVAL_MINUTES):
+            continue
+        parcelas += 1
+        last_ts = row["ts"]
+    return {"day": day, "snapshots": len(group),
+            "parcelas": parcelas, "resolved": resolved}
