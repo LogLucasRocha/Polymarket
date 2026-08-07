@@ -75,6 +75,16 @@ class SpyStudyTests(unittest.TestCase):
             stats = study.simulate(window_hours=None)
         self.assertEqual(stats["n"], 0)
 
+    def test_today_progress_counts_open_parcelas(self):
+        # Dia em aberto (último preço no meio): conta parcelas, resolved=False.
+        frame = _day_series({}, last_up=0.60)
+        with mock.patch.object(study, "_load_market", return_value=frame):
+            progress = study.today_progress()
+        self.assertEqual(progress["day"], "2026-08-07")
+        self.assertFalse(progress["resolved"])
+        self.assertEqual(progress["snapshots"], 49)
+        self.assertEqual(progress["parcelas"], 48)   # 12:00..19:50 na faixa
+
     def test_empty_lake_returns_zeroed_stats(self):
         with mock.patch.object(study, "_load_market",
                                return_value=pd.DataFrame()):
