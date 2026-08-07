@@ -45,6 +45,16 @@ jobs:
           restore-keys: |
             tmax-data-
 
+      # Durabilidade: cura o buffer intradiário a partir do último release,
+      # ANTES de capturar. Se o cache do Actions tiver sido resetado (como em
+      # 07/08), a manhã volta do release em vez de sumir. União de linhas —
+      # nunca remove nada. Best-effort: nunca derruba a rodada.
+      - name: Restaurar buffer do release (durabilidade)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python heal_buffer.py
+
       - name: Enviar previsão pro Telegram
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
