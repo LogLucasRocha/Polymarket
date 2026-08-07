@@ -34,6 +34,41 @@ GRID = "#24323b"
 # horários do dia as parcelas históricas mais aparecem (quando ficar online).
 USER_TZ = "America/Sao_Paulo"
 
+# Cor fixa por motivo de bloqueio, para a legenda ficar estável entre rodadas.
+BLOCK_COLORS = {
+    "Ensemble largo": BLUE,
+    "Desvio/nowcast quente": AMBER,
+    "Faixa dentro de P10–P90": GREEN,
+    "Cauda superior perto do teto": RED,
+    "TAF convectivo": "#b98cff",
+}
+
+# Janela de exibição dos gráficos por dia — evita que o histórico inteiro
+# amasse as barras com o tempo. "Todo o histórico" mantém o comportamento antigo.
+WINDOW_OPTIONS = {
+    "Últimos 30 dias": 30,
+    "Últimos 90 dias": 90,
+    "Todo o histórico": None,
+}
+
+
+def window_selector(key: str) -> int | None:
+    """Seletor de janela; devolve o nº de dias (ou None para tudo)."""
+    label = st.radio(
+        "Janela dos gráficos", list(WINDOW_OPTIONS), horizontal=True,
+        key=key, label_visibility="collapsed")
+    return WINDOW_OPTIONS[label]
+
+
+def clip_last_days(frame: pd.DataFrame, days: int | None,
+                   column: str = "day") -> pd.DataFrame:
+    """Mantém apenas os últimos ``days`` dias do frame (por ``column``)."""
+    if days is None or frame.empty or column not in frame:
+        return frame
+    dates = pd.to_datetime(frame[column])
+    cutoff = dates.max() - pd.Timedelta(days=days - 1)
+    return frame[dates >= cutoff]
+
 st.set_page_config(
     page_title="Ceifa Monitor",
     page_icon="🌾",
@@ -166,11 +201,14 @@ def equity_chart(stats: dict) -> go.Figure:
     return dark_figure(fig)
 
 
-def daily_chart(stats: dict) -> go.Figure:
+def daily_chart(stats: dict, days: int | None = None) -> go.Figure:
     daily = pd.DataFrame(stats.get("per_day", []))
     if daily.empty:
         return go.Figure()
     daily["day"] = pd.to_datetime(daily["day"])
+    daily = clip_last_days(daily, days)
+    if daily.empty:
+        return go.Figure()
     daily["return_pct"] = daily["ret"] * 100
     daily["resultado"] = daily["return_pct"].map(
         lambda value: "Positivo" if value >= 0 else "Negativo")
@@ -192,6 +230,31 @@ def daily_chart(stats: dict) -> go.Figure:
         height=330, margin=dict(l=15, r=15, t=10, b=10),
         xaxis_title=None, yaxis_title="Retorno do dia (%)",
         showlegend=False,
+    )
+    fig.update_xaxes(showgrid=False)
+    return dark_figure(fig)
+
+
+def blocks_by_day_chart(blocks: pd.DataFrame,
+                        days: int | None = None) -> go.Figure:
+    """Entradas bloqueadas por dia, agrupadas por motivo (barras lado a lado)."""
+    blocks = clip_last_days(blocks, days, column="dia")
+    if blocks.empty:
+        return go.Figure()
+    fig = px.bar(
+        blocks, x="dia", y="bloqueios", color="motivo",
+        color_discrete_map=BLOCK_COLORS, barmode="group",
+        custom_data=["motivo"],
+    )
+    fig.update_traces(
+        hovertemplate=("%{x|%d/%m}<br>%{customdata[0]}"
+                       "<br>Bloqueios: %{y}<extra></extra>"))
+    fig.update_layout(
+        height=340, margin=dict(l=15, r=15, t=10, b=10),
+        xaxis_title=None, yaxis_title="Entradas bloqueadas",
+        legend_title_text=None,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="left", x=0),
     )
     fig.update_xaxes(showgrid=False)
     return dark_figure(fig)
@@ -367,12 +430,16 @@ def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
             "repetidas no mesmo contrato não são eventos independentes.")
 
     st.subheader("Retorno de cada dia")
-    st.plotly_chart(daily_chart(stats), width="stretch")
+    days = window_selector(f"daily_window_{stats.get('archive_kind')}_{side}")
+    st.plotly_chart(daily_chart(stats, days), width="stretch")
     if daily:
+        shown = len(clip_last_days(
+            pd.DataFrame(daily).assign(day=lambda f: pd.to_datetime(f["day"])),
+            days))
         st.caption(
-            f"Período com {len(daily)} dia(s) de apostas · melhor dia "
+            f"Mostrando {shown} de {len(daily)} dia(s) de apostas · melhor dia "
             f"{pct(risk['best_day'], 2)} · pior dia {pct(risk['worst_day'], 2)} "
-            "· linha tracejada = retorno médio do dia.")
+            "· linha tracejada = retorno médio do período exibido.")
 
     counts = hourly_counts(stats)
     if not counts.empty:
@@ -669,25 +736,17 @@ def cities_page(stats: dict, full_stats: dict,
                 "Observação": st.column_config.TextColumn(width="large"),
             })
 
-        # Bloqueios por motivo (exclui "Platô observado", que já está contido
-        # em desvio/nowcast, para não contar duas vezes).
-        by_reason = filters[
-            (filters["Entradas bloqueadas"] > 0)
-            & (filters["Filtro"] != "Platô observado")
-        ].sort_values("Entradas bloqueadas")
-        if not by_reason.empty:
-            st.markdown("**Bloqueios por motivo**")
-            fig_reason = px.bar(
-                by_reason, x="Entradas bloqueadas", y="Filtro",
-                orientation="h", text="Entradas bloqueadas",
-                color_discrete_sequence=[AMBER])
-            fig_reason.update_traces(textposition="outside",
-                                     cliponaxis=False)
-            fig_reason.update_layout(
-                height=max(180, 42 * len(by_reason) + 60), showlegend=False,
-                xaxis_title=None, yaxis_title=None,
-                margin=dict(l=10, r=10, t=10, b=10))
-            st.plotly_chart(dark_figure(fig_reason), width="stretch")
+        # Bloqueios por dia e por motivo. "Platô observado" não vira motivo
+        # próprio: já está contido em "Desvio/nowcast quente".
+        blocks = monitor.blocks_by_day_frame(full_stats)
+        if not blocks.empty:
+            st.markdown("**Bloqueios por dia**")
+            days = window_selector(f"blocks_window_{stats.get('archive_kind')}")
+            st.plotly_chart(
+                blocks_by_day_chart(blocks, days), width="stretch")
+            st.caption(
+                "Cada barra é uma entrada bloqueada naquele dia, colorida pelo "
+                "motivo. Platô já está somado em desvio/nowcast.")
 
         f1, f2, f3 = st.columns(3)
         f1.metric("Total de entradas bloqueadas",

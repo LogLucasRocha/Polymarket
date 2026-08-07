@@ -55,31 +55,13 @@ Estações suportadas (em `tmax/config.py`):
 
 ```
 pip install -r requirements.txt
-python run_report.py [--station SBGR|SAEZ]
+streamlit run ceifa_monitor.py
 ```
 
-Isso gera `reports/relatorio_<ICAO>_AAAA-MM-DD_HHMM.html` (e
-`reports/latest_<ICAO>.html`), abre no navegador e imprime um resumo no
-console. Opções:
-
-- `--station SAEZ` — gera para Buenos Aires/Ezeiza (padrão: SBGR)
-- `--no-open` — não abre o navegador ao final
-- `--force-bias` — recalcula a correção de viés ignorando o cache diário
-
-Ou dê dois cliques em `gerar_relatorio.bat`.
-
-### Painel interativo (Streamlit)
-
-```
-python main.py
-```
-
-(ou `streamlit run app.py`, ou dois cliques em `abrir_painel.bat`)
-
-Mesmos dados, mas com **uma aba por aeroporto** (🇧🇷 SBGR e 🇦🇷 SAEZ) e
-gráficos Plotly — passe o mouse para ver a temperatura exata (observado,
-mediana, P10 e P90) em cada hora — e botão **🔄 Atualizar** que refaz a
-coleta na hora. Os dados ficam em cache por 10 minutos, por estação.
+Sobe o **Monitor Ceifa** (backtest dos snapshots, curva patrimonial, retorno
+diário, desempenho por cidade, eficiência dos filtros e autópsia de cada erro).
+No Windows, dê dois cliques em `Monitor Ceifa.cmd`. O botão **🔄 Atualizar**
+puxa o histórico consolidado e o snapshot intradiário mais recentes.
 
 ## O que o pipeline faz
 
@@ -109,9 +91,7 @@ coleta na hora. Os dados ficam em cache por 10 minutos, por estação.
 ## Estrutura
 
 ```
-main.py                abre o painel interativo (python main.py)
-app.py                 o painel em si (Streamlit + Plotly)
-run_report.py          relatório HTML estático
+ceifa_monitor.py       Monitor Ceifa (Streamlit + Plotly)
 send_telegram.py       digest para o Telegram (roda no GitHub Actions)
 tmax/config.py         estações (Station), modelos, parâmetros ajustáveis
 tmax/fetch.py          coleta (METAR, TAF, IEM, Open-Meteo)
@@ -152,9 +132,9 @@ aparição vem com um **bloco enxuto**: gráfico da
 distribuição (ensemble + TAF + mediana) e texto com o **pico previsto** e a
 **mediana (P10/P90)** — sem tabela de probabilidades e sem hora a hora; as
 repetições vêm em texto curto. O **desempenho da Ceifa** (testes,
-assertividade, rendimento, drawdown) é enviado **todo dia às 06:00 de Brasília**
-(`run_ceifa.py` / workflow `ceifa_report.yml`). Você também pode pedir o
-relatório completo de qualquer cidade pelo comando abaixo.
+assertividade, rendimento, drawdown) fica no **Monitor Ceifa**
+(`ceifa_monitor.py`). Você também pode pedir o relatório completo de qualquer
+cidade pelo comando abaixo.
 
 Para auditoria, cada rodada também arquiva em `dados/nowcast/` até três horas
 que formaram o ajuste: METAR bruto, temperatura observada, média corrigida dos

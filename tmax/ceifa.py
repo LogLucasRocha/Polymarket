@@ -686,6 +686,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
     filtered_upper_tail = 0
     filtered_taf = 0
     filtered_100c = filtered_0c = 0
+    filtered_records: list[dict] = []
     for (icao, day, faixa), group in candidates.groupby(
             ["icao", "dia", "faixa"], observed=True):
         group = group.sort_values("ts")
@@ -709,6 +710,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
             if minimum_taf_filter and taf_blocked:
                 filtered += 1
                 filtered_taf += 1
+                filtered_records.append({"dia": day, "motivo": "TAF convectivo"})
                 if final_no > 0.5:
                     filtered_100c += 1
                 else:
@@ -722,6 +724,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
             if uncertainty_filter and is_uncertain(icao, spread, spread_norm):
                 filtered += 1
                 filtered_spread += 1
+                filtered_records.append({"dia": day, "motivo": "Ensemble largo"})
                 if final_no > 0.5:
                     filtered_100c += 1
                 else:
@@ -734,6 +737,8 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                         icao, faixa, fget("p10"), fget("p90"))):
                 filtered += 1
                 filtered_ensemble_band += 1
+                filtered_records.append(
+                    {"dia": day, "motivo": "Faixa dentro de P10–P90"})
                 if final_no > 0.5:
                     filtered_100c += 1
                 else:
@@ -744,6 +749,8 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                     icao, faixa, fget("teto_ens"))):
                 filtered += 1
                 filtered_upper_tail += 1
+                filtered_records.append(
+                    {"dia": day, "motivo": "Cauda superior perto do teto"})
                 if final_no > 0.5:
                     filtered_100c += 1
                 else:
@@ -772,6 +779,8 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
             if warm_with_plateau:
                 filtered += 1
                 filtered_nowcast += 1
+                filtered_records.append(
+                    {"dia": day, "motivo": "Desvio/nowcast quente"})
                 if not warm_without_plateau:
                     filtered_plateau += 1
                 if final_no > 0.5:
@@ -806,6 +815,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
         "single_band": single_band,
         "n_filtrado_100c": filtered_100c,
         "n_filtrado_0c": filtered_0c,
+        "filtered_records": filtered_records,
     })
     log(f"ceifa parcelada ({interval_minutes} min): {stats['n']} parcelas · "
         f"{filtered} oportunidades recusadas por incerteza.")

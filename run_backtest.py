@@ -51,7 +51,7 @@ def main() -> int:
     conf = backtest.confidence_report(log=log, data=data)
     fontes = backtest.check_resolution_sources(log)
     # A Ceifa (estratégia ativa) é avaliada SÓ nos nossos snapshots, no
-    # relatório diário (run_ceifa.py). Este backtest de 3 dias fica com o
+    # Monitor Ceifa (ceifa_monitor.py). Este backtest de 3 dias fica com o
     # arquivo histórico como benchmark de Edge/Colheita e recalibração.
     text = backtest.report_text(stats)
     # Colheita: a variante ATIVA + as alternativas 14h e 12h, para comparar.
