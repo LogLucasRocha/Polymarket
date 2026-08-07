@@ -285,11 +285,9 @@ CEIFA_PLATEAU_HOURS = 2.0         # mesma máxima observada por pelo menos 2h
 # Não vende uma faixa que toque ou se sobreponha ao intervalo P10–P90 do
 # ensemble. A comparação respeita o bucket de resolução: 32°C cobre valores
 # contínuos de 31,5°C a 32,5°C; o toque em qualquer borda também bloqueia.
-# DESLIGADO (decisão do Lucas, 07/08): no backtest, os casos que ele bloqueia
-# rendem positivo — ele estava cortando entradas lucrativas. Fica em
-# monitoramento: a tela de erros mostra quando ele TERIA pego um erro, para
-# reavaliar manualmente.
-CEIFA_ENSEMBLE_BAND_FILTER = False
+# RELIGADO (decisão do Lucas, 07/08): a tela de erros mostrou que ele pegaria
+# 22 dos 23 erros de máximas — priorizamos cortar o risco.
+CEIFA_ENSEMBLE_BAND_FILTER = True
 
 # Contratos superiores abertos ("X°C or higher") perdem com qualquer pico
 # acima de X. Mesmo quando X fica pouco acima do membro mais quente, um erro
