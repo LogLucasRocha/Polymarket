@@ -145,7 +145,10 @@ def _resolved_price(group: pd.DataFrame, column: str) -> float | None:
     live = group.iloc[-1].get("snapshot_live", False)
     live = False if live is None or pd.isna(live) else bool(live)
     if live:
-        return value if value >= 0.999 or value <= 0.001 else None
+        # Corte do ao vivo afrouxado para 1¢ (decisão do Lucas, 07/08): um NÃO
+        # a 0,6¢ está resolvido na prática, mas o corte antigo (0,1¢) o deixava
+        # pendente — o dashboard demorava a refletir a perda.
+        return value if value >= 0.99 or value <= 0.01 else None
     return value if value > 0.90 or value < 0.10 else None
 
 
@@ -166,7 +169,7 @@ def _resolved_prices(frame: pd.DataFrame, column: str) -> dict[tuple, float]:
     else:
         live = pd.Series(False, index=last.index)
     resolved = values.notna() & (
-        (live & ((values >= 0.999) | (values <= 0.001)))
+        (live & ((values >= 0.99) | (values <= 0.01)))  # ao vivo: 1¢ (07/08)
         | (~live & ((values > 0.90) | (values < 0.10))))
     return {
         (row.icao, row.dia, row.faixa): float(value)

@@ -23,6 +23,14 @@ class WarmTargetRiskTests(unittest.TestCase):
         self.assertEqual(
             ceifa._resolved_price(resolved_group, "preco_nao"), 1.0)
 
+        # Corte do ao vivo afrouxado para 1¢: 0,6¢ já resolve (perda), mas
+        # 5¢ ainda fica pendente.
+        near_zero = pd.DataFrame([{"preco_nao": 0.006, "snapshot_live": True}])
+        still_open = pd.DataFrame([{"preco_nao": 0.05, "snapshot_live": True}])
+        self.assertEqual(
+            ceifa._resolved_price(near_zero, "preco_nao"), 0.006)
+        self.assertIsNone(ceifa._resolved_price(still_open, "preco_nao"))
+
     def test_blocks_london_case(self):
         self.assertTrue(ceifa.is_warm_target_risk(
             "EGLC", "27°C", 1.2, 26.2, 27.5))
