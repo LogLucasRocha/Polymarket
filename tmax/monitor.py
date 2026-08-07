@@ -265,6 +265,7 @@ def run_minimum_strategy(single_band: bool = False) -> dict:
         icaos=set(config.STATIONS), archive=MINIMUM_ARCHIVE,
         warm_target_filter=False, uncertainty_filter=False,
         minimum_taf_filter=config.CEIFA_MINIMUM_TAF_FILTER,
+        ensemble_band_filter=config.CEIFA_ENSEMBLE_BAND_FILTER,
         interval_minutes=config.CEIFA_REPEAT_MINUTES,
         stake_frac=config.CEIFA_STAKE_FRAC,
         single_band=single_band)
@@ -603,6 +604,39 @@ def _entry_forecast(icao: str, day: str, timestamp,
     return eligible.sort_values("ts").iloc[-1] if not eligible.empty else None
 
 
+def blocking_filters_if_inactive(icao: str, faixa, p10, p90) -> list[str]:
+    """Filtros HOJE inativos cuja condição casaria com este contrato.
+
+    Responde à pergunta da tela de erros: "se este filtro estivesse ligado,
+    ele teria bloqueado este erro?". Só reporta filtros desligados — um filtro
+    ativo já removeu seus casos, então nunca aparece aqui.
+    """
+    hits: list[str] = []
+    if (not config.CEIFA_ENSEMBLE_BAND_FILTER
+            and p10 is not None and p90 is not None
+            and not pd.isna(p10) and not pd.isna(p90)
+            and ceifa.is_ensemble_inside_market_band_risk(
+                icao, faixa, p10, p90)):
+        hits.append("Faixa dentro de P10–P90")
+    return hits
+
+
+def inactive_filter_hit(signal: dict) -> str:
+    """Nome dos filtros inativos que bloqueariam o contrato (''
+    se nenhum) — carrega o forecast arquivado no instante da entrada."""
+    icao = signal.get("icao")
+    kind = signal.get("archive_kind") or (
+        "minimum" if signal.get("extreme") == "minimum" else "maximum")
+    archive = MINIMUM_ARCHIVE if kind == "minimum" else MAXIMUM_ARCHIVE
+    forecast = _entry_forecast(
+        icao, str(signal.get("day")), pd.Timestamp(signal["ts"]), archive)
+    if forecast is None:
+        return ""
+    p10, p90 = forecast.get("p10"), forecast.get("p90")
+    return ", ".join(blocking_filters_if_inactive(
+        icao, signal.get("faixa"), p10, p90))
+
+
 def loss_details(stats: dict) -> pd.DataFrame:
     rows = []
     minimum = stats.get("archive_kind") == "minimum"
@@ -642,6 +676,7 @@ def loss_details(stats: dict) -> pd.DataFrame:
             exact_offset = shift / (config.NOWCAST_DAMPING * weight)
 
         median = fvalue("mediana")
+        p10 = fvalue("p10")
         p90 = fvalue("p90")
         ceiling = fvalue("teto_ens")
         observed = fvalue("obs_max")
@@ -691,6 +726,9 @@ def loss_details(stats: dict) -> pd.DataFrame:
             "Desvio com hora METAR (°C)": exact_offset,
             "Pico previsto": f"{peak:02d}:00" if peak is not None else "—",
             "Diagnóstico": diagnosis,
+            "Filtro que bloquearia": ", ".join(
+                blocking_filters_if_inactive(
+                    icao, signal["faixa"], p10, p90)) or "—",
         })
     return pd.DataFrame(rows)
 

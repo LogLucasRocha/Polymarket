@@ -316,8 +316,9 @@ def main() -> int:
             q = ctx_i["dist_d0"]["quantiles"]
             ceiling = (float(q.get(50)) + float(spr)
                        if q.get(50) is not None and spr is not None else None)
-            if ceifa.is_ensemble_inside_market_band_risk(
-                    icao, v["label"], q.get(10), q.get(90)):
+            if config.CEIFA_ENSEMBLE_BAND_FILTER and \
+                    ceifa.is_ensemble_inside_market_band_risk(
+                        icao, v["label"], q.get(10), q.get(90)):
                 p10_txt = (f"{float(q.get(10)):.2f}°C"
                            if q.get(10) is not None else "—")
                 p90_txt = (f"{float(q.get(90)):.2f}°C"
@@ -387,6 +388,18 @@ def main() -> int:
                     print(f"[ceifa mínima] {icao}: filtrado pelo TAF "
                           f"({', '.join(codes)} no restante do dia local).")
                     minimum_taf_logged.add(icao)
+                continue
+            if config.CEIFA_ENSEMBLE_BAND_FILTER and \
+                    ceifa.is_ensemble_inside_market_band_risk(
+                        icao, value["label"],
+                        forecast.get("p10"), forecast.get("p90")):
+                p10_txt = (f"{float(forecast.get('p10')):.2f}°C"
+                           if forecast.get("p10") is not None else "—")
+                p90_txt = (f"{float(forecast.get('p90')):.2f}°C"
+                           if forecast.get("p90") is not None else "—")
+                print(f"[ceifa mínima] {icao}: filtrado — faixa vendida toca o "
+                      f"intervalo P10–P90 (faixa={value['label']}, "
+                      f"P10={p10_txt}, P90={p90_txt}).")
                 continue
             ceifa_keep.append(k)
             if not _ceifa_send_due(
