@@ -669,6 +669,26 @@ def cities_page(stats: dict, full_stats: dict,
                 "Observação": st.column_config.TextColumn(width="large"),
             })
 
+        # Bloqueios por motivo (exclui "Platô observado", que já está contido
+        # em desvio/nowcast, para não contar duas vezes).
+        by_reason = filters[
+            (filters["Entradas bloqueadas"] > 0)
+            & (filters["Filtro"] != "Platô observado")
+        ].sort_values("Entradas bloqueadas")
+        if not by_reason.empty:
+            st.markdown("**Bloqueios por motivo**")
+            fig_reason = px.bar(
+                by_reason, x="Entradas bloqueadas", y="Filtro",
+                orientation="h", text="Entradas bloqueadas",
+                color_discrete_sequence=[AMBER])
+            fig_reason.update_traces(textposition="outside",
+                                     cliponaxis=False)
+            fig_reason.update_layout(
+                height=max(180, 42 * len(by_reason) + 60), showlegend=False,
+                xaxis_title=None, yaxis_title=None,
+                margin=dict(l=10, r=10, t=10, b=10))
+            st.plotly_chart(dark_figure(fig_reason), width="stretch")
+
         f1, f2, f3 = st.columns(3)
         f1.metric("Total de entradas bloqueadas",
                   full_stats.get("n_filtrado", 0))
