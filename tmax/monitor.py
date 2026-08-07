@@ -265,6 +265,7 @@ def run_minimum_strategy(single_band: bool = False) -> dict:
         icaos=set(config.STATIONS), archive=MINIMUM_ARCHIVE,
         warm_target_filter=False, uncertainty_filter=False,
         minimum_taf_filter=config.CEIFA_MINIMUM_TAF_FILTER,
+        ensemble_band_filter=config.CEIFA_ENSEMBLE_BAND_FILTER,
         interval_minutes=config.CEIFA_REPEAT_MINUTES,
         stake_frac=config.CEIFA_STAKE_FRAC,
         single_band=single_band)

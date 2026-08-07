@@ -636,6 +636,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                       stake_frac: float = 0.01,
                       uncertainty_filter: bool = True,
                       minimum_taf_filter: bool = False,
+                      ensemble_band_filter: bool = False,
                       single_band: bool = False) -> dict:
     """Ceifa parcelada: uma stake relativa a cada rodada elegível da H-1.
 
@@ -646,8 +647,12 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
     ``uncertainty_filter`` permitem manter os vetos meteorológicos das máximas
     desligados no estudo de mínimas. ``minimum_taf_filter`` reproduz o veto
     operacional de TSRA/VCTS quando essa informação existe no snapshot.
-    ``single_band`` ativa apenas o cenário comparativo que trava a faixa com
-    maior ask executável na primeira rodada de cada cidade/data.
+    ``ensemble_band_filter`` liga isoladamente o veto de faixa dentro do
+    intervalo P10–P90 (o mesmo das máximas), para que as mínimas o apliquem
+    sem herdar os vetos de cauda quente — ainda gated por
+    ``CEIFA_ENSEMBLE_BAND_FILTER``. ``single_band`` ativa apenas o cenário
+    comparativo que trava a faixa com maior ask executável na primeira rodada
+    de cada cidade/data.
     """
     mkt = _load("mercado", archive)
     prev = _load("previsao", archive)
@@ -720,7 +725,8 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                     filtered_0c += 1
                 continue
 
-            if (warm_target_filter and config.CEIFA_ENSEMBLE_BAND_FILTER
+            if ((warm_target_filter or ensemble_band_filter)
+                    and config.CEIFA_ENSEMBLE_BAND_FILTER
                     and is_ensemble_inside_market_band_risk(
                         icao, faixa, fget("p10"), fget("p90"))):
                 filtered += 1

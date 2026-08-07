@@ -284,6 +284,50 @@ class WarmTargetRiskTests(unittest.TestCase):
             self.assertEqual(result["n_filtrado_ensemble_band"], 1)
             self.assertEqual(result["n_filtrado_0c"], 1)
 
+    def test_repeated_minimum_band_filter_is_optional(self):
+        """Mínimas: o veto P10–P90 só age quando ligado (ensemble_band_filter).
+
+        Caso do Paris (LFPB): faixa 21°C com P90 21,0 °C encosta no intervalo
+        P10–P90 e deve ser vetada quando o filtro está ligado, sem herdar os
+        vetos de cauda quente das máximas.
+        """
+        with TemporaryDirectory() as tmp:
+            archive = Path(tmp)
+            (archive / "mercado").mkdir()
+            (archive / "previsao").mkdir()
+            pd.DataFrame([
+                {"ts_utc": "2026-08-01T03:05:00Z", "icao": "LFPB",
+                 "dia": "2026-08-01", "faixa": "21°C",
+                 "preco_sim": 0.01, "preco_nao": 0.99},
+                {"ts_utc": "2026-08-01T12:00:00Z", "icao": "LFPB",
+                 "dia": "2026-08-01", "faixa": "21°C",
+                 "preco_sim": 0.01, "preco_nao": 0.99},
+            ]).to_parquet(archive / "mercado" / "day.parquet", index=False)
+            pd.DataFrame([{
+                "ts_utc": "2026-08-01T03:00:00Z", "icao": "LFPB",
+                "dia": "2026-08-01", "pico_hora": 6,
+                "mediana": 21.0, "p10": 19.7, "p90": 21.0,
+            }]).to_parquet(
+                archive / "previsao" / "day.parquet", index=False)
+
+            original = ceifa.config.CEIFA_ENSEMBLE_BAND_FILTER
+            ceifa.config.CEIFA_ENSEMBLE_BAND_FILTER = True
+            try:
+                base = ceifa.simulate_repeated(
+                    icaos={"LFPB"}, archive=archive,
+                    warm_target_filter=False, uncertainty_filter=False)
+                filtered = ceifa.simulate_repeated(
+                    icaos={"LFPB"}, archive=archive,
+                    warm_target_filter=False, uncertainty_filter=False,
+                    ensemble_band_filter=True)
+            finally:
+                ceifa.config.CEIFA_ENSEMBLE_BAND_FILTER = original
+
+            self.assertEqual(base["n"], 1)
+            self.assertEqual(base["n_filtrado_ensemble_band"], 0)
+            self.assertEqual(filtered["n"], 0)
+            self.assertEqual(filtered["n_filtrado_ensemble_band"], 1)
+
     def test_repeated_strategy_uses_one_percent_of_free_cash(self):
         with TemporaryDirectory() as tmp:
             archive = Path(tmp)
