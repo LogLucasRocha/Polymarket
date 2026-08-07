@@ -248,6 +248,7 @@ def run_strategy(single_band: bool = False) -> dict:
         icaos=set(config.STATIONS),
         interval_minutes=config.CEIFA_REPEAT_MINUTES,
         stake_frac=config.CEIFA_STAKE_FRAC,
+        ensemble_band_filter=config.CEIFA_ENSEMBLE_BAND_FILTER,
         single_band=single_band,
     )
     stats["archive_kind"] = "maximum"
@@ -265,6 +266,7 @@ def run_minimum_strategy(single_band: bool = False) -> dict:
         icaos=set(config.STATIONS), archive=MINIMUM_ARCHIVE,
         warm_target_filter=False, uncertainty_filter=False,
         minimum_taf_filter=config.CEIFA_MINIMUM_TAF_FILTER,
+        ensemble_band_filter=config.CEIFA_ENSEMBLE_BAND_FILTER,
         interval_minutes=config.CEIFA_REPEAT_MINUTES,
         stake_frac=config.CEIFA_STAKE_FRAC,
         single_band=single_band)
@@ -298,6 +300,11 @@ def combine_active_strategies(maximum: dict, minimum: dict) -> dict:
     days = len({str(signal["day"]) for signal in signals})
     stats = ceifa._stats_relative_available_stake(
         signals, days=days, stake_frac=config.CEIFA_STAKE_FRAC)
+    filtered_signals_by_reason = defaultdict(list)
+    for source in (maximum, minimum):
+        for reason, blocked in source.get(
+                "filtered_signals_by_reason", {}).items():
+            filtered_signals_by_reason[reason].extend(blocked)
     stats.update({
         "repeat_minutes": config.CEIFA_REPEAT_MINUTES,
         "archive_kind": "consolidated",
@@ -314,7 +321,8 @@ def combine_active_strategies(maximum: dict, minimum: dict) -> dict:
         "n_filtrado_nowcast": maximum.get("n_filtrado_nowcast", 0),
         "n_filtrado_plateau": maximum.get("n_filtrado_plateau", 0),
         "n_filtrado_ensemble_band": maximum.get(
-            "n_filtrado_ensemble_band", 0),
+            "n_filtrado_ensemble_band", 0) + minimum.get(
+                "n_filtrado_ensemble_band", 0),
         "n_filtrado_upper_tail": maximum.get(
             "n_filtrado_upper_tail", 0),
         "n_filtrado_taf": minimum.get("n_filtrado_taf", 0),
@@ -324,7 +332,18 @@ def combine_active_strategies(maximum: dict, minimum: dict) -> dict:
         "n_filtrado_100c": (maximum.get("n_filtrado_100c", 0)
                              + minimum.get("n_filtrado_100c", 0)),
         "n_filtrado_0c": (maximum.get("n_filtrado_0c", 0)
-                           + minimum.get("n_filtrado_0c", 0)),
+                             + minimum.get("n_filtrado_0c", 0)),
+        "filtered_signals_by_reason": dict(filtered_signals_by_reason),
+        "filtered_signals_by_strategy": {
+            "maximum": maximum.get("filtered_signals_by_reason", {}),
+            "minimum": minimum.get("filtered_signals_by_reason", {}),
+        },
+        "filter_performance": ceifa.filter_performance_by_reason(
+            filtered_signals_by_reason, config.CEIFA_STAKE_FRAC),
+        "filter_performance_by_strategy": {
+            "maximum": maximum.get("filter_performance", {}),
+            "minimum": minimum.get("filter_performance", {}),
+        },
     })
     return stats
 
@@ -390,6 +409,13 @@ def slice_strategy(stats: dict, lookback_days: int | None) -> dict:
         "n_filtrado_0c", "n_filtrado_faixa_unica",
     ):
         sliced[key] = stats.get(key, 0)
+    sliced["filtered_signals_by_reason"] = stats.get(
+        "filtered_signals_by_reason", {})
+    sliced["filtered_signals_by_strategy"] = stats.get(
+        "filtered_signals_by_strategy", {})
+    sliced["filter_performance"] = stats.get("filter_performance", {})
+    sliced["filter_performance_by_strategy"] = stats.get(
+        "filter_performance_by_strategy", {})
     return sliced
 
 
@@ -401,11 +427,41 @@ def filter_frame(stats: dict) -> pd.DataFrame:
     deviation = f"{config.CEIFA_OBS_DEVIATION_MIN:.1f}".replace(".", ",")
     margin = f"{config.CEIFA_TARGET_MARGIN:.1f}".replace(".", ",")
     rows = []
+
+    def status(active: bool) -> str:
+        return "Ativo" if active else "Inativo · monitoramento"
+
+    def outcome(reason: str, strategy: str) -> dict:
+        if kind == "consolidated":
+            values = stats.get("filter_performance_by_strategy", {}).get(
+                strategy, {}).get(reason, {})
+        else:
+            values = stats.get("filter_performance", {}).get(reason, {})
+        count = int(values.get("n", 0))
+        ret = values.get("return")
+        if not count or ret is None:
+            financial = "Sem desfecho"
+        else:
+            label = "Positivo" if ret > 0 else "Negativo" if ret < 0 else "Neutro"
+            financial = f"{label} ({ret:+.2%})"
+        result = {
+            "Foram a 100¢": int(values.get("to_100c", 0)),
+            "Foram a 0¢": int(values.get("to_0c", 0)),
+            "Retorno dos casos": financial,
+        }
+        if values:
+            result["Entradas bloqueadas"] = count
+        return result
+
+    def with_outcome(row: dict, reason: str, strategy: str) -> dict:
+        row.update(outcome(reason, strategy))
+        return row
     if stats.get("single_band"):
         rows.append({
             "Estratégia": "Ambas" if kind == "consolidated" else (
                 "Máxima" if kind == "maximum" else "Mínima"),
             "Filtro": "Faixa única por cidade",
+            "Status": "Inativo · cenário",
             "Quando bloqueia": (
                 "Na primeira rodada elegível, escolhe o NÃO com maior "
                 "ask executável e mantém essa faixa travada durante todo "
@@ -418,39 +474,43 @@ def filter_frame(stats: dict) -> pd.DataFrame:
         })
     if kind in {"maximum", "consolidated"}:
         rows.extend([
-            {
+            with_outcome({
                 "Estratégia": "Máxima",
                 "Filtro": "Ensemble largo",
+                "Status": status(config.CEIFA_SPREAD_FILTER),
                 "Quando bloqueia": (
                     f"Teto − mediana ≥ {spread_abs} °C "
                     f"ou ≥ {spread_rel}× o spread normal "
                     "da cidade."),
                 "Entradas bloqueadas": stats.get("n_filtrado_spread", 0),
                 "Observação": "Filtro independente.",
-            },
-            {
+            }, "spread", "maximum"),
+            with_outcome({
                 "Estratégia": "Máxima",
                 "Filtro": "Desvio/nowcast quente",
+                "Status": status(config.CEIFA_NOWCAST_FILTER),
                 "Quando bloqueia": (
                     f"Desvio observado ou shift ≥ "
                     f"{deviation} °C e a faixa está entre mediana − "
                     f"{margin} °C e P90 + {margin} °C."),
                 "Entradas bloqueadas": stats.get("n_filtrado_nowcast", 0),
                 "Observação": "Inclui os casos identificados por platô.",
-            },
-            {
+            }, "nowcast", "maximum"),
+            with_outcome({
                 "Estratégia": "Máxima",
                 "Filtro": "Platô observado",
+                "Status": status(config.CEIFA_NOWCAST_FILTER),
                 "Quando bloqueia": (
                     f"A máxima observada fica parada por ≥ "
                     f"{config.CEIFA_PLATEAU_HOURS:.0f}h; o platô amplia o "
                     "limite inferior da faixa plausível."),
                 "Entradas bloqueadas": stats.get("n_filtrado_plateau", 0),
                 "Observação": "Subconjunto do desvio/nowcast; não somar novamente.",
-            },
-            {
+            }, "plateau", "maximum"),
+            with_outcome({
                 "Estratégia": "Máxima",
                 "Filtro": "Faixa dentro de P10–P90",
+                "Status": status(config.CEIFA_ENSEMBLE_BAND_FILTER),
                 "Quando bloqueia": (
                     "O bucket de temperatura do contrato NÃO toca ou se "
                     "sobrepõe ao intervalo central P10–P90 do ensemble. Ex.: "
@@ -460,10 +520,11 @@ def filter_frame(stats: dict) -> pd.DataFrame:
                 "Observação": (
                     "O toque na borda bloqueia e a discretização também "
                     "vale para faixas em Fahrenheit."),
-            },
-            {
+            }, "ensemble_band", "maximum"),
+            with_outcome({
                 "Estratégia": "Máxima",
                 "Filtro": "Cauda superior perto do teto",
+                "Status": status(config.CEIFA_UPPER_TAIL_FILTER),
                 "Quando bloqueia": (
                     "Em contratos 'X° ou mais', X fica no máximo "
                     f"{config.CEIFA_UPPER_TAIL_MARGIN:.2f} °C acima do "
@@ -473,12 +534,30 @@ def filter_frame(stats: dict) -> pd.DataFrame:
                 "Observação": (
                     "Protege contra um pico curto acima da cauda; não se "
                     "aplica a faixas exatas."),
-            },
+            }, "upper_tail", "maximum"),
         ])
     if kind in {"minimum", "consolidated"}:
-        rows.append({
+        rows.append(with_outcome({
+            "Estratégia": "Mínima",
+            "Filtro": "Faixa dentro de P10–P90",
+            "Status": status(config.CEIFA_ENSEMBLE_BAND_FILTER),
+            "Quando bloqueia": (
+                "O bucket de temperatura do contrato NÃO toca ou se "
+                "sobrepõe ao intervalo central P10–P90 do ensemble."),
+            "Entradas bloqueadas": (
+                stats.get("filter_performance_by_strategy", {})
+                .get("minimum", {}).get("ensemble_band", {})
+                .get("n", stats.get("n_filtrado_ensemble_band", 0))
+                if kind == "consolidated"
+                else stats.get("n_filtrado_ensemble_band", 0)),
+            "Observação": (
+                "Mesma proteção central das máximas, apurada "
+                "separadamente para as mínimas."),
+        }, "ensemble_band", "minimum"))
+        rows.append(with_outcome({
             "Estratégia": "Mínima",
             "Filtro": "TAF convectivo",
+            "Status": status(config.CEIFA_MINIMUM_TAF_FILTER),
             "Quando bloqueia": (
                 "O TAF prevê TSRA ou VCTS entre a análise e o fim do dia "
                 "local da cidade."),
@@ -486,8 +565,85 @@ def filter_frame(stats: dict) -> pd.DataFrame:
             "Observação": (
                 "CB, TEMPO ou PROB isolados não bloqueiam; contagem desde "
                 "a ativação do filtro."),
-        })
-    return pd.DataFrame(rows)
+        }, "taf", "minimum"))
+    frame = pd.DataFrame(rows)
+    preferred = [
+        "Estratégia", "Filtro", "Status", "Quando bloqueia",
+        "Casos identificados",
+        "Foram a 100¢", "Foram a 0¢", "Retorno dos casos",
+        "Observação",
+    ]
+    if "Entradas bloqueadas" in frame:
+        frame = frame.rename(columns={
+            "Entradas bloqueadas": "Casos identificados"})
+    return frame.reindex(columns=preferred)
+
+
+def filter_daily_frame(stats: dict) -> pd.DataFrame:
+    """Quantidade diária de parcelas vetadas, particionada pelo motivo.
+
+    ``plateau`` é um subconjunto de ``nowcast``. No gráfico esses casos saem
+    de nowcast e entram em platô para que a altura total da barra não conte a
+    mesma oportunidade duas vezes.
+    """
+    kind = stats.get("archive_kind", "maximum")
+    if kind == "consolidated":
+        sources = stats.get("filtered_signals_by_strategy", {})
+    else:
+        sources = {kind: stats.get("filtered_signals_by_reason", {})}
+
+    strategy_labels = {"maximum": "Máxima", "minimum": "Mínima"}
+    reason_labels = {
+        "spread": "Ensemble largo",
+        "nowcast": "Desvio/nowcast quente",
+        "plateau": "Platô observado",
+        "ensemble_band": "Faixa dentro de P10–P90",
+        "upper_tail": "Cauda superior perto do teto",
+        "taf": "TAF convectivo",
+    }
+    cutoff = stats.get("period_cutoff")
+    cutoff = pd.Timestamp(cutoff) if cutoff else None
+    counts: dict[tuple[str, str, str], int] = defaultdict(int)
+
+    def signal_key(signal: dict) -> tuple:
+        return (
+            signal.get("icao"), str(signal.get("day")), signal.get("faixa"),
+            str(signal.get("ts")), signal.get("price"),
+        )
+
+    for strategy, by_reason in sources.items():
+        plateau_keys = {
+            signal_key(signal)
+            for signal in by_reason.get("plateau", [])
+        }
+        for reason, signals in by_reason.items():
+            if reason not in reason_labels:
+                continue
+            if reason == "ensemble_band" and not config.CEIFA_ENSEMBLE_BAND_FILTER:
+                continue
+            for signal in signals:
+                if reason == "nowcast" and signal_key(signal) in plateau_keys:
+                    continue
+                day = pd.Timestamp(signal.get("day"))
+                if cutoff is not None and day < cutoff:
+                    continue
+                label = reason_labels[reason]
+                strategy_label = strategy_labels.get(strategy, strategy.title())
+                counts[(day.date().isoformat(), strategy_label, label)] += 1
+
+    rows = [
+        {"Dia": day, "Estratégia": strategy, "Motivo": reason,
+         "Bloqueios": count,
+         "Legenda": f"{strategy} · {reason}"}
+        for (day, strategy, reason), count in counts.items()
+    ]
+    if not rows:
+        return pd.DataFrame(columns=[
+            "Dia", "Estratégia", "Motivo", "Bloqueios", "Legenda"])
+    frame = pd.DataFrame(rows)
+    frame["Dia"] = pd.to_datetime(frame["Dia"])
+    return frame.sort_values(["Dia", "Estratégia", "Motivo"],
+                             ignore_index=True)
 
 
 def city_frame(stats: dict) -> pd.DataFrame:

@@ -733,6 +733,7 @@ def _ceifa_filter_line(st: dict) -> str:
     n_nowcast = st.get("n_filtrado_nowcast", 0)
     n_plateau = st.get("n_filtrado_plateau", 0)
     n_ensemble_band = st.get("n_filtrado_ensemble_band", 0)
+    ensemble_band_active = st.get("ensemble_band_filter", True)
     n_upper_tail = st.get("n_filtrado_upper_tail", 0)
     n_100c = st.get("n_filtrado_100c", 0)
     n_0c = st.get("n_filtrado_0c", 0)
@@ -740,11 +741,19 @@ def _ceifa_filter_line(st: dict) -> str:
              f"{n_nowcast} desvio/nowcast quente"]
     if n_plateau:
         parts[-1] += f", {n_plateau} por platô"
-    parts.append(f"{n_ensemble_band} faixa dentro de P10–P90")
+    if ensemble_band_active:
+        parts.append(f"{n_ensemble_band} faixa dentro de P10–P90")
     parts.append(f"{n_upper_tail} cauda superior perto do teto")
     motivos = f" ({' · '.join(parts)})" if n_filt else ""
-    return (f"• <b>Filtro de incerteza:</b> {n_filt} entradas evitadas"
+    line = (f"• <b>Filtro de incerteza:</b> {n_filt} entradas evitadas"
             f"{motivos} — desfecho: {n_100c} em 100¢ · {n_0c} em 0¢")
+    if not ensemble_band_active and n_ensemble_band:
+        shadow = st.get("filter_performance", {}).get("ensemble_band", {})
+        line += (f"\n• <b>P10–P90 (inativo, monitoramento):</b> "
+                 f"{n_ensemble_band} entradas · "
+                 f"{shadow.get('to_100c', 0)} em 100¢ · "
+                 f"{shadow.get('to_0c', 0)} em 0¢")
+    return line
 
 
 def _stats(signals: list, res_mismatch: int, days_seen: int) -> dict:

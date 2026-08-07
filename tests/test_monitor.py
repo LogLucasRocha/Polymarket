@@ -271,6 +271,16 @@ class MonitorTest(unittest.TestCase):
             "n_filtrado_plateau": 2,
             "n_filtrado_ensemble_band": 3,
             "n_filtrado_taf": 5,
+            "filter_performance_by_strategy": {
+                "maximum": {
+                    "spread": {"n": 11, "to_100c": 10, "to_0c": 1,
+                               "return": -0.0123},
+                },
+                "minimum": {
+                    "taf": {"n": 5, "to_100c": 5, "to_0c": 0,
+                            "return": 0.0042},
+                },
+            },
         }
 
         frame = monitor.filter_frame(stats)
@@ -279,14 +289,25 @@ class MonitorTest(unittest.TestCase):
             "Ensemble largo", "Desvio/nowcast quente",
             "Platô observado", "Faixa dentro de P10–P90",
             "Cauda superior perto do teto",
+            "Faixa dentro de P10–P90",
             "TAF convectivo",
         ])
         self.assertEqual(
-            frame["Entradas bloqueadas"].tolist(), [11, 7, 2, 3, 0, 5])
+            frame["Casos identificados"].tolist(), [11, 7, 2, 3, 0, 3, 5])
+        band_rows = frame[frame["Filtro"] == "Faixa dentro de P10–P90"]
+        self.assertEqual(set(band_rows["Status"]), {
+            "Inativo · monitoramento"})
         plateau = frame[frame["Filtro"] == "Platô observado"].iloc[0]
         self.assertIn("Subconjunto", plateau["Observação"])
+        spread = frame[frame["Filtro"] == "Ensemble largo"].iloc[0]
+        self.assertEqual(spread["Foram a 100¢"], 10)
+        self.assertEqual(spread["Foram a 0¢"], 1)
+        self.assertEqual(spread["Retorno dos casos"],
+                         "Negativo (-1.23%)")
         taf = frame[frame["Filtro"] == "TAF convectivo"].iloc[0]
         self.assertIn("TSRA ou VCTS", taf["Quando bloqueia"])
+        self.assertEqual(taf["Retorno dos casos"],
+                         "Positivo (+0.42%)")
 
     def test_filter_frame_labels_single_band_as_experimental_only(self):
         frame = monitor.filter_frame({
@@ -296,7 +317,49 @@ class MonitorTest(unittest.TestCase):
 
         row = frame.iloc[0]
         self.assertEqual(row["Filtro"], "Faixa única por cidade")
-        self.assertEqual(row["Entradas bloqueadas"], 13)
+        self.assertEqual(row["Casos identificados"], 13)
+
+    def test_filter_daily_frame_partitions_plateau_without_double_counting(self):
+        common = {
+            "icao": "EGLC", "day": "2026-08-01", "faixa": "30°C",
+            "ts": pd.Timestamp("2026-08-01T13:00:00Z"), "price": 0.97,
+            "won": False,
+        }
+        ordinary = dict(common, ts=pd.Timestamp("2026-08-01T13:05:00Z"))
+        stats = {
+            "archive_kind": "maximum",
+            "filtered_signals_by_reason": {
+                "nowcast": [common, ordinary],
+                "plateau": [common],
+                "spread": [dict(common, day="2026-07-01")],
+            },
+            "period_cutoff": "2026-08-01",
+        }
+
+        frame = monitor.filter_daily_frame(stats)
+
+        self.assertEqual(frame["Bloqueios"].sum(), 2)
+        self.assertEqual(set(frame["Motivo"]), {
+            "Desvio/nowcast quente", "Platô observado"})
+        self.assertEqual(set(frame["Estratégia"]), {"Máxima"})
+
+    def test_filter_daily_frame_separates_active_strategies(self):
+        maximum = {
+            "icao": "EGLC", "day": "2026-08-01", "faixa": "30°C",
+            "ts": pd.Timestamp("2026-08-01T13:00:00Z"), "price": 0.97,
+            "won": True,
+        }
+        minimum = dict(maximum, icao="KMIA", faixa="75°F")
+        frame = monitor.filter_daily_frame({
+            "archive_kind": "consolidated",
+            "filtered_signals_by_strategy": {
+                "maximum": {"spread": [maximum]},
+                "minimum": {"taf": [minimum]},
+            },
+        })
+
+        self.assertEqual(frame["Bloqueios"].sum(), 2)
+        self.assertEqual(set(frame["Estratégia"]), {"Máxima", "Mínima"})
 
     def test_single_band_dashboard_scenario_does_not_change_active_stats(self):
         base = {

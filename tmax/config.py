@@ -285,7 +285,9 @@ CEIFA_PLATEAU_HOURS = 2.0         # mesma máxima observada por pelo menos 2h
 # Não vende uma faixa que toque ou se sobreponha ao intervalo P10–P90 do
 # ensemble. A comparação respeita o bucket de resolução: 32°C cobre valores
 # contínuos de 31,5°C a 32,5°C; o toque em qualquer borda também bloqueia.
-CEIFA_ENSEMBLE_BAND_FILTER = True
+# Desligado operacionalmente em 06/08/2026. Continua calculado como filtro-
+# sombra no backtest/dashboard para acompanhar 100¢, 0¢ e retorno hipotético.
+CEIFA_ENSEMBLE_BAND_FILTER = False
 
 # Contratos superiores abertos ("X°C or higher") perdem com qualquer pico
 # acima de X. Mesmo quando X fica pouco acima do membro mais quente, um erro

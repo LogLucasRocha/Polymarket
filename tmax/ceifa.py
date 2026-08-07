@@ -317,9 +317,12 @@ def market_temperature_interval_c(icao: str, faixa) -> tuple[float, float] | Non
     return lower, upper
 
 
-def is_ensemble_inside_market_band_risk(icao: str, faixa, p10, p90) -> bool:
+def is_ensemble_inside_market_band_risk(icao: str, faixa, p10, p90,
+                                        enabled: bool | None = None) -> bool:
     """Veta o NÃO quando o bucket vendido toca a faixa central P10–P90."""
-    if not config.CEIFA_ENSEMBLE_BAND_FILTER:
+    enabled = (config.CEIFA_ENSEMBLE_BAND_FILTER
+               if enabled is None else bool(enabled))
+    if not enabled:
         return False
     interval = market_temperature_interval_c(icao, faixa)
     if (interval is None or p10 is None or p90 is None
@@ -633,6 +636,8 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                       stake_frac: float = 0.01,
                       uncertainty_filter: bool = True,
                       minimum_taf_filter: bool = False,
+                      ensemble_band_filter: bool | None = None,
+                      monitor_ensemble_band: bool = True,
                       single_band: bool = False) -> dict:
     """Ceifa parcelada: uma stake relativa a cada rodada elegível da H-1.
 
@@ -643,9 +648,16 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
     ``uncertainty_filter`` permitem manter os vetos meteorológicos das máximas
     desligados no estudo de mínimas. ``minimum_taf_filter`` reproduz o veto
     operacional de TSRA/VCTS quando essa informação existe no snapshot.
-    ``single_band`` ativa apenas o cenário comparativo que trava a faixa com
-    maior ask executável na primeira rodada de cada cidade/data.
+    ``ensemble_band_filter`` liga o veto de faixa dentro do intervalo
+    P10–P90. Por padrão, segue ``config.CEIFA_ENSEMBLE_BAND_FILTER``. Quando
+    desligado, ``monitor_ensemble_band`` ainda registra esses casos como
+    filtro-sombra sem impedir a entrada. ``single_band`` ativa apenas o cenário
+    comparativo que trava a faixa com maior ask executável na primeira rodada
+    de cada cidade/data.
     """
+    if ensemble_band_filter is None:
+        ensemble_band_filter = config.CEIFA_ENSEMBLE_BAND_FILTER
+
     mkt = _load("mercado", archive)
     prev = _load("previsao", archive)
     if icaos is not None:
@@ -654,7 +666,8 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
         prev = prev[prev["icao"].isin(icaos)] if not prev.empty else prev
     if mkt.empty or prev.empty:
         return {"n": 0, "days": 0, "signals": [],
-                "stake_frac": stake_frac, "repeat_minutes": interval_minutes}
+                "stake_frac": stake_frac, "repeat_minutes": interval_minutes,
+                "ensemble_band_filter": ensemble_band_filter}
 
     resolutions = _resolved_prices(mkt, "preco_nao")
     candidates = _execution_candidates(mkt, "NAO")
@@ -675,6 +688,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
     filtered_upper_tail = 0
     filtered_taf = 0
     filtered_100c = filtered_0c = 0
+    filtered_signals_by_reason: dict[str, list[dict]] = defaultdict(list)
     for (icao, day, faixa), group in candidates.groupby(
             ["icao", "dia", "faixa"], observed=True):
         group = group.sort_values("ts")
@@ -691,6 +705,13 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
 
             price = float(entry_row["_entry_price"])
 
+            blocked_signal = {
+                "icao": icao, "day": day, "faixa": faixa,
+                "ts": entry_row["ts"], "price": price,
+                "won": final_no > 0.5, "stopped": False,
+                "loss_frac": None,
+            }
+
             taf_blocked = fget("taf_convective_blocked")
             taf_blocked = (taf_blocked is not None
                            and not pd.isna(taf_blocked)
@@ -698,6 +719,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
             if minimum_taf_filter and taf_blocked:
                 filtered += 1
                 filtered_taf += 1
+                filtered_signals_by_reason["taf"].append(blocked_signal)
                 if final_no > 0.5:
                     filtered_100c += 1
                 else:
@@ -711,26 +733,35 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
             if uncertainty_filter and is_uncertain(icao, spread, spread_norm):
                 filtered += 1
                 filtered_spread += 1
+                filtered_signals_by_reason["spread"].append(blocked_signal)
                 if final_no > 0.5:
                     filtered_100c += 1
                 else:
                     filtered_0c += 1
                 continue
 
-            if (warm_target_filter and is_ensemble_inside_market_band_risk(
-                    icao, faixa, fget("p10"), fget("p90"))):
-                filtered += 1
+            ensemble_band_risk = (
+                (ensemble_band_filter or monitor_ensemble_band)
+                and is_ensemble_inside_market_band_risk(
+                    icao, faixa, fget("p10"), fget("p90"), enabled=True))
+            if ensemble_band_risk:
                 filtered_ensemble_band += 1
-                if final_no > 0.5:
-                    filtered_100c += 1
-                else:
-                    filtered_0c += 1
-                continue
+                filtered_signals_by_reason["ensemble_band"].append(
+                    blocked_signal)
+                if ensemble_band_filter:
+                    filtered += 1
+                    if final_no > 0.5:
+                        filtered_100c += 1
+                    else:
+                        filtered_0c += 1
+                    continue
 
             if (warm_target_filter and is_upper_tail_ceiling_risk(
                     icao, faixa, fget("teto_ens"))):
                 filtered += 1
                 filtered_upper_tail += 1
+                filtered_signals_by_reason["upper_tail"].append(
+                    blocked_signal)
                 if final_no > 0.5:
                     filtered_100c += 1
                 else:
@@ -759,8 +790,11 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
             if warm_with_plateau:
                 filtered += 1
                 filtered_nowcast += 1
+                filtered_signals_by_reason["nowcast"].append(blocked_signal)
                 if not warm_without_plateau:
                     filtered_plateau += 1
+                    filtered_signals_by_reason["plateau"].append(
+                        blocked_signal)
                 if final_no > 0.5:
                     filtered_100c += 1
                 else:
@@ -791,8 +825,12 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
         "n_filtrado_taf": filtered_taf,
         "n_filtrado_faixa_unica": filtered_single_band,
         "single_band": single_band,
+        "ensemble_band_filter": ensemble_band_filter,
         "n_filtrado_100c": filtered_100c,
         "n_filtrado_0c": filtered_0c,
+        "filtered_signals_by_reason": dict(filtered_signals_by_reason),
+        "filter_performance": filter_performance_by_reason(
+            filtered_signals_by_reason, stake_frac),
     })
     log(f"ceifa parcelada ({interval_minutes} min): {stats['n']} parcelas · "
         f"{filtered} oportunidades recusadas por incerteza.")
@@ -970,6 +1008,27 @@ def _stats_relative_available_stake(signals: list, days: int,
         "stake_frac": stake_frac, "n_capital_limited": 0,
         "n_stopped": 0,
     }
+
+
+def filter_performance_by_reason(signals_by_reason: dict[str, list],
+                                 stake_frac: float) -> dict[str, dict]:
+    """Contrafactual dos sinais recusados, separado pelo filtro que os vetou.
+
+    Cada grupo parte de uma banca 1,0 independente e usa exatamente o mesmo
+    parcelamento relativo da estrategia ativa. Assim o retorno responde quanto
+    aquelas entradas teriam rendido se apenas aquele filtro fosse removido.
+    """
+    result = {}
+    for reason, signals in signals_by_reason.items():
+        days = len({str(signal["day"]) for signal in signals})
+        stats = _stats_relative_available_stake(signals, days, stake_frac)
+        result[reason] = {
+            "n": stats.get("n", 0),
+            "to_100c": stats.get("wins", 0),
+            "to_0c": stats.get("n", 0) - stats.get("wins", 0),
+            "return": stats.get("real_mult", 1.0) - 1.0,
+        }
+    return result
 
 
 def _stats(signals: list, days: int) -> dict:

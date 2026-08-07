@@ -30,6 +30,10 @@ BLUE = "#68a8ff"
 PLOT = "#0c1319"
 GRID = "#24323b"
 
+# Fuso do relógio em que o alerta chega para você — usado para mostrar em que
+# horários do dia as parcelas históricas mais aparecem (quando ficar online).
+USER_TZ = "America/Sao_Paulo"
+
 st.set_page_config(
     page_title="Ceifa Monitor",
     page_icon="🌾",
@@ -105,8 +109,14 @@ def hero(subtitle: str) -> None:
     )
 
 
+STRATEGY_CACHE_VERSION = 4
+
+
 @st.cache_data(show_spinner="Recalculando a Ceifa nos nossos snapshots…")
-def load_strategy(kind: str, side: str) -> dict:
+def load_strategy(kind: str, side: str, cache_version: int) -> dict:
+    # ``cache_version`` invalida resultados persistidos quando o formato das
+    # estatísticas muda, mesmo que os arquivos de snapshots sejam os mesmos.
+    _ = cache_version
     if side == "SIM":
         return monitor.run_yes_strategy(kind)
     return (monitor.run_minimum_strategy() if kind == "minimum"
@@ -179,10 +189,116 @@ def daily_chart(stats: dict) -> go.Figure:
         hovertemplate=("%{x|%d/%m}<br>Retorno: %{y:+.2f}%"
                        "<br>Parcelas: %{customdata[0]}"
                        "<br>Acertos: %{customdata[1]}<extra></extra>"))
+    mean_ret = daily["return_pct"].mean()
+    fig.add_hline(
+        y=mean_ret, line_dash="dash", line_color=AMBER,
+        annotation_text=f"média {mean_ret:+.2f}%",
+        annotation_position="top left", annotation_font_color=AMBER)
     fig.update_layout(
         height=330, margin=dict(l=15, r=15, t=10, b=10),
         xaxis_title=None, yaxis_title="Retorno do dia (%)",
         showlegend=False,
+    )
+    fig.update_xaxes(showgrid=False)
+    return dark_figure(fig)
+
+
+def filter_daily_chart(stats: dict) -> go.Figure:
+    """Barras diárias empilhadas pelos motivos de bloqueio."""
+    frame = monitor.filter_daily_frame(stats)
+    if frame.empty:
+        return go.Figure()
+    fig = px.bar(
+        frame, x="Dia", y="Bloqueios", color="Legenda",
+        barmode="stack", custom_data=["Estratégia", "Motivo"],
+        labels={"Legenda": "Motivo"})
+    fig.update_traces(
+        hovertemplate=("%{x|%d/%m}<br>%{customdata[0]}"
+                       "<br>%{customdata[1]}: %{y} bloqueio(s)"
+                       "<extra></extra>"))
+    fig.update_layout(
+        height=390, margin=dict(l=10, r=10, t=15, b=10),
+        xaxis_title=None, yaxis_title="Parcelas bloqueadas",
+        legend_title_text="Estratégia · motivo",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="left", x=0))
+    fig.update_xaxes(dtick="D1", tickformat="%d/%m")
+    return dark_figure(fig)
+
+
+def _local_timestamps(stats: dict) -> pd.Series:
+    """Instantes das parcelas convertidos para o fuso do usuário."""
+    stamps = [signal.get("ts") for signal in stats.get("signals", [])
+              if signal.get("ts") is not None]
+    if not stamps:
+        return pd.Series(dtype="datetime64[ns, America/Sao_Paulo]")
+    stamps = pd.to_datetime(pd.Series(stamps), utc=True)
+    return stamps.dt.tz_convert(USER_TZ)
+
+
+def _local_hours(stats: dict) -> pd.Series:
+    """Hora do dia (fuso do usuário) de cada parcela executada no histórico."""
+    return _local_timestamps(stats).dt.hour
+
+
+def hourly_counts(stats: dict) -> pd.Series:
+    """Total de parcelas por hora do dia (0–23), no fuso do usuário."""
+    hours = _local_hours(stats)
+    if hours.empty:
+        return pd.Series(dtype="int64")
+    return hours.value_counts().reindex(range(24), fill_value=0).sort_index()
+
+
+def hourly_day_count(stats: dict) -> int:
+    """Dias com parcelas, incluindo zero nas horas sem entrada daquele dia."""
+    stamps = _local_timestamps(stats)
+    if stamps.empty:
+        return 0
+    return int(stamps.dt.normalize().nunique())
+
+
+def hourly_average(stats: dict) -> pd.Series:
+    """Média diária de parcelas em cada hora, no período selecionado."""
+    counts = hourly_counts(stats)
+    days = hourly_day_count(stats)
+    if counts.empty or not days:
+        return pd.Series(dtype="float64")
+    return counts.astype(float) / days
+
+
+def hourly_chart(stats: dict) -> go.Figure:
+    """Média diária das parcelas por horário — quando ficar online.
+
+    A linha tracejada marca a média por hora; a barra âmbar é o horário de
+    pico e as barras verdes são as horas acima da média.
+    """
+    counts = hourly_counts(stats)
+    averages = hourly_average(stats)
+    days = hourly_day_count(stats)
+    if averages.empty:
+        return go.Figure()
+    mean = averages.mean()
+    peak = int(averages.idxmax())
+    colors = [AMBER if hour == peak else (GREEN if value >= mean else "#2f6b58")
+              for hour, value in averages.items()]
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=[f"{hour:02d}h" for hour in averages.index], y=averages.values,
+        customdata=[[int(counts.loc[hour]), days]
+                    for hour in averages.index],
+        marker_color=colors,
+        hovertemplate=("%{x} (Brasília)<br>Média: %{y:.2f} parcelas/dia"
+                       "<br>Acumulado: %{customdata[0]}"
+                       "<br>Dias com apostas: %{customdata[1]}<extra></extra>"),
+    ))
+    fig.add_hline(
+        y=mean, line_dash="dash", line_color=INK,
+        annotation_text=f"média {mean:.2f}/dia",
+        annotation_position="top left", annotation_font_color=INK)
+    fig.update_layout(
+        height=330, margin=dict(l=15, r=15, t=20, b=10),
+        xaxis_title=None, yaxis_title="Média de parcelas por dia",
+        showlegend=False, bargap=0.15,
     )
     fig.update_xaxes(showgrid=False)
     return dark_figure(fig)
@@ -284,7 +400,23 @@ def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
     if daily:
         st.caption(
             f"Período com {len(daily)} dia(s) de apostas · melhor dia "
-            f"{pct(risk['best_day'], 2)} · pior dia {pct(risk['worst_day'], 2)}.")
+            f"{pct(risk['best_day'], 2)} · pior dia {pct(risk['worst_day'], 2)} "
+            "· linha tracejada = retorno médio do dia.")
+
+    counts = hourly_counts(stats)
+    if not counts.empty:
+        averages = hourly_average(stats)
+        days = hourly_day_count(stats)
+        st.subheader("Parcelas por horário do dia (hora de Brasília)")
+        st.plotly_chart(hourly_chart(stats), width="stretch")
+        top = averages.sort_values(ascending=False).head(3)
+        picos = " · ".join(f"{hour:02d}h ({value:.2f}/dia)"
+                           for hour, value in top.items())
+        st.caption(
+            f"Média por dia nos horários de pico: {picos}. "
+            f"Cálculo sobre {days} dia(s) com apostas, incluindo zero nas "
+            "horas sem entrada. O acumulado continua disponível ao passar "
+            "o mouse — o relógio é o de Brasília.")
 
 
 def errors_page(stats: dict) -> None:
@@ -550,11 +682,27 @@ def cities_page(stats: dict, full_stats: dict,
             column_config={
                 "Estratégia": st.column_config.TextColumn(width="small"),
                 "Filtro": st.column_config.TextColumn(width="medium"),
+                "Status": st.column_config.TextColumn(width="medium"),
                 "Quando bloqueia": st.column_config.TextColumn(width="large"),
-                "Entradas bloqueadas": st.column_config.NumberColumn(
+                "Casos identificados": st.column_config.NumberColumn(
                     width="small", format="%d"),
+                "Foram a 100¢": st.column_config.NumberColumn(
+                    width="small", format="%d"),
+                "Foram a 0¢": st.column_config.NumberColumn(
+                    width="small", format="%d"),
+                "Retorno dos casos": st.column_config.TextColumn(
+                    width="medium"),
                 "Observação": st.column_config.TextColumn(width="large"),
             })
+
+        daily_filters = monitor.filter_daily_frame(stats)
+        if not daily_filters.empty:
+            st.subheader("Bloqueios por dia e motivo")
+            st.plotly_chart(filter_daily_chart(stats), width="stretch")
+            st.caption(
+                "Cada barra conta parcelas potenciais bloqueadas naquele dia. "
+                "As cores separam o motivo e a estratégia. Platô aparece "
+                "separado do nowcast, sem dupla contagem.")
 
         f1, f2, f3 = st.columns(3)
         f1.metric("Total de entradas bloqueadas",
@@ -645,10 +793,12 @@ def main() -> None:
         if refresh_col.button("↻ Atualizar", width="stretch"):
             with st.spinner("Buscando os dados mais recentes no GitHub…"):
                 refresh_result = monitor.sync_dashboard_data()
-            if refresh_result.get("updated"):
-                load_strategy.clear()
-                load_losses.clear()
-                load_timeline.clear()
+            # Atualizar também significa refazer os indicadores. Antes o cache
+            # só era limpo quando o GitHub tinha arquivo novo; uma mudança de
+            # cálculo podia, portanto, continuar mostrando valores antigos.
+            load_strategy.clear()
+            load_losses.clear()
+            load_timeline.clear()
             st.session_state["refresh_notice"] = refresh_result
             st.rerun()
 
@@ -681,8 +831,10 @@ def main() -> None:
     }[period_label]
     experimental_stats = None
     if consolidated:
-        maximum_stats = load_strategy("maximum", "NÃO")
-        minimum_stats = load_strategy("minimum", "NÃO")
+        maximum_stats = load_strategy(
+            "maximum", "NÃO", STRATEGY_CACHE_VERSION)
+        minimum_stats = load_strategy(
+            "minimum", "NÃO", STRATEGY_CACHE_VERSION)
         full_stats = monitor.combine_active_strategies(
             maximum_stats, minimum_stats)
         experimental_full = monitor.single_band_scenario(
@@ -690,7 +842,7 @@ def main() -> None:
         experimental_stats = monitor.slice_strategy(
             experimental_full, lookback)
     else:
-        full_stats = load_strategy(kind, side)
+        full_stats = load_strategy(kind, side, STRATEGY_CACHE_VERSION)
     stats = monitor.slice_strategy(full_stats, lookback)
     if "Visão geral" in page:
         overview(stats, full_stats, minimum, side, consolidated,
