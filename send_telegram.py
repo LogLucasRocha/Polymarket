@@ -77,11 +77,15 @@ def main() -> int:
     ap.add_argument("--no-positions", action="store_true",
                     help="não anexa o resumo de posições da Polymarket "
                          "(mesmo com POLYMARKET_WALLET definido)")
+    ap.add_argument("--signals-only", action="store_true",
+                    help="calcula e grava os sinais para o executor SEM enviar "
+                         "nada ao Telegram (para alimentar o run_executor local; "
+                         "não exige TELEGRAM_TOKEN)")
     args = ap.parse_args()
 
     token = os.environ.get("TELEGRAM_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
-    if not token or not chat_id:
+    if not args.signals_only and (not token or not chat_id):
         print("ERRO: defina TELEGRAM_TOKEN e TELEGRAM_CHAT_ID no ambiente.",
               file=sys.stderr)
         return 2
@@ -199,7 +203,8 @@ def main() -> int:
             print(f"[polymarket] ERRO ao ler posições: {exc}", file=sys.stderr)
         # Evolução do portfólio: no máximo 1x por hora (decisão do Lucas).
         pnl_sent_at = float(state.get("pnl_sent_at") or 0)
-        if (config.POSITIONS_SUMMARY_ENABLED and positions and novidade
+        if (config.POSITIONS_SUMMARY_ENABLED and not args.signals_only
+                and positions and novidade
                 and time.time() - pnl_sent_at >= 3600):
             try:
                 notify.send_message(
@@ -221,7 +226,8 @@ def main() -> int:
     # contradiz a estratégia (o stop não pega gap e vende whipsaw), então só
     # dispara se CEIFA_STOP_ENABLED voltar a True. Seguimos gravando o
     # record_stops acima só como dado de drawdown para análise.
-    stop_msg = _stop_alerts(positions) if config.CEIFA_STOP_ENABLED else None
+    stop_msg = (_stop_alerts(positions)
+                if config.CEIFA_STOP_ENABLED and not args.signals_only else None)
     if stop_msg:
         try:
             notify.send_message(token, chat_id, stop_msg)
@@ -243,7 +249,8 @@ def main() -> int:
     # do envelope do ensemble ("acima do teto / abaixo do piso"). DESLIGADOS
     # por config.COND_ALERTS_ENABLED (decisão do Lucas, 16/07). Reversível.
     cond_state = state.get("cond_alerts", {})
-    for station in (stations if config.COND_ALERTS_ENABLED else ()):
+    for station in (stations if config.COND_ALERTS_ENABLED
+                    and not args.signals_only else ()):
         ctx = contexts.get(station.icao)
         if ctx is None or station.icao not in pos_icaos:
             continue
@@ -458,6 +465,11 @@ def main() -> int:
     # na máquina do usuário com a chave da carteira). Acessório — nunca derruba.
     _cap(_write_executor_signals, ceifa_pending, minimum_pending,
          signal_rows, minimum_signal_rows, run_now_utc)
+
+    # Modo --signals-only: já gravou os sinais para o executor local; não envia
+    # nenhum alerta (evita duplicar o Telegram do cron da nuvem) e encerra aqui.
+    if args.signals_only:
+        return 0
 
     # 3) Um alerta por cidade com oportunidade de Ceifa. A PRIMEIRA aparição
     # leva o bloco enxuto (gráfico da distribuição do ensemble + TAF + mediana,
