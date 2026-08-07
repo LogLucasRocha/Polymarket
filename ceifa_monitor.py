@@ -237,13 +237,13 @@ def daily_chart(stats: dict, days: int | None = None) -> go.Figure:
 
 def blocks_by_day_chart(blocks: pd.DataFrame,
                         days: int | None = None) -> go.Figure:
-    """Entradas bloqueadas por dia, agrupadas por motivo (barras lado a lado)."""
+    """Uma barra por dia, empilhada pelos motivos de bloqueio."""
     blocks = clip_last_days(blocks, days, column="dia")
     if blocks.empty:
         return go.Figure()
     fig = px.bar(
         blocks, x="dia", y="bloqueios", color="motivo",
-        color_discrete_map=BLOCK_COLORS, barmode="group",
+        color_discrete_map=BLOCK_COLORS, barmode="stack",
         custom_data=["motivo"],
     )
     fig.update_traces(
@@ -697,12 +697,6 @@ def cities_page(stats: dict, full_stats: dict,
                 consolidated: bool = False) -> None:
     minimum = stats.get("archive_kind") == "minimum"
     side = stats.get("side", "NAO")
-    cities = monitor.city_frame(stats)
-    st.subheader("Desempenho por cidade")
-    if not cities.empty:
-        view = cities.copy()
-        view["Assertividade"] = view["Assertividade"].map(lambda value: f"{value:.1%}")
-        st.dataframe(view, hide_index=True, width="stretch", height=460)
 
     st.subheader("Filtros ativos")
     if consolidated:
@@ -745,7 +739,7 @@ def cities_page(stats: dict, full_stats: dict,
             st.plotly_chart(
                 blocks_by_day_chart(blocks, days), width="stretch")
             st.caption(
-                "Cada barra é uma entrada bloqueada naquele dia, colorida pelo "
+                "Uma barra por dia com o total de bloqueios; cada fatia é um "
                 "motivo. Platô já está somado em desvio/nowcast.")
 
         f1, f2, f3 = st.columns(3)
