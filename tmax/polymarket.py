@@ -315,6 +315,7 @@ def odds_rows(event: dict, prob_fn=None, *, include_all: bool = False) -> list[d
             "yes_ask_size": r.get("yes_ask_size"),
             "no_ask": r.get("no_ask"),
             "no_ask_size": r.get("no_ask_size"),
+            "no_token_id": r.get("no_token_id"),
             "mp": mp, "mp_no": None if mp is None else 1.0 - mp,
         })
     return rows
