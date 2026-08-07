@@ -34,6 +34,22 @@ O backtest das mínimas usa parcelas de 1% do caixa livre a cada cinco minutos
 enquanto preço, oferta e H-1 continuarem elegíveis, sem teto por contrato e sem
 alavancagem. Trata-se apenas de monitoramento; nenhum alerta executa uma aposta.
 
+### Estudo SPY (Daily Up or Down)
+
+Monitor observacional do mercado `spy-up-or-down-on-<data>` da Polymarket. A
+cada 10 min o `spy.capture` (pendurado no `main.yml`) arquiva um snapshot do
+mercado do dia com preço e melhor ask dos dois lados (Up e Down) em `dados_spy/`
+(parquet commitado) e `data_spy/` (buffer do dia, que entra no zip do botão
+Atualizar). Fins de semana e feriados não têm mercado — a rodada apenas não
+grava.
+
+O estudo (`spy.study`, aba **SPY** do monitor) aloca no lado (Up **ou** Down)
+cujo preço estiver na faixa (0,95, 0,996), adicionando 1% do caixa livre a cada
+10 min — o mesmo modelo de parcelas da Ceifa. Reporta parcelas, assertividade,
+rendimento e drawdown em seis janelas de entrada relativas ao fechamento (16:00
+ET): sem janela, H-1, H-2, H-3, H-6 e H-12. Só observa; não envia alerta nem
+ordem.
+
 Previsão de TMax para Guarulhos, Buenos Aires e Moscou, D0 e D+1.
 
 Pipeline que combina múltiplos modelos numéricos, ensembles, correção de viés
