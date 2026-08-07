@@ -40,6 +40,7 @@ jobs:
           path: |
             data
             data_low
+            data_spy
           key: tmax-data-${{ github.run_id }}
           restore-keys: |
             tmax-data-
@@ -81,6 +82,13 @@ jobs:
         continue-on-error: true
         run: python -m lowtemp.capture
 
+      # Captura do mercado "SPY Daily Up or Down" (estudo/observação). Fins de
+      # semana e feriados não têm mercado — a rodada apenas não grava. Só
+      # arquiva; não envia alerta nem ordem.
+      - name: Capturar SPY Up or Down (observação)
+        continue-on-error: true
+        run: python -m spy.capture
+
       # Pacote mutável do dia corrente para o botão Atualizar do dashboard.
       # Fica como asset de uma release, portanto não cria 144 commits por dia
       # nem aumenta o histórico do git a cada rodada.
@@ -94,7 +102,8 @@ jobs:
           from pathlib import Path
           from zipfile import ZIP_DEFLATED, ZipFile
 
-          roots = (Path("data/capture/buffer"), Path("data_low"))
+          roots = (Path("data/capture/buffer"), Path("data_low"),
+                   Path("data_spy"))
           with ZipFile("ceifa-live.zip", "w", ZIP_DEFLATED) as archive:
               for root in roots:
                   if not root.exists():
@@ -123,6 +132,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add dados
           [ -d dados_low ] && git add dados_low || true
+          [ -d dados_spy ] && git add dados_spy || true
           if git diff --cached --quiet; then
             echo "sem dados novos para commitar"; exit 0
           fi

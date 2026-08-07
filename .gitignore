@@ -3,6 +3,8 @@ reports/
 data/
 dados_live/
 dados_low_live/
+data_spy/
+data_spy_live/
 
 # Python
 __pycache__/

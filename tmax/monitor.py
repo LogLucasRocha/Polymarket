@@ -152,6 +152,17 @@ def _write_live_frames(rows_by_archive: dict[tuple[str, str], list[dict]]) -> in
     return written
 
 
+def _write_spy_live_buffer(lines: list[str]) -> None:
+    """Grava o buffer intradiário do SPY vindo do zip para data_spy_live/."""
+    destination = config.ROOT / "data_spy_live"
+    shutil.rmtree(destination, ignore_errors=True)
+    if not lines:
+        return
+    destination.mkdir(parents=True, exist_ok=True)
+    (destination / "mercado.jsonl").write_text(
+        "\n".join(lines) + "\n", encoding="utf-8")
+
+
 def _sync_live_snapshot() -> dict:
     """Baixa o asset mutável que contém as rodadas do dia UTC corrente."""
     headers = {"User-Agent": config.USER_AGENT,
@@ -184,12 +195,19 @@ def _sync_live_snapshot() -> dict:
     response.raise_for_status()
 
     rows_by_archive: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    spy_lines: list[str] = []
     with ZipFile(io.BytesIO(response.content)) as archive:
         for name in archive.namelist():
             path = PurePosixPath(name)
             if path.suffix != ".jsonl":
                 continue
             parts = path.parts
+            if parts[:1] == ("data_spy",):
+                # Buffer do SPY copiado verbatim (o estudo lê o JSONL cru).
+                spy_lines.extend(
+                    line for line in archive.read(name).decode("utf-8")
+                    .splitlines() if line.strip())
+                continue
             if parts[:3] == ("data", "capture", "buffer") and len(parts) >= 5:
                 kind, base = "maximum", parts[3]
             elif parts[:1] == ("data_low",) and len(parts) == 2:
@@ -201,6 +219,7 @@ def _sync_live_snapshot() -> dict:
                 if line.strip():
                     rows_by_archive[(kind, base)].append(json.loads(line))
     written = _write_live_frames(rows_by_archive)
+    _write_spy_live_buffer(spy_lines)
     captured = max(
         (str(row.get("ts_utc")) for rows in rows_by_archive.values()
          for row in rows if row.get("ts_utc")), default=None)

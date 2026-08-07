@@ -20,6 +20,7 @@ except Exception:
     pass
 
 from tmax import config, monitor
+from spy import study as spy_study
 
 GREEN = "#38d39f"
 RED = "#ff6b6b"
@@ -152,6 +153,11 @@ def load_strategy(kind: str, side: str) -> dict:
         return monitor.run_yes_strategy(kind)
     return (monitor.run_minimum_strategy() if kind == "minimum"
             else monitor.run_strategy())
+
+
+@st.cache_data(show_spinner="Recalculando o estudo do SPY…")
+def load_spy() -> list[tuple[str, dict]]:
+    return spy_study.run_variants()
 
 
 @st.cache_data
@@ -796,6 +802,54 @@ def cities_page(stats: dict, full_stats: dict,
             f"{config.CEIFA_REPEAT_MINUTES} minutos · sem alavancagem.")
 
 
+def spy_page() -> None:
+    """Estudo do SPY Daily Up or Down (fase de observação)."""
+    variants = load_spy()
+    latest = spy_study.latest_day()
+    st.caption(
+        f"Último dia capturado: {latest or '—'} · aloca no lado (Up ou Down) "
+        "que estiver entre 95¢ e 99,6¢, com 1% do caixa livre a cada 10 min. "
+        "Fase de observação — sem apostas reais.")
+
+    if not any(stats.get("n", 0) for _, stats in variants):
+        st.info(
+            "Ainda sem parcelas capturadas do SPY. A coleta roda a cada 10 min "
+            "no GitHub Actions; assim que houver um dia com o Up ou o Down na "
+            "faixa (95–99,6¢), os números aparecem aqui. Clique em **Atualizar** "
+            "para puxar o snapshot mais recente.")
+        return
+
+    rows = []
+    for label, stats in variants:
+        pick = stats.get("by_pick", {})
+        rows.append({
+            "Janela": label,
+            "Parcelas": stats.get("n", 0),
+            "Acertos": stats.get("wins", 0),
+            "Erros": stats.get("n", 0) - stats.get("wins", 0),
+            "Assertividade": f"{stats.get('hit', 0):.2%}",
+            "Rendimento": pct(stats.get("real_mult", 1) - 1, 2),
+            "Drawdown": f"{stats.get('real_dd', 0):.2%}",
+            "Up/Down": f"{pick.get('up', 0)}/{pick.get('down', 0)}",
+        })
+    st.subheader("Resultado por janela de entrada")
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+    st.caption(
+        "H-n = só as parcelas dentro das últimas n horas antes do fechamento "
+        "(16:00 ET). 'Sem janela' entra o dia todo. Up/Down = quantas parcelas "
+        "caíram em cada lado.")
+
+    base = variants[0][1]
+    if base.get("per_day"):
+        left, right = st.columns(2)
+        with left:
+            st.subheader("Evolução (sem janela)")
+            st.plotly_chart(equity_chart(base), width="stretch")
+        with right:
+            st.subheader("Retorno de cada dia")
+            st.plotly_chart(daily_chart(base), width="stretch")
+
+
 def main() -> None:
     refresh_notice = st.session_state.pop("refresh_notice", None)
     if refresh_notice:
@@ -807,7 +861,8 @@ def main() -> None:
     with st.container(key="bottom_navigation"):
         page = st.radio(
             "Navegação",
-            ["▦  Visão geral", "◎  Erros", "⌁  Cidades e filtros"],
+            ["▦  Visão geral", "◎  Erros", "⌁  Cidades e filtros",
+             "◇  SPY"],
             horizontal=True,
             label_visibility="collapsed",
             key="page_navigation",
@@ -837,8 +892,15 @@ def main() -> None:
                 load_strategy.clear()
                 load_losses.clear()
                 load_timeline.clear()
+                load_spy.clear()
             st.session_state["refresh_notice"] = refresh_result
             st.rerun()
+
+    if "SPY" in page:
+        hero("SPY Daily Up or Down · aloca no lado (Up ou Down) na faixa "
+             "95–99,6¢, 1% do caixa livre a cada 10 min.")
+        spy_page()
+        return
 
     kind = ("consolidated" if consolidated else
             "minimum" if strategy_label == "❄️ Mínimas" else "maximum")
