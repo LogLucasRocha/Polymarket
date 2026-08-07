@@ -326,6 +326,8 @@ def combine_active_strategies(maximum: dict, minimum: dict) -> dict:
                              + minimum.get("n_filtrado_100c", 0)),
         "n_filtrado_0c": (maximum.get("n_filtrado_0c", 0)
                            + minimum.get("n_filtrado_0c", 0)),
+        "filtered_records": (maximum.get("filtered_records", [])
+                             + minimum.get("filtered_records", [])),
     })
     return stats
 
@@ -489,6 +491,25 @@ def filter_frame(stats: dict) -> pd.DataFrame:
                 "a ativação do filtro."),
         })
     return pd.DataFrame(rows)
+
+
+def blocks_by_day_frame(stats: dict) -> pd.DataFrame:
+    """Contagem de entradas bloqueadas por dia e por motivo.
+
+    Uma linha por (dia, motivo). "Platô observado" não entra como motivo
+    próprio: ele já está contido em "Desvio/nowcast quente" e seria dupla
+    contagem — mesma regra da tabela de filtros.
+    """
+    records = stats.get("filtered_records", [])
+    if not records:
+        return pd.DataFrame(columns=["dia", "motivo", "bloqueios"])
+    frame = pd.DataFrame(records)
+    if frame.empty or "dia" not in frame or "motivo" not in frame:
+        return pd.DataFrame(columns=["dia", "motivo", "bloqueios"])
+    frame["dia"] = pd.to_datetime(frame["dia"])
+    counts = (frame.groupby(["dia", "motivo"], observed=True)
+              .size().reset_index(name="bloqueios"))
+    return counts.sort_values(["dia", "motivo"]).reset_index(drop=True)
 
 
 def city_frame(stats: dict) -> pd.DataFrame:
