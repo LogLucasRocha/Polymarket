@@ -636,7 +636,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                       stake_frac: float = 0.01,
                       uncertainty_filter: bool = True,
                       minimum_taf_filter: bool = False,
-                      ensemble_band_filter: bool = False,
+                      ensemble_band_filter: bool | None = None,
                       monitor_ensemble_band: bool = True,
                       single_band: bool = False) -> dict:
     """Ceifa parcelada: uma stake relativa a cada rodada elegível da H-1.
@@ -649,11 +649,15 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
     desligados no estudo de mínimas. ``minimum_taf_filter`` reproduz o veto
     operacional de TSRA/VCTS quando essa informação existe no snapshot.
     ``ensemble_band_filter`` liga o veto de faixa dentro do intervalo
-    P10–P90. Quando desligado, ``monitor_ensemble_band`` ainda registra esses
-    casos como filtro-sombra sem impedir a entrada. ``single_band`` ativa apenas o
-    cenário comparativo que trava a faixa com maior ask executável na
-    primeira rodada de cada cidade/data.
+    P10–P90. Por padrão, segue ``config.CEIFA_ENSEMBLE_BAND_FILTER``. Quando
+    desligado, ``monitor_ensemble_band`` ainda registra esses casos como
+    filtro-sombra sem impedir a entrada. ``single_band`` ativa apenas o cenário
+    comparativo que trava a faixa com maior ask executável na primeira rodada
+    de cada cidade/data.
     """
+    if ensemble_band_filter is None:
+        ensemble_band_filter = config.CEIFA_ENSEMBLE_BAND_FILTER
+
     mkt = _load("mercado", archive)
     prev = _load("previsao", archive)
     if icaos is not None:
@@ -662,7 +666,8 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
         prev = prev[prev["icao"].isin(icaos)] if not prev.empty else prev
     if mkt.empty or prev.empty:
         return {"n": 0, "days": 0, "signals": [],
-                "stake_frac": stake_frac, "repeat_minutes": interval_minutes}
+                "stake_frac": stake_frac, "repeat_minutes": interval_minutes,
+                "ensemble_band_filter": ensemble_band_filter}
 
     resolutions = _resolved_prices(mkt, "preco_nao")
     candidates = _execution_candidates(mkt, "NAO")
@@ -820,6 +825,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
         "n_filtrado_taf": filtered_taf,
         "n_filtrado_faixa_unica": filtered_single_band,
         "single_band": single_band,
+        "ensemble_band_filter": ensemble_band_filter,
         "n_filtrado_100c": filtered_100c,
         "n_filtrado_0c": filtered_0c,
         "filtered_signals_by_reason": dict(filtered_signals_by_reason),

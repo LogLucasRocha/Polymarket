@@ -39,6 +39,7 @@ def main() -> int:
     # preservando a unidade de resolução de cada contrato (°C ou °F).
     st = ceifa.simulate_repeated(
         log, icaos=set(config.STATIONS),
+        ensemble_band_filter=config.CEIFA_ENSEMBLE_BAND_FILTER,
         interval_minutes=config.CEIFA_REPEAT_MINUTES,
         stake_frac=config.CEIFA_STAKE_FRAC)
     text = backtest.ceifa_report_text(st)

@@ -4,10 +4,11 @@ import gzip
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 import pandas as pd
 
-from tmax import ceifa
+from tmax import ceifa, config
 
 
 class WarmTargetRiskTests(unittest.TestCase):
@@ -339,6 +340,12 @@ class WarmTargetRiskTests(unittest.TestCase):
                 ensemble_band_filter=True)
             self.assertEqual(filtered["n"], 0)
             self.assertEqual(filtered["n_filtrado_ensemble_band"], 1)
+
+            with patch.object(config, "CEIFA_ENSEMBLE_BAND_FILTER", True):
+                configured = ceifa.simulate_repeated(
+                    icaos={"LFPB"}, archive=archive,
+                    warm_target_filter=False, uncertainty_filter=False)
+            self.assertEqual(configured["n"], 0)
 
     def test_repeated_strategy_uses_one_percent_of_free_cash(self):
         with TemporaryDirectory() as tmp:
