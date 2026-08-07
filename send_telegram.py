@@ -19,8 +19,8 @@ Modo silencioso — o Telegram só recebe:
      aparição leva o bloco enxuto: um gráfico com a TRAJETÓRIA hora a hora + a
      distribuição, e texto com o horário local, o extremo previsto, a
      mediana, P10/P90 e o piso/teto do ensemble — SEM tabela de probabilidades;
-     as repetições vêm em texto curto. O desempenho da Ceifa vai num relatório
-     diário às 06:00 (run_ceifa.py), medido SÓ nos nossos snapshots (dados/).
+     as repetições vêm em texto curto. O desempenho da Ceifa fica no Monitor
+     Ceifa (ceifa_monitor.py), medido SÓ nos nossos snapshots (dados/).
   2. Para cidades com posição aberta: SEM bloco — apenas avisos pontuais em
      texto de platô (2h de lado) e fuga do envelope do ensemble, uma vez por
      episódio.

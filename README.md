@@ -132,9 +132,9 @@ aparição vem com um **bloco enxuto**: gráfico da
 distribuição (ensemble + TAF + mediana) e texto com o **pico previsto** e a
 **mediana (P10/P90)** — sem tabela de probabilidades e sem hora a hora; as
 repetições vêm em texto curto. O **desempenho da Ceifa** (testes,
-assertividade, rendimento, drawdown) é enviado **todo dia às 06:00 de Brasília**
-(`run_ceifa.py` / workflow `ceifa_report.yml`). Você também pode pedir o
-relatório completo de qualquer cidade pelo comando abaixo.
+assertividade, rendimento, drawdown) fica no **Monitor Ceifa**
+(`ceifa_monitor.py`). Você também pode pedir o relatório completo de qualquer
+cidade pelo comando abaixo.
 
 Para auditoria, cada rodada também arquiva em `dados/nowcast/` até três horas
 que formaram o ajuste: METAR bruto, temperatura observada, média corrigida dos

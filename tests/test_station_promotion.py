@@ -1,6 +1,5 @@
 import unittest
 
-import run_ceifa_low
 from tmax import config, polymarket
 
 
@@ -22,10 +21,11 @@ class StationPromotionTests(unittest.TestCase):
             with self.subTest(icao=icao):
                 self.assertEqual(config.STATIONS[icao].unit, "F")
 
-    def test_minimum_report_unifies_both_units(self):
-        icaos = run_ceifa_low.minimum_station_icaos()
+    def test_minimum_study_covers_both_units(self):
+        # A Ceifa de mínimas roda sobre todas as estações ativas, nas duas
+        # unidades (send_telegram/monitor usam set(config.STATIONS)).
+        icaos = set(config.STATIONS)
 
-        self.assertEqual(icaos, set(config.STATIONS))
         self.assertEqual({config.STATIONS[icao].unit for icao in icaos},
                          {"C", "F"})
 
