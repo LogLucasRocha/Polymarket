@@ -1,399 +1,399 @@
 {
  "min_conf": 0.9,
- "days": 4154,
+ "days": 4271,
  "por_faixa_dia": {
   "CYYZ": {
-   "n": 1053,
-   "acerto": 0.8832,
-   "conf_media": 0.9899
-  },
-  "EDDM": {
-   "n": 981,
-   "acerto": 0.8542,
-   "conf_media": 0.9966
-  },
-  "EFHK": {
-   "n": 958,
-   "acerto": 0.8789,
-   "conf_media": 0.992
-  },
-  "EGLC": {
-   "n": 1066,
-   "acerto": 0.8809,
-   "conf_media": 0.9935
-  },
-  "EHAM": {
-   "n": 1111,
-   "acerto": 0.8875,
-   "conf_media": 0.9932
-  },
-  "EPWA": {
-   "n": 1098,
-   "acerto": 0.8807,
-   "conf_media": 0.9949
-  },
-  "FACT": {
-   "n": 932,
-   "acerto": 0.8873,
-   "conf_media": 0.9891
-  },
-  "KATL": {
-   "n": 1101,
-   "acerto": 0.8574,
-   "conf_media": 0.9955
-  },
-  "KBKF": {
-   "n": 1087,
-   "acerto": 0.874,
-   "conf_media": 0.9965
-  },
-  "KDAL": {
-   "n": 1055,
-   "acerto": 0.8882,
-   "conf_media": 0.9942
-  },
-  "KHOU": {
-   "n": 1048,
-   "acerto": 0.8855,
-   "conf_media": 0.994
-  },
-  "KLAX": {
-   "n": 1079,
-   "acerto": 0.8999,
-   "conf_media": 0.9833
-  },
-  "KLGA": {
-   "n": 1059,
-   "acerto": 0.8867,
-   "conf_media": 0.9935
-  },
-  "KMIA": {
-   "n": 1069,
-   "acerto": 0.87,
-   "conf_media": 0.9929
-  },
-  "KORD": {
-   "n": 1104,
-   "acerto": 0.8958,
-   "conf_media": 0.9952
-  },
-  "KSEA": {
-   "n": 1067,
-   "acerto": 0.881,
-   "conf_media": 0.9948
-  },
-  "LEMD": {
-   "n": 1130,
-   "acerto": 0.8646,
-   "conf_media": 0.9964
-  },
-  "LFPB": {
-   "n": 1080,
-   "acerto": 0.8722,
-   "conf_media": 0.9953
-  },
-  "LIMC": {
-   "n": 975,
-   "acerto": 0.8554,
-   "conf_media": 0.9962
-  },
-  "LLBG": {
-   "n": 975,
-   "acerto": 0.8554,
-   "conf_media": 0.9942
-  },
-  "LTAC": {
-   "n": 1116,
-   "acerto": 0.8602,
-   "conf_media": 0.9949
-  },
-  "LTFM": {
-   "n": 1063,
-   "acerto": 0.9087,
-   "conf_media": 0.9884
-  },
-  "MMMX": {
-   "n": 1004,
-   "acerto": 0.8835,
-   "conf_media": 0.9885
-  },
-  "NZWN": {
-   "n": 1084,
-   "acerto": 0.9327,
-   "conf_media": 0.9924
-  },
-  "RCSS": {
-   "n": 908,
-   "acerto": 0.8965,
-   "conf_media": 0.9903
-  },
-  "RJTT": {
-   "n": 1034,
-   "acerto": 0.9168,
-   "conf_media": 0.9851
-  },
-  "RKSI": {
-   "n": 1019,
-   "acerto": 0.9107,
-   "conf_media": 0.9862
-  },
-  "RPLL": {
-   "n": 919,
-   "acerto": 0.9032,
-   "conf_media": 0.9927
-  },
-  "SAEZ": {
-   "n": 1049,
-   "acerto": 0.8885,
-   "conf_media": 0.9909
-  },
-  "SBGR": {
-   "n": 1084,
-   "acerto": 0.8828,
+   "n": 895,
+   "acerto": 0.8816,
    "conf_media": 0.9916
   },
-  "UUWW": {
-   "n": 1063,
-   "acerto": 0.8871,
-   "conf_media": 0.9892
+  "EDDM": {
+   "n": 952,
+   "acerto": 0.8519,
+   "conf_media": 0.9969
   },
-  "WMKK": {
-   "n": 860,
-   "acerto": 0.9023,
-   "conf_media": 0.988
+  "EFHK": {
+   "n": 895,
+   "acerto": 0.8793,
+   "conf_media": 0.9931
   },
-  "WSSS": {
-   "n": 1018,
-   "acerto": 0.9263,
-   "conf_media": 0.9905
+  "EGLC": {
+   "n": 982,
+   "acerto": 0.8768,
+   "conf_media": 0.9939
   },
-  "ZBAA": {
-   "n": 1085,
-   "acerto": 0.8728,
+  "EHAM": {
+   "n": 1068,
+   "acerto": 0.8904,
+   "conf_media": 0.9928
+  },
+  "EPWA": {
+   "n": 1022,
+   "acerto": 0.8757,
+   "conf_media": 0.9958
+  },
+  "FACT": {
+   "n": 844,
+   "acerto": 0.8886,
+   "conf_media": 0.9895
+  },
+  "KATL": {
+   "n": 1046,
+   "acerto": 0.8604,
+   "conf_media": 0.9958
+  },
+  "KBKF": {
+   "n": 1040,
+   "acerto": 0.8712,
+   "conf_media": 0.9971
+  },
+  "KDAL": {
+   "n": 971,
+   "acerto": 0.895,
+   "conf_media": 0.9947
+  },
+  "KHOU": {
+   "n": 990,
+   "acerto": 0.8838,
+   "conf_media": 0.9928
+  },
+  "KLAX": {
+   "n": 941,
+   "acerto": 0.9182,
+   "conf_media": 0.9801
+  },
+  "KLGA": {
+   "n": 969,
+   "acerto": 0.8896,
+   "conf_media": 0.9926
+  },
+  "KMIA": {
+   "n": 1014,
+   "acerto": 0.8826,
    "conf_media": 0.9937
   },
+  "KORD": {
+   "n": 1061,
+   "acerto": 0.8935,
+   "conf_media": 0.9946
+  },
+  "KSEA": {
+   "n": 1003,
+   "acerto": 0.8774,
+   "conf_media": 0.9945
+  },
+  "LEMD": {
+   "n": 1094,
+   "acerto": 0.8656,
+   "conf_media": 0.9962
+  },
+  "LFPB": {
+   "n": 996,
+   "acerto": 0.8655,
+   "conf_media": 0.9959
+  },
+  "LIMC": {
+   "n": 931,
+   "acerto": 0.8507,
+   "conf_media": 0.997
+  },
+  "LLBG": {
+   "n": 918,
+   "acerto": 0.8529,
+   "conf_media": 0.9947
+  },
+  "LTAC": {
+   "n": 1051,
+   "acerto": 0.8554,
+   "conf_media": 0.9959
+  },
+  "LTFM": {
+   "n": 985,
+   "acerto": 0.9107,
+   "conf_media": 0.9887
+  },
+  "MMMX": {
+   "n": 870,
+   "acerto": 0.8724,
+   "conf_media": 0.991
+  },
+  "NZWN": {
+   "n": 1056,
+   "acerto": 0.9413,
+   "conf_media": 0.9923
+  },
+  "RCSS": {
+   "n": 851,
+   "acerto": 0.8919,
+   "conf_media": 0.986
+  },
+  "RJTT": {
+   "n": 920,
+   "acerto": 0.9174,
+   "conf_media": 0.9867
+  },
+  "RKSI": {
+   "n": 876,
+   "acerto": 0.9041,
+   "conf_media": 0.9855
+  },
+  "RPLL": {
+   "n": 877,
+   "acerto": 0.9065,
+   "conf_media": 0.992
+  },
+  "SAEZ": {
+   "n": 963,
+   "acerto": 0.8879,
+   "conf_media": 0.9912
+  },
+  "SBGR": {
+   "n": 1011,
+   "acerto": 0.8773,
+   "conf_media": 0.9921
+  },
+  "UUWW": {
+   "n": 936,
+   "acerto": 0.89,
+   "conf_media": 0.9883
+  },
+  "WMKK": {
+   "n": 733,
+   "acerto": 0.8922,
+   "conf_media": 0.9912
+  },
+  "WSSS": {
+   "n": 943,
+   "acerto": 0.9236,
+   "conf_media": 0.9903
+  },
+  "ZBAA": {
+   "n": 998,
+   "acerto": 0.8717,
+   "conf_media": 0.9943
+  },
   "ZGGG": {
-   "n": 875,
-   "acerto": 0.9029,
-   "conf_media": 0.9897
+   "n": 793,
+   "acerto": 0.9142,
+   "conf_media": 0.9861
   },
   "ZGSZ": {
-   "n": 956,
-   "acerto": 0.9079,
-   "conf_media": 0.9919
+   "n": 934,
+   "acerto": 0.9111,
+   "conf_media": 0.9905
   },
   "ZHHH": {
-   "n": 927,
-   "acerto": 0.8943,
-   "conf_media": 0.9904
+   "n": 836,
+   "acerto": 0.89,
+   "conf_media": 0.9927
   },
   "ZSPD": {
-   "n": 1100,
-   "acerto": 0.8955,
-   "conf_media": 0.9882
+   "n": 1020,
+   "acerto": 0.9098,
+   "conf_media": 0.9887
   },
   "ZUUU": {
-   "n": 910,
-   "acerto": 0.8769,
-   "conf_media": 0.9918
+   "n": 807,
+   "acerto": 0.8823,
+   "conf_media": 0.9915
   }
  },
  "por_avaliacao": {
   "CYYZ": {
-   "n": 5297,
-   "acerto": 0.889,
-   "conf_media": 0.9903
-  },
-  "EDDM": {
-   "n": 5360,
-   "acerto": 0.8718,
-   "conf_media": 0.9946
-  },
-  "EFHK": {
-   "n": 6984,
-   "acerto": 0.9036,
-   "conf_media": 0.991
-  },
-  "EGLC": {
-   "n": 7103,
-   "acerto": 0.8974,
-   "conf_media": 0.993
-  },
-  "EHAM": {
-   "n": 8574,
-   "acerto": 0.91,
-   "conf_media": 0.9923
-  },
-  "EPWA": {
-   "n": 4940,
-   "acerto": 0.8913,
-   "conf_media": 0.9944
-  },
-  "FACT": {
-   "n": 7222,
-   "acerto": 0.9117,
-   "conf_media": 0.9896
-  },
-  "KATL": {
-   "n": 5618,
-   "acerto": 0.8685,
-   "conf_media": 0.995
-  },
-  "KBKF": {
-   "n": 5323,
-   "acerto": 0.8865,
-   "conf_media": 0.9964
-  },
-  "KDAL": {
-   "n": 4350,
-   "acerto": 0.8917,
-   "conf_media": 0.9943
-  },
-  "KHOU": {
-   "n": 5652,
-   "acerto": 0.9052,
-   "conf_media": 0.9948
-  },
-  "KLAX": {
-   "n": 9231,
-   "acerto": 0.9244,
-   "conf_media": 0.9846
-  },
-  "KLGA": {
-   "n": 5625,
-   "acerto": 0.9003,
-   "conf_media": 0.9929
-  },
-  "KMIA": {
-   "n": 7768,
-   "acerto": 0.8903,
-   "conf_media": 0.9935
-  },
-  "KORD": {
-   "n": 7693,
-   "acerto": 0.9149,
-   "conf_media": 0.9947
-  },
-  "KSEA": {
-   "n": 5359,
-   "acerto": 0.886,
-   "conf_media": 0.9945
-  },
-  "LEMD": {
-   "n": 3807,
-   "acerto": 0.8645,
-   "conf_media": 0.9964
-  },
-  "LFPB": {
-   "n": 3913,
-   "acerto": 0.8717,
-   "conf_media": 0.9953
-  },
-  "LIMC": {
-   "n": 5162,
-   "acerto": 0.8721,
-   "conf_media": 0.9948
-  },
-  "LLBG": {
-   "n": 4918,
-   "acerto": 0.8691,
-   "conf_media": 0.9937
-  },
-  "LTAC": {
-   "n": 4659,
-   "acerto": 0.868,
-   "conf_media": 0.9944
-  },
-  "LTFM": {
-   "n": 9303,
-   "acerto": 0.9357,
-   "conf_media": 0.9897
-  },
-  "MMMX": {
-   "n": 5709,
-   "acerto": 0.8956,
-   "conf_media": 0.9895
-  },
-  "NZWN": {
-   "n": 10479,
-   "acerto": 0.9523,
-   "conf_media": 0.9925
-  },
-  "RCSS": {
-   "n": 7615,
-   "acerto": 0.9188,
-   "conf_media": 0.9919
-  },
-  "RJTT": {
-   "n": 9675,
-   "acerto": 0.9352,
-   "conf_media": 0.9879
-  },
-  "RKSI": {
-   "n": 7853,
-   "acerto": 0.9233,
-   "conf_media": 0.9882
-  },
-  "RPLL": {
-   "n": 7850,
-   "acerto": 0.9242,
-   "conf_media": 0.9917
-  },
-  "SAEZ": {
-   "n": 7121,
-   "acerto": 0.908,
-   "conf_media": 0.9907
-  },
-  "SBGR": {
-   "n": 8709,
-   "acerto": 0.9027,
-   "conf_media": 0.9915
-  },
-  "UUWW": {
-   "n": 6972,
-   "acerto": 0.9145,
-   "conf_media": 0.9888
-  },
-  "WMKK": {
-   "n": 4880,
-   "acerto": 0.9086,
-   "conf_media": 0.9891
-  },
-  "WSSS": {
-   "n": 7906,
-   "acerto": 0.9336,
-   "conf_media": 0.9909
-  },
-  "ZBAA": {
-   "n": 5412,
+   "n": 4633,
    "acerto": 0.8897,
    "conf_media": 0.9921
   },
+  "EDDM": {
+   "n": 5193,
+   "acerto": 0.8706,
+   "conf_media": 0.9952
+  },
+  "EFHK": {
+   "n": 6551,
+   "acerto": 0.9014,
+   "conf_media": 0.9925
+  },
+  "EGLC": {
+   "n": 6774,
+   "acerto": 0.8962,
+   "conf_media": 0.9935
+  },
+  "EHAM": {
+   "n": 8423,
+   "acerto": 0.9129,
+   "conf_media": 0.9925
+  },
+  "EPWA": {
+   "n": 4625,
+   "acerto": 0.8867,
+   "conf_media": 0.9952
+  },
+  "FACT": {
+   "n": 6577,
+   "acerto": 0.9146,
+   "conf_media": 0.9908
+  },
+  "KATL": {
+   "n": 5358,
+   "acerto": 0.8692,
+   "conf_media": 0.9955
+  },
+  "KBKF": {
+   "n": 5132,
+   "acerto": 0.8846,
+   "conf_media": 0.9968
+  },
+  "KDAL": {
+   "n": 4027,
+   "acerto": 0.8977,
+   "conf_media": 0.9949
+  },
+  "KHOU": {
+   "n": 5362,
+   "acerto": 0.9056,
+   "conf_media": 0.9945
+  },
+  "KLAX": {
+   "n": 8065,
+   "acerto": 0.9482,
+   "conf_media": 0.9861
+  },
+  "KLGA": {
+   "n": 5238,
+   "acerto": 0.9034,
+   "conf_media": 0.9927
+  },
+  "KMIA": {
+   "n": 7524,
+   "acerto": 0.9022,
+   "conf_media": 0.9948
+  },
+  "KORD": {
+   "n": 7531,
+   "acerto": 0.9163,
+   "conf_media": 0.9948
+  },
+  "KSEA": {
+   "n": 5081,
+   "acerto": 0.8843,
+   "conf_media": 0.9946
+  },
+  "LEMD": {
+   "n": 3671,
+   "acerto": 0.8649,
+   "conf_media": 0.9967
+  },
+  "LFPB": {
+   "n": 3619,
+   "acerto": 0.8652,
+   "conf_media": 0.9959
+  },
+  "LIMC": {
+   "n": 4963,
+   "acerto": 0.8682,
+   "conf_media": 0.9956
+  },
+  "LLBG": {
+   "n": 4675,
+   "acerto": 0.8682,
+   "conf_media": 0.9943
+  },
+  "LTAC": {
+   "n": 4388,
+   "acerto": 0.8662,
+   "conf_media": 0.9957
+  },
+  "LTFM": {
+   "n": 8790,
+   "acerto": 0.9396,
+   "conf_media": 0.991
+  },
+  "MMMX": {
+   "n": 5053,
+   "acerto": 0.8878,
+   "conf_media": 0.992
+  },
+  "NZWN": {
+   "n": 10006,
+   "acerto": 0.9608,
+   "conf_media": 0.9932
+  },
+  "RCSS": {
+   "n": 7164,
+   "acerto": 0.9179,
+   "conf_media": 0.9903
+  },
+  "RJTT": {
+   "n": 8607,
+   "acerto": 0.9381,
+   "conf_media": 0.9909
+  },
+  "RKSI": {
+   "n": 6832,
+   "acerto": 0.917,
+   "conf_media": 0.9897
+  },
+  "RPLL": {
+   "n": 7406,
+   "acerto": 0.9257,
+   "conf_media": 0.9921
+  },
+  "SAEZ": {
+   "n": 6498,
+   "acerto": 0.9114,
+   "conf_media": 0.992
+  },
+  "SBGR": {
+   "n": 8123,
+   "acerto": 0.8995,
+   "conf_media": 0.9929
+  },
+  "UUWW": {
+   "n": 6205,
+   "acerto": 0.9196,
+   "conf_media": 0.9892
+  },
+  "WMKK": {
+   "n": 4159,
+   "acerto": 0.8983,
+   "conf_media": 0.9931
+  },
+  "WSSS": {
+   "n": 7291,
+   "acerto": 0.9307,
+   "conf_media": 0.9919
+  },
+  "ZBAA": {
+   "n": 5094,
+   "acerto": 0.8885,
+   "conf_media": 0.9927
+  },
   "ZGGG": {
-   "n": 7436,
-   "acerto": 0.9169,
-   "conf_media": 0.9901
+   "n": 6798,
+   "acerto": 0.9225,
+   "conf_media": 0.9892
   },
   "ZGSZ": {
-   "n": 10720,
-   "acerto": 0.91,
-   "conf_media": 0.9913
+   "n": 10206,
+   "acerto": 0.9123,
+   "conf_media": 0.9922
   },
   "ZHHH": {
-   "n": 6909,
-   "acerto": 0.9114,
-   "conf_media": 0.99
+   "n": 6389,
+   "acerto": 0.9122,
+   "conf_media": 0.9923
   },
   "ZSPD": {
-   "n": 9860,
-   "acerto": 0.9253,
-   "conf_media": 0.9889
+   "n": 9126,
+   "acerto": 0.9336,
+   "conf_media": 0.9904
   },
   "ZUUU": {
-   "n": 3890,
-   "acerto": 0.8841,
-   "conf_media": 0.9918
+   "n": 3460,
+   "acerto": 0.8867,
+   "conf_media": 0.9917
   }
  },
- "gerado_em": "2026-08-04T09:15:08"
+ "gerado_em": "2026-08-07T09:13:56"
 }
