@@ -3,10 +3,15 @@
 ## Monitor Ceifa
 
 O painel local da estratégia fica em `ceifa_monitor.py`. Ele reúne o backtest
-dos snapshots, curva patrimonial, retorno diário, desempenho por cidade,
-eficiência dos filtros e uma autópsia visual de cada erro. Os seletores
-superiores alternam entre máximas/mínimas e entre a estratégia de NÃO e o teste
-separado de SIM. A navegação fica fixada no rodapé do próprio painel.
+dos snapshots, curva patrimonial, retorno diário, eficiência dos filtros e uma
+autópsia visual de cada erro. A navegação (fixada no rodapé) separa duas áreas:
+
+- **✅ Em produção** — as estratégias ativas (NÃO): consolidada, máximas e
+  mínimas. Cada uma reúne, em abas, a **Visão geral**, os **Erros** e as
+  **Cidades e filtros**.
+- **🧪 Em teste (hipóteses)** — o que ainda está em observação: o teste do
+  **SIM** de máximas e mínimas (Visão geral + Erros) e o estudo do **SPY**
+  (Daily Up or Down).
 
 No Windows, abra `Monitor Ceifa.cmd` ou use o atalho de mesmo nome criado na
 Área de Trabalho. O iniciador sobe o Streamlit em segundo plano e abre
