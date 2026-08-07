@@ -296,6 +296,22 @@ CEIFA_ENSEMBLE_BAND_FILTER = True
 CEIFA_UPPER_TAIL_FILTER = True
 CEIFA_UPPER_TAIL_MARGIN = 0.75     # bloqueia se X ≤ teto do ensemble + margem
 
+# ----------------------------------------------------------- Execução automática
+# Executor de ordens da Ceifa via API (CLOB). SEGURANÇA EM CAMADAS:
+#  1. Desligado por padrão (CEIFA_EXEC_ENABLED=False) — nada é executado.
+#  2. Mesmo ligado, começa em DRY-RUN (só registra o que faria).
+#  3. Um arquivo "kill switch" (CEIFA_EXEC_KILL_FILE) aborta tudo se existir.
+#  4. Limite por ordem e teto de exposição total.
+# A chave da carteira NUNCA fica no código: vem de POLYMARKET_PRIVATE_KEY.
+# Todos os valores podem ser sobrescritos por variável de ambiente de mesmo nome.
+CEIFA_EXEC_ENABLED = False          # liga o executor (ainda respeita o dry-run)
+CEIFA_EXEC_DRY_RUN = True           # True = só registra; False = envia de verdade
+CEIFA_EXEC_MAX_STAKE_USD = 10.0     # teto de cada ordem individual (USDC)
+CEIFA_EXEC_MAX_EXPOSURE_USD = 200.0  # teto do total já executado no dia
+CEIFA_EXEC_KILL_FILE = "STOP_EXECUTOR"  # se este arquivo existir, aborta
+CEIFA_EXEC_LEDGER = "data/executor_ledger.json"  # registro de ordens (idempotência)
+CEIFA_EXEC_CHAIN_ID = 137           # Polygon
+
 # Colheita de favoritos: APOSENTADA (decisão do Lucas 15/07 — substituída pela
 # Ceifa). Mantida no código, desligada por HARVEST_ENABLED. Parâmetros antigos
 # preservados só para o backtest histórico de comparação.
