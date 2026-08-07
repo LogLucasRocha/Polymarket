@@ -11,8 +11,9 @@ Comece SEMPRE em dry-run e confira o que ele diz que compraria antes de ligar
 de verdade.
 
 Uso:
-    python run_executor.py                 # usa data/executor_signals.json
-    python run_executor.py sinais.json     # arquivo alternativo
+    python run_executor.py check           # testa a chave (offline): imprime o endereço
+    python run_executor.py                 # executa os sinais gravados pelo alerta
+    python run_executor.py sinais.json     # arquivo de sinais alternativo
 
 Formato do JSON: lista de objetos
     {"ref": "ZGSZ:2026-08-07:36°C:1105", "day": "2026-08-07",
@@ -26,7 +27,7 @@ from pathlib import Path
 
 from tmax import config, executor
 
-DEFAULT_SIGNALS = "data/executor_signals.json"
+DEFAULT_SIGNALS = config.CEIFA_EXEC_SIGNALS
 
 
 def _load_signals(path: Path) -> list[dict]:
@@ -40,6 +41,17 @@ def _load_signals(path: Path) -> list[dict]:
 
 
 def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == "check":
+        try:
+            address = executor.wallet_address()
+        except executor.ExecutorError as exc:
+            print(f"[executor] {exc}")
+            return 1
+        print(f"Chave OK (offline). Endereço da carteira: {address}")
+        print("→ Compare com o endereço da sua conta na Polymarket. "
+              "Se bater, a chave é a certa.")
+        return 0
+
     cfg = executor.settings()
     print("[executor] configuração efetiva:")
     print(f"  ligado={cfg['enabled']}  dry_run={cfg['dry_run']}  "

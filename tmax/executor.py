@@ -138,6 +138,26 @@ def build_client(cfg: dict | None = None):
     return client
 
 
+def wallet_address() -> str:
+    """Deriva o endereço público da chave em POLYMARKET_PRIVATE_KEY, OFFLINE.
+
+    Não toca a rede nem envia ordem — só confirma que a chave corresponde à
+    carteira que você espera. Compare o endereço impresso com o da sua conta
+    na Polymarket antes de ligar qualquer execução.
+    """
+    key = os.environ.get("POLYMARKET_PRIVATE_KEY")
+    if not key:
+        raise ExecutorError(
+            "POLYMARKET_PRIVATE_KEY não definido no ambiente.")
+    try:
+        from eth_account import Account  # noqa: PLC0415
+    except ImportError as exc:  # pragma: no cover - depende do ambiente do usuário
+        raise ExecutorError(
+            "eth-account não instalado (vem junto com py-clob-client)."
+        ) from exc
+    return Account.from_key(key).address
+
+
 def _submit_order(client, token_id: str, price: float, size_shares: float):
     """Envia uma ordem de COMPRA do token (NÃO) ao CLOB. Retorna a resposta crua.
 

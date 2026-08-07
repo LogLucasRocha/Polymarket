@@ -310,6 +310,7 @@ CEIFA_EXEC_MAX_STAKE_USD = 10.0     # teto de cada ordem individual (USDC)
 CEIFA_EXEC_MAX_EXPOSURE_USD = 200.0  # teto do total já executado no dia
 CEIFA_EXEC_KILL_FILE = "STOP_EXECUTOR"  # se este arquivo existir, aborta
 CEIFA_EXEC_LEDGER = "data/executor_ledger.json"  # registro de ordens (idempotência)
+CEIFA_EXEC_SIGNALS = "data/executor_signals.json"  # sinais gravados pelo send_telegram
 CEIFA_EXEC_CHAIN_ID = 137           # Polygon
 
 # Colheita de favoritos: APOSENTADA (decisão do Lucas 15/07 — substituída pela

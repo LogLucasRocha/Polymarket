@@ -454,6 +454,11 @@ def main() -> int:
                       file=sys.stderr)
                 ceifa_pending, minimum_pending = {}, {}
 
+    # Grava as parcelas desta rodada para o executor de ordens (opcional; roda
+    # na máquina do usuário com a chave da carteira). Acessório — nunca derruba.
+    _cap(_write_executor_signals, ceifa_pending, minimum_pending,
+         signal_rows, minimum_signal_rows, run_now_utc)
+
     # 3) Um alerta por cidade com oportunidade de Ceifa. A PRIMEIRA aparição
     # leva o bloco enxuto (gráfico da distribuição do ensemble + TAF + mediana,
     # texto com pico, mediana, P10/P90 e teto); as repetições também mostram o
@@ -619,6 +624,7 @@ def _collect_signal_rows(stations, contexts, yes_prob) -> dict:
                           "book_checked": r.get("book_checked", False),
                           "no_ask": r.get("no_ask"),
                           "no_ask_size": r.get("no_ask_size"),
+                          "no_token_id": r.get("no_token_id"),
                           "mp": r["mp"]}
     return json.loads(json.dumps(rows))
 
@@ -670,9 +676,45 @@ def _collect_minimum_signal_rows(stations, contexts) -> tuple[dict, dict, dict]:
                 "book_checked": row.get("book_checked", False),
                 "no_ask": row.get("no_ask"),
                 "no_ask_size": row.get("no_ask_size"),
+                "no_token_id": row.get("no_token_id"),
                 "extreme": "minimum",
             }
     return json.loads(json.dumps(rows)), forecasts, members_by_icao
+
+
+def _write_executor_signals(ceifa_pending, minimum_pending,
+                            signal_rows, minimum_signal_rows, now) -> None:
+    """Grava as parcelas desta rodada para o executor (run_executor.py) ler.
+
+    Fonte única de verdade: o alerta DECIDE (H-1, preço, livro, filtros) e o
+    executor apenas executa o que está aqui. O token do NÃO vem do próprio
+    livro (no_token_id). Reescreve o arquivo a cada rodada — inclusive vazio,
+    para não deixar sinais velhos executáveis. Nunca derruba o digest.
+    """
+    stamp = now.strftime("%Y%m%dT%H%M")
+    signals = []
+    for pending, rows, extreme in (
+            (ceifa_pending, signal_rows, "maximum"),
+            (minimum_pending, minimum_signal_rows, "minimum")):
+        for icao, contracts in pending.items():
+            for k, label, price, _size, stake in contracts:
+                token = (rows.get(k) or {}).get("no_token_id")
+                if not token:
+                    continue
+                parts = str(k).split(":")
+                day = parts[2] if str(k).startswith("min:") else parts[1]
+                signals.append({
+                    "ref": f"{k}:{stamp}", "day": day,
+                    "token_id": str(token),
+                    "price": round(float(price), 4),
+                    "size_usd": round(float(stake), 4),
+                    "extreme": extreme, "faixa": label,
+                })
+    path = config.ROOT / config.CEIFA_EXEC_SIGNALS
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(signals, indent=2, ensure_ascii=False),
+                    encoding="utf-8")
+    print(f"[executor] {len(signals)} sinal(is) gravado(s) em {path.name}.")
 
 
 def _stop_alerts(positions: list) -> str | None:
