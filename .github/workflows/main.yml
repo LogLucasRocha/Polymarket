@@ -51,6 +51,28 @@ jobs:
           POLYMARKET_WALLET: ${{ vars.POLYMARKET_WALLET }}
         run: python send_telegram.py
 
+      # Executor de ordens da Ceifa. Roda logo após o alerta (que já gravou os
+      # sinais). SEGURO POR PADRÃO: sem as variáveis abaixo, fica desligado e em
+      # dry-run — nada é executado. Para operar de verdade, defina no repo
+      # (Settings → Secrets and variables → Actions):
+      #   secret POLYMARKET_PRIVATE_KEY  (a chave — use uma carteira dedicada!)
+      #   variable POLYMARKET_FUNDER     (o "Polymarket Wallet Address")
+      #   variable CEIFA_EXEC_ENABLED = true   (liga)
+      #   variable CEIFA_EXEC_DRY_RUN  = false (real; deixe true para simular)
+      # Kill switch na nuvem: apague/zere CEIFA_EXEC_ENABLED.
+      # Só roda se o alerta acima teve sucesso (sinais frescos).
+      - name: Executar ordens da Ceifa
+        continue-on-error: true
+        env:
+          POLYMARKET_PRIVATE_KEY: ${{ secrets.POLYMARKET_PRIVATE_KEY }}
+          POLYMARKET_FUNDER: ${{ vars.POLYMARKET_FUNDER }}
+          POLYMARKET_SIGNATURE_TYPE: ${{ vars.POLYMARKET_SIGNATURE_TYPE }}
+          CEIFA_EXEC_ENABLED: ${{ vars.CEIFA_EXEC_ENABLED || 'false' }}
+          CEIFA_EXEC_DRY_RUN: ${{ vars.CEIFA_EXEC_DRY_RUN || 'true' }}
+          CEIFA_EXEC_MAX_STAKE_USD: ${{ vars.CEIFA_EXEC_MAX_STAKE_USD || '2' }}
+          CEIFA_EXEC_MAX_EXPOSURE_USD: ${{ vars.CEIFA_EXEC_MAX_EXPOSURE_USD || '20' }}
+        run: python run_executor.py
+
       # Captura da temperatura MÍNIMA (lowest) — pendurada no digest porque o
       # cron do workflow próprio (lowtemp_live.yml) é estrangulado pelo GitHub e
       # perderia a janela da madrugada. O disparo externo mantém 5 min; este

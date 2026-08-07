@@ -69,6 +69,35 @@ $env:CEIFA_EXEC_MAX_STAKE_USD = "5"    # comece pequeno
 Para parar na hora: crie o arquivo `STOP_EXECUTOR` na raiz do projeto (ou
 apague a variável `CEIFA_EXEC_ENABLED`).
 
+## Rodar na nuvem (GitHub Actions)
+
+O workflow `main.yml` já roda o alerta a cada 10 min e, logo depois, o passo
+**"Executar ordens da Ceifa"**. Por padrão ele fica **desligado e em dry-run**
+— nada executa até você configurar, em **Settings → Secrets and variables →
+Actions**:
+
+| Tipo | Nome | Valor |
+|---|---|---|
+| **Secret** | `POLYMARKET_PRIVATE_KEY` | a chave (⚠️ use uma **carteira dedicada**, com só a banca) |
+| Variable | `POLYMARKET_FUNDER` | o "Polymarket Wallet Address" |
+| Variable | `POLYMARKET_SIGNATURE_TYPE` | `1` (e-mail) ou `2` (navegador) — opcional |
+| Variable | `CEIFA_EXEC_ENABLED` | `true` para ligar |
+| Variable | `CEIFA_EXEC_DRY_RUN` | `true` = simula · `false` = **real** |
+| Variable | `CEIFA_EXEC_MAX_STAKE_USD` | teto por ordem (padrão 2) |
+| Variable | `CEIFA_EXEC_MAX_EXPOSURE_USD` | teto por dia (padrão 20) |
+
+**Ligar/desligar na nuvem:**
+- **Observar (dry-run):** `CEIFA_EXEC_ENABLED=true`, `CEIFA_EXEC_DRY_RUN=true`.
+  Veja nos logs do Actions o que ele *compraria*.
+- **Operar de verdade:** `CEIFA_EXEC_DRY_RUN=false`.
+- **Kill switch:** zere ou apague `CEIFA_EXEC_ENABLED` — o passo volta a
+  recusar tudo na próxima rodada.
+
+> ⚠️ A chave fica como secret na nuvem e roda sem supervisão. **Use uma
+> carteira separada, só com a banca que você toparia perder.** O teto de
+> exposição limita o gasto por dia, mas não protege contra roubo da chave —
+> só uma carteira de saldo baixo protege.
+
 ## De onde vêm os sinais
 
 O `run_executor.py` lê uma lista de parcelas de um JSON

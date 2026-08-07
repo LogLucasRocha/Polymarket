@@ -6,3 +6,4 @@ plotly>=5.22
 pandas>=2.0
 pyarrow>=15          # arquivo permanente em Parquet (tmax/capture.py)
 openpyxl>=3.1
+py-clob-client>=0.34  # execução de ordens da Ceifa (tmax/executor.py)
