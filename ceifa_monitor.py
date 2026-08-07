@@ -868,27 +868,28 @@ def main() -> None:
             st.warning(refresh_notice["message"])
 
     with st.container(key="bottom_navigation"):
-        page = st.radio(
+        area = st.radio(
             "Navegação",
-            ["▦  Visão geral", "◎  Erros", "⌁  Cidades e filtros",
-             "◇  SPY"],
+            ["✅  Em produção", "🧪  Em teste (hipóteses)"],
             horizontal=True,
             label_visibility="collapsed",
-            key="page_navigation",
+            key="area_navigation",
         )
+    producao = "produção" in area
 
     with st.container(key="strategy_picker"):
-        strategy_col, side_col, period_col, refresh_col = st.columns(
-            [1.8, 1.45, 1.25, .65], vertical_alignment="bottom")
-        strategy_label = strategy_col.radio(
-            "Estratégia monitorada",
-            ["📊 Ativas consolidadas", "🌡️ Máximas", "❄️ Mínimas"],
-            horizontal=True,
-            key="strategy_navigation")
-        consolidated = strategy_label == "📊 Ativas consolidadas"
-        side_label = side_col.radio(
-            "Lado testado", ["NÃO", "SIM"], horizontal=True,
-            key="side_navigation", disabled=consolidated)
+        pick_col, period_col, refresh_col = st.columns(
+            [2.6, 1.25, .65], vertical_alignment="bottom")
+        if producao:
+            choice = pick_col.radio(
+                "Estratégia ativa",
+                ["📊 Ativas consolidadas", "🌡️ Máximas", "❄️ Mínimas"],
+                horizontal=True, key="prod_navigation")
+        else:
+            choice = pick_col.radio(
+                "Hipótese em teste",
+                ["🌡️ Máximas (SIM)", "❄️ Mínimas (SIM)", "◇ SPY"],
+                horizontal=True, key="test_navigation")
         period_label = period_col.selectbox(
             "Período",
             ["Todo o histórico", "Últimos 30 dias", "Últimos 14 dias",
@@ -905,39 +906,45 @@ def main() -> None:
             st.session_state["refresh_notice"] = refresh_result
             st.rerun()
 
-    if "SPY" in page:
-        hero("SPY Daily Up or Down · aloca no lado (Up ou Down) na faixa "
-             "95–99,6¢, 1% do caixa livre a cada 10 min.")
+    lookback = {
+        "Todo o histórico": None, "Últimos 30 dias": 30,
+        "Últimos 14 dias": 14, "Últimos 7 dias": 7,
+    }[period_label]
+
+    # Hipótese SPY: página própria (Up/Down, não tem lado NÃO/SIM nem filtros).
+    if not producao and "SPY" in choice:
+        hero("SPY Daily Up or Down · hipótese em teste · aloca no lado (Up ou "
+             "Down) na faixa 95–99,6¢, 1% do caixa livre a cada 10 min.")
         spy_page()
         return
 
-    kind = ("consolidated" if consolidated else
-            "minimum" if strategy_label == "❄️ Mínimas" else "maximum")
-    minimum = kind == "minimum"
-    side = "NÃO" if consolidated else side_label
-    if consolidated:
-        subtitle = (
-            "Retorno conjunto do NÃO de máximas e mínimas, calculado com "
-            "uma única banca compartilhada.")
-    elif side == "SIM":
-        subtitle = (
-            f"Temperaturas {'mínimas' if minimum else 'máximas'} · teste do SIM "
-            "em observação, sem apostas reais.")
+    if producao:
+        consolidated = choice == "📊 Ativas consolidadas"
+        side = "NÃO"
+        kind = ("consolidated" if consolidated else
+                "minimum" if choice == "❄️ Mínimas" else "maximum")
     else:
-        subtitle = (
-            "Temperaturas mínimas · estratégia ativa, parcelada a cada cinco minutos."
-            if minimum else
-            "Temperaturas máximas · estratégia ativa, parcelada a cada cinco minutos.")
+        consolidated = False
+        side = "SIM"
+        kind = "minimum" if "Mínimas" in choice else "maximum"
+    minimum = kind == "minimum"
+
+    if producao and consolidated:
+        subtitle = ("Estratégias ativas em produção · NÃO de máximas e mínimas "
+                    "numa única banca compartilhada.")
+    elif producao:
+        subtitle = (f"Temperaturas {'mínimas' if minimum else 'máximas'} · "
+                    "estratégia ativa (NÃO), parcelada a cada cinco minutos.")
+    else:
+        subtitle = (f"Hipótese em teste · SIM de temperaturas "
+                    f"{'mínimas' if minimum else 'máximas'} · observação, "
+                    "sem apostas reais.")
     hero(subtitle)
     freshness = monitor.data_freshness(kind)
     st.caption(
         f"Último dia capturado: {freshness['latest_day'] or '—'} · "
         "indicadores calculados exclusivamente a partir dos nossos snapshots.")
 
-    lookback = {
-        "Todo o histórico": None, "Últimos 30 dias": 30,
-        "Últimos 14 dias": 14, "Últimos 7 dias": 7,
-    }[period_label]
     experimental_stats = None
     if consolidated:
         maximum_stats = load_strategy("maximum", "NÃO")
@@ -951,13 +958,21 @@ def main() -> None:
     else:
         full_stats = load_strategy(kind, side)
     stats = monitor.slice_strategy(full_stats, lookback)
-    if "Visão geral" in page:
+
+    # Visão geral + Erros + (Cidades e filtros) reunidos em abas — em produção
+    # os três; nas hipóteses SIM só Visão geral e Erros (o SIM não tem filtros).
+    if producao:
+        tab_overview, tab_errors, tab_cities = st.tabs(
+            ["▦ Visão geral", "◎ Erros", "⌁ Cidades e filtros"])
+        with tab_cities:
+            cities_page(stats, full_stats, consolidated)
+    else:
+        tab_overview, tab_errors = st.tabs(["▦ Visão geral", "◎ Erros"])
+    with tab_overview:
         overview(stats, full_stats, minimum, side, consolidated,
                  experimental_stats)
-    elif "Erros" in page:
+    with tab_errors:
         errors_page(stats)
-    else:
-        cities_page(stats, full_stats, consolidated)
 
 
 if __name__ == "__main__":
