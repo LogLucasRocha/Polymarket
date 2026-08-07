@@ -69,7 +69,48 @@ $env:CEIFA_EXEC_MAX_STAKE_USD = "5"    # comece pequeno
 Para parar na hora: crie o arquivo `STOP_EXECUTOR` na raiz do projeto (ou
 apague a variável `CEIFA_EXEC_ENABLED`).
 
-## Rodar na nuvem (GitHub Actions)
+## Rodar local (recomendado — na sua região)
+
+⚠️ **A nuvem (GitHub Actions) NÃO executa ordens:** os runners ficam nos EUA e
+o Polymarket bloqueia trading de lá (HTTP 403 "Trading restricted in your
+region"). Ordens reais só saem de onde você tem permissão — a **sua máquina**.
+
+Um wrapper roda, a cada ~5 min, dois comandos em sequência: o `send_telegram`
+em modo `--signals-only` (calcula e grava os sinais, **sem** mandar Telegram) e
+o `run_executor`. Crie `rodar_executor_local.ps1` na pasta do projeto:
+
+```powershell
+Set-Location $PSScriptRoot
+# --- endereços (públicos) e limites ---
+$env:POLYMARKET_FUNDER = "0xSEU_POLYMARKET_WALLET_ADDRESS"
+$env:POLYMARKET_WALLET = "0xSEU_POLYMARKET_WALLET_ADDRESS"
+$env:POLYMARKET_SIGNATURE_TYPE = "1"
+$env:CEIFA_EXEC_ENABLED = "true"
+$env:CEIFA_EXEC_DRY_RUN = "true"      # comece simulando!
+$env:CEIFA_EXEC_MAX_STAKE_USD = "2"
+$env:CEIFA_EXEC_MAX_EXPOSURE_USD = "20"
+# A CHAVE não fica aqui: defina uma vez, persistente, com
+#   setx POLYMARKET_PRIVATE_KEY "0xSUACHAVE"
+# (reabra o PowerShell depois do setx para ele valer)
+python send_telegram.py --signals-only
+python run_executor.py
+```
+
+Rode manualmente primeiro (em dry-run) e confira os `[executor] DRY-RUN ...`.
+Quando confiar, mude `CEIFA_EXEC_DRY_RUN` para `"false"`.
+
+**Agendar a cada 5 min** (Windows): Agendador de Tarefas → Criar Tarefa →
+Disparador "repetir a cada 5 minutos" → Ação: `powershell.exe -NoProfile
+-ExecutionPolicy Bypass -File "C:\...\rodar_executor_local.ps1"`. O PC precisa
+estar ligado e na sua rede/região habitual do Polymarket.
+
+**Liga/desliga local:** mude `CEIFA_EXEC_ENABLED`/`CEIFA_EXEC_DRY_RUN` no
+wrapper, ou crie o arquivo `STOP_EXECUTOR` na pasta para parar na hora.
+
+## Rodar na nuvem (GitHub Actions) — ⚠️ não executa (geo-bloqueio)
+
+> Mantido só como referência. Os runners do GitHub ficam nos EUA e o Polymarket
+> recusa as ordens com 403. Deixe `CEIFA_EXEC_ENABLED=false` no repo.
 
 O workflow `main.yml` já roda o alerta a cada 10 min e, logo depois, o passo
 **"Executar ordens da Ceifa"**. Por padrão ele fica **desligado e em dry-run**
