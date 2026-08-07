@@ -35,12 +35,14 @@ GRID = "#24323b"
 USER_TZ = "America/Sao_Paulo"
 
 # Cor fixa por motivo de bloqueio, para a legenda ficar estável entre rodadas.
+# Tons saturados (não os pastéis do resto do painel) para as fatias empilhadas
+# se distinguirem bem no fundo escuro.
 BLOCK_COLORS = {
-    "Ensemble largo": BLUE,
-    "Desvio/nowcast quente": AMBER,
-    "Faixa dentro de P10–P90": GREEN,
-    "Cauda superior perto do teto": RED,
-    "TAF convectivo": "#b98cff",
+    "Ensemble largo": "#2b8cff",
+    "Desvio/nowcast quente": "#ff9500",
+    "Faixa dentro de P10–P90": "#00e0a0",
+    "Cauda superior perto do teto": "#ff3b3b",
+    "TAF convectivo": "#a855f7",
 }
 
 # Janela de exibição dos gráficos por dia — evita que o histórico inteiro
