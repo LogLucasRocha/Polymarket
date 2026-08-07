@@ -47,9 +47,22 @@ def main() -> int:
         except executor.ExecutorError as exc:
             print(f"[executor] {exc}")
             return 1
-        print(f"Chave OK (offline). Endereço da carteira: {address}")
-        print("→ Compare com o endereço da sua conta na Polymarket. "
-              "Se bater, a chave é a certa.")
+        print(f"Chave OK (offline). Signer (EOA): {address}")
+        print("→ Deve bater com o 'Signer Address' do Polymarket. Em contas por "
+              "e-mail, é DIFERENTE do 'Polymarket Wallet Address' (o funder) — "
+              "isso é normal; configure o funder em POLYMARKET_FUNDER.")
+        return 0
+
+    if len(sys.argv) > 1 and sys.argv[1] == "auth":
+        try:
+            executor.build_client()
+        except Exception as exc:  # noqa: BLE001 — mostra o motivo pro usuário
+            print(f"[executor] auth FALHOU: {exc}")
+            print("  Dica: confira POLYMARKET_FUNDER (o Polymarket Wallet "
+                  "Address) e, se preciso, POLYMARKET_SIGNATURE_TYPE (1=e-mail, "
+                  "2=carteira de navegador).")
+            return 1
+        print("Auth OK — cliente CLOB conectado. NENHUMA ordem foi enviada.")
         return 0
 
     cfg = executor.settings()

@@ -34,6 +34,23 @@ $env:POLYMARKET_PRIVATE_KEY = "0xSUACHAVE"
 A carteira precisa estar com USDC na Polygon e habilitada para operar na
 Polymarket (mesma carteira que você usa no site).
 
+**Conta por e-mail (Magic):** o Polymarket usa uma proxy wallet. A chave é o
+SIGNER (o "Signer Address" da conta); os fundos ficam no FUNDER (o "Polymarket
+Wallet Address"). Configure também:
+
+```powershell
+$env:POLYMARKET_FUNDER = "0xSEU_POLYMARKET_WALLET_ADDRESS"
+# se necessário: $env:POLYMARKET_SIGNATURE_TYPE = "1"   # 1=e-mail, 2=navegador
+```
+
+Testes progressivos (cada um mais fundo que o anterior):
+
+```powershell
+python run_executor.py check   # 1) offline: confere o signer
+python run_executor.py auth    # 2) conecta ao CLOB (não envia ordem)
+python run_executor.py         # 3) dry-run: mostra o que compraria
+```
+
 ## Como rodar
 
 ```bash

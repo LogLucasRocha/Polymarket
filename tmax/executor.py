@@ -132,7 +132,19 @@ def build_client(cfg: dict | None = None):
         raise ExecutorError(
             "py-clob-client não instalado. Rode: pip install py-clob-client"
         ) from exc
-    client = ClobClient(CLOB_HOST, key=key, chain_id=cfg["chain_id"])
+    # Conta por e-mail/Magic do Polymarket usa uma proxy wallet: a chave é o
+    # SIGNER (EOA) e os fundos ficam no FUNDER (o "Polymarket Wallet Address").
+    # Nesse caso é preciso passar funder + signature_type (1 = e-mail/Magic;
+    # 2 = carteira de navegador). Sem funder, assume conta EOA simples.
+    funder = os.environ.get("POLYMARKET_FUNDER") or None
+    sig_env = os.environ.get("POLYMARKET_SIGNATURE_TYPE")
+    kwargs = {"chain_id": cfg["chain_id"]}
+    if funder:
+        kwargs["funder"] = funder
+        kwargs["signature_type"] = int(sig_env) if sig_env is not None else 1
+    elif sig_env is not None:
+        kwargs["signature_type"] = int(sig_env)
+    client = ClobClient(CLOB_HOST, key=key, **kwargs)
     # Deriva as credenciais de API a partir da chave (L2 headers).
     client.set_api_creds(client.create_or_derive_api_creds())
     return client
