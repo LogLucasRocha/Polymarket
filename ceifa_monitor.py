@@ -409,6 +409,7 @@ def errors_page(stats: dict) -> None:
                 "Faixa": signal.get("faixa"),
                 "Preço (¢)": float(signal.get("price") or 0) * 100,
                 "Parcela (% banca inicial)": float(signal.get("stake") or 0) * 100,
+                "Filtro que bloquearia": monitor.inactive_filter_hit(signal) or "—",
             })
         losses = pd.DataFrame(rows).sort_values(
             ["Data", "Estratégia", "Cidade"], ascending=[False, True, True])
@@ -487,6 +488,13 @@ def errors_page(stats: dict) -> None:
         f"<span class='tiny'>Entrada em {selected['Entrada local']} a "
         f"{selected['Preço (¢)']:.1f}¢</span></div>", unsafe_allow_html=True)
 
+    blocker = selected.get("Filtro que bloquearia", "—")
+    if blocker and blocker != "—":
+        st.warning(
+            f"🛡️ Um filtro **inativo** teria bloqueado este erro: **{blocker}**.")
+    else:
+        st.caption("Nenhum filtro inativo teria bloqueado este contrato.")
+
     if minimum:
         timeline = load_timeline(
             selected["ICAO"], selected["Dia"], selected["Faixa"],
@@ -516,7 +524,8 @@ def errors_page(stats: dict) -> None:
             "P90, spread e nowcast no momento da entrada.")
         st.subheader(f"Erros de mínimas em {selected_day_label}")
         st.dataframe(
-            day_losses[["Cidade", "Dia", "Faixa", "Preço (¢)", "Diagnóstico"]],
+            day_losses[["Cidade", "Dia", "Faixa", "Preço (¢)",
+                        "Filtro que bloquearia", "Diagnóstico"]],
             hide_index=True, width="stretch")
         return
 
@@ -588,7 +597,7 @@ def errors_page(stats: dict) -> None:
         st.subheader(f"Erros em {selected_day_label}")
         st.dataframe(
             day_losses[["Cidade", "Dia", "Lado", "Faixa", "Preço (¢)",
-                        "Diagnóstico"]],
+                        "Filtro que bloquearia", "Diagnóstico"]],
             hide_index=True, width="stretch")
         return
 
@@ -612,7 +621,8 @@ def errors_page(stats: dict) -> None:
 
     st.subheader(f"Erros em {selected_day_label}")
     table = day_losses[["Cidade", "Dia", "Faixa", "Preço (¢)",
-                       "Observado na entrada", "Máxima final", "Diagnóstico"]].copy()
+                       "Observado na entrada", "Máxima final",
+                       "Filtro que bloquearia", "Diagnóstico"]].copy()
     st.dataframe(table, hide_index=True, width="stretch")
 
 

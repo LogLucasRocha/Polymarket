@@ -316,8 +316,9 @@ def main() -> int:
             q = ctx_i["dist_d0"]["quantiles"]
             ceiling = (float(q.get(50)) + float(spr)
                        if q.get(50) is not None and spr is not None else None)
-            if ceifa.is_ensemble_inside_market_band_risk(
-                    icao, v["label"], q.get(10), q.get(90)):
+            if config.CEIFA_ENSEMBLE_BAND_FILTER and \
+                    ceifa.is_ensemble_inside_market_band_risk(
+                        icao, v["label"], q.get(10), q.get(90)):
                 p10_txt = (f"{float(q.get(10)):.2f}°C"
                            if q.get(10) is not None else "—")
                 p90_txt = (f"{float(q.get(90)):.2f}°C"

@@ -271,9 +271,14 @@ class WarmTargetRiskTests(unittest.TestCase):
             }]).to_parquet(
                 archive / "previsao" / "day.parquet", index=False)
 
-            result = ceifa.simulate_repeated(
-                icaos={"RPLL"}, archive=archive,
-                uncertainty_filter=False)
+            original = ceifa.config.CEIFA_ENSEMBLE_BAND_FILTER
+            ceifa.config.CEIFA_ENSEMBLE_BAND_FILTER = True
+            try:
+                result = ceifa.simulate_repeated(
+                    icaos={"RPLL"}, archive=archive,
+                    uncertainty_filter=False)
+            finally:
+                ceifa.config.CEIFA_ENSEMBLE_BAND_FILTER = original
 
             self.assertEqual(result["n"], 0)
             self.assertEqual(result["n_filtrado_ensemble_band"], 1)

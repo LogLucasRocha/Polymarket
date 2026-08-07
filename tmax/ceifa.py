@@ -318,9 +318,12 @@ def market_temperature_interval_c(icao: str, faixa) -> tuple[float, float] | Non
 
 
 def is_ensemble_inside_market_band_risk(icao: str, faixa, p10, p90) -> bool:
-    """Veta o NÃO quando o bucket vendido toca a faixa central P10–P90."""
-    if not config.CEIFA_ENSEMBLE_BAND_FILTER:
-        return False
+    """A faixa vendida toca ou se sobrepõe ao intervalo central P10–P90?
+
+    Predicado puro (geometria), sem consultar o liga/desliga do filtro — assim
+    a tela de erros pode perguntar "este filtro, se ativado, pegaria o erro?".
+    O liga/desliga (``CEIFA_ENSEMBLE_BAND_FILTER``) é aplicado em quem chama.
+    """
     interval = market_temperature_interval_c(icao, faixa)
     if (interval is None or p10 is None or p90 is None
             or pd.isna(p10) or pd.isna(p90)):
@@ -556,8 +559,8 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
         ceiling = (forecast.get("teto_ens") if forecast is not None else None)
         p10 = (forecast.get("p10") if forecast is not None else None)
         p90 = (forecast.get("p90") if forecast is not None else None)
-        if (warm_target_filter and is_ensemble_inside_market_band_risk(
-                icao, faixa, p10, p90)):
+        if (warm_target_filter and config.CEIFA_ENSEMBLE_BAND_FILTER
+                and is_ensemble_inside_market_band_risk(icao, faixa, p10, p90)):
             n_filtrado += 1
             n_filtrado_ensemble_band += 1
             if nao_final > 0.5:
@@ -717,8 +720,9 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                     filtered_0c += 1
                 continue
 
-            if (warm_target_filter and is_ensemble_inside_market_band_risk(
-                    icao, faixa, fget("p10"), fget("p90"))):
+            if (warm_target_filter and config.CEIFA_ENSEMBLE_BAND_FILTER
+                    and is_ensemble_inside_market_band_risk(
+                        icao, faixa, fget("p10"), fget("p90"))):
                 filtered += 1
                 filtered_ensemble_band += 1
                 if final_no > 0.5:
