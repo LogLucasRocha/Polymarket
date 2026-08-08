@@ -399,11 +399,15 @@ def slice_strategy(stats: dict, lookback_days: int | None) -> dict:
     signals = list(stats.get("signals", []))
     if not signals or lookback_days is None:
         return stats
-    last_day = max(pd.Timestamp(signal["day"]) for signal in signals)
+    # Fatia pela MESMA chave que agrupa o "Retorno de cada dia" (dia de Brasília
+    # na Ceifa, data-alvo no SPY/Bitcoin); senão um dia de fronteira perde parte
+    # das parcelas ao encurtar a janela.
+    bucket = ceifa._day_bucket
+    last_day = max(pd.Timestamp(bucket(signal)) for signal in signals)
     cutoff = last_day - pd.Timedelta(days=lookback_days - 1)
     selected = [signal for signal in signals
-                if pd.Timestamp(signal["day"]) >= cutoff]
-    days = len({str(signal["day"]) for signal in selected})
+                if pd.Timestamp(bucket(signal)) >= cutoff]
+    days = len({bucket(signal) for signal in selected})
     if stats.get("repeat_minutes") is not None:
         sliced = ceifa._stats_relative_available_stake(  # mesma regra de banca
             selected, days=days, stake_frac=config.CEIFA_STAKE_FRAC)
