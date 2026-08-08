@@ -263,24 +263,26 @@ class MonitorTest(unittest.TestCase):
         self.assertEqual(stats["signals"][0]["extreme"], "maximum")
         self.assertEqual(stats["signals"][1]["extreme"], "minimum")
 
-    def test_bootstrap_tail_flags_losing_contract(self):
-        # 4 contratos ganhadores + 1 perdedor grande, em 2 dias.
-        signals = []
-        for i in range(4):
-            signals.append({"icao": "A", "day": "d1", "faixa": f"{i}",
-                            "ts": i, "price": 0.97, "won": True,
-                            "stake": 0.01})
-        signals.append({"icao": "B", "day": "d2", "faixa": "z", "ts": 9,
-                        "price": 0.97, "won": False, "stake": 0.05})
-        result = monitor.bootstrap_tail(
-            {"signals": signals}, n_sims=5000, seed=1)
-        self.assertEqual(result["contracts"], 5)
-        self.assertGreater(result["p_loss"], 0.0)          # há perda possível
-        self.assertLess(result["levels"][0.05]["cvar"], 0)  # CVaR negativo
-        self.assertLessEqual(result["worst"], result["levels"][0.05]["var"])
+    def test_observed_cvar_is_mean_of_worst_days(self):
+        # 4 dias bons + 1 dia com perda: o CVaR 1% cai no pior dia real.
+        per_day = [{"ret": 0.02}, {"ret": 0.01}, {"ret": 0.015},
+                   {"ret": 0.008}, {"ret": -0.036}]
+        result = monitor.observed_cvar({"per_day": per_day}, alpha=0.01)
+        self.assertEqual(result["n_days"], 5)
+        self.assertEqual(result["tail_days"], 1)          # 1% de 5 = pior dia
+        self.assertAlmostEqual(result["cvar"], -0.036)    # média = o pior dia
+        self.assertLess(result["cvar"], 0)                # perda
 
-    def test_bootstrap_tail_needs_two_contracts(self):
-        self.assertIsNone(monitor.bootstrap_tail({"signals": []}))
+    def test_observed_cvar_averages_the_tail(self):
+        # alpha grande o bastante para pegar mais de um dia: vira média.
+        per_day = [{"ret": r} for r in (-0.04, -0.02, 0.01, 0.03)]
+        result = monitor.observed_cvar({"per_day": per_day}, alpha=0.5)
+        self.assertEqual(result["tail_days"], 2)          # 50% = 2 dias
+        self.assertAlmostEqual(result["cvar"], -0.03)     # média(-0.04, -0.02)
+
+    def test_observed_cvar_needs_days(self):
+        self.assertIsNone(monitor.observed_cvar({"per_day": []}))
+        self.assertIsNone(monitor.observed_cvar({}))
 
     def test_filter_frame_explains_rules_and_preserves_plateau_subset(self):
         stats = {

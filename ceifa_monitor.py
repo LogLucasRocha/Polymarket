@@ -178,9 +178,9 @@ def load_losses(stats: dict) -> pd.DataFrame:
     return monitor.loss_details(stats)
 
 
-@st.cache_data(show_spinner="Simulando o risco de cauda…")
+@st.cache_data
 def load_tail(stats: dict) -> dict | None:
-    return monitor.bootstrap_tail(stats)
+    return monitor.observed_cvar(stats)
 
 
 @st.cache_data
@@ -421,14 +421,13 @@ def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
 
         tail = load_tail(stats)
         if tail:
-            level = tail["levels"].get(0.01, {})
             st.metric("Média dos 1% piores dias (CVaR)",
-                      pct(level.get("cvar"), 2))
+                      pct(tail["cvar"], 2))
             st.caption(
-                f"Média do resultado nos 1% piores dias, sobre 50 mil dias "
-                f"sintéticos (~{tail['per_day']} contratos/dia). Reamostra cada "
-                "contrato como unidade (preserva a correlação das parcelas) e "
-                "reflete só a frequência de perda já observada.")
+                f"Média do retorno diário nos {tail['tail_days']} pior(es) "
+                f"de {tail['n_days']} dias reais. Com histórico curto equivale "
+                "ao pior dia; vira média de vários dias conforme os dias "
+                "acumulam. Só dias observados — sem simulação.")
 
         if consolidated:
             components = full_stats.get("active_components") or {}

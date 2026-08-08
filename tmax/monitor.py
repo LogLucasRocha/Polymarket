@@ -630,44 +630,22 @@ def risk_metrics(stats: dict) -> dict:
     }
 
 
-def bootstrap_tail(stats: dict, alphas: tuple[float, ...] = (0.05, 0.01),
-                   n_sims: int = 50000, seed: int = 0) -> dict | None:
-    """Risco de cauda por reamostragem de contratos, na escala de um dia.
+def observed_cvar(stats: dict, alpha: float = 0.01) -> dict | None:
+    """Média dos retornos diários nos ``alpha`` piores dias REAIS (CVaR/ES).
 
-    Cada contrato (icao/dia/faixa) ganha ou perde como uma unidade — as parcelas
-    do mesmo contrato são perfeitamente correlacionadas, então reamostramos o
-    contrato inteiro. Sorteamos, com reposição, um número de contratos igual à
-    média por dia e somamos o P&L (em fração da banca), gerando a distribuição
-    de um "dia sintético". Devolve VaR e CVaR (expected shortfall) do dia, a
-    probabilidade de o dia fechar negativo e o pior dia simulado.
-
-    Só reflete a frequência de perda JÁ OBSERVADA — com poucas perdas no
-    histórico, a cauda é uma estimativa otimista (podemos ter tido sorte).
+    Usa só os dias observados (``per_day``), não simulação. Com poucos dias,
+    ``alpha`` da amostra é menos de um dia, então a "cauda" é apenas o pior dia;
+    vira média de vários dias quando o histórico crescer. Devolve o CVaR, o VaR
+    (limiar), o total de dias e quantos entraram na cauda. None se não há dias.
     """
-    contracts: dict[tuple, float] = defaultdict(float)
-    days: set = set()
-    for signal in signals_with_stakes(stats):
-        stake = float(signal.get("stake", 0.0))
-        price = float(signal.get("price") or 1.0)
-        contracts[(signal["icao"], signal["day"], signal["faixa"])] += (
-            stake * (1.0 / price - 1.0) if signal["won"] else -stake)
-        days.add(signal["day"])
-    pnl = np.array(list(contracts.values()), dtype=float)
-    if pnl.size < 2 or not days:
+    rets = np.array([day["ret"] for day in stats.get("per_day", [])],
+                    dtype=float)
+    if rets.size == 0:
         return None
-    per_day = max(1, round(pnl.size / len(days)))
-    rng = np.random.default_rng(seed)
-    sims = rng.choice(pnl, size=(n_sims, per_day), replace=True).sum(axis=1)
-    levels = {}
-    for alpha in alphas:
-        var = float(np.quantile(sims, alpha))
-        cvar = float(sims[sims <= var].mean())
-        levels[alpha] = {"var": var, "cvar": cvar}
-    return {
-        "contracts": int(pnl.size), "per_day": int(per_day),
-        "p_loss": float(np.mean(sims < 0)), "worst": float(sims.min()),
-        "levels": levels,
-    }
+    var = float(np.quantile(rets, alpha))
+    tail = rets[rets <= var]
+    return {"cvar": float(tail.mean()), "var": var,
+            "n_days": int(rets.size), "tail_days": int(tail.size)}
 
 
 def _local_tz(icao: str) -> ZoneInfo:
