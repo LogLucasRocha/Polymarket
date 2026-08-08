@@ -24,14 +24,13 @@ except Exception:  # noqa: BLE001
 import datetime as dt
 import json
 import sys
-from zoneinfo import ZoneInfo
 
 import requests
 
 from tmax import config
 from tmax import polymarket as pm
 
-from . import MERCADOS, Mercado
+from . import MERCADOS, Mercado, market_date
 
 
 def market_slug(prefix: str, d: dt.date) -> str:
@@ -116,7 +115,7 @@ def _attach_asks(market: dict, timeout: int = 30) -> None:
 
 def coletar(mercado: Mercado) -> list[dict]:
     now = dt.datetime.now(dt.timezone.utc)
-    d0 = dt.datetime.now(ZoneInfo(mercado.tz)).date()
+    d0 = market_date(mercado, now)
     slug = market_slug(mercado.slug_prefix, d0)
     try:
         book = fetch_binary(slug)

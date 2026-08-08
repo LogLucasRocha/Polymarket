@@ -20,11 +20,32 @@ class RegistryTests(unittest.TestCase):
             MERCADOS["bitcoin"].slug_prefix, dt.date(2026, 8, 8))
         self.assertEqual(slug, "bitcoin-above-on-august-8-2026")
 
-    def test_close_uses_market_timezone(self):
-        # 16:00 ET (EDT em agosto) = 20:00 UTC, para qualquer mercado.
+    def test_spy_closes_at_16_et(self):
+        # SPY: 16:00 ET (EDT em agosto) = 20:00 UTC.
         self.assertEqual(
-            study._close_utc("bitcoin", "2026-08-08"),
+            study._close_utc("spy", "2026-08-08"),
             pd.Timestamp("2026-08-08T20:00:00Z"))
+
+    def test_bitcoin_closes_at_16_utc(self):
+        # Bitcoin: o dia vira/resolve às 16:00 UTC.
+        self.assertEqual(
+            study._close_utc("bitcoin", "2026-08-09"),
+            pd.Timestamp("2026-08-09T16:00:00Z"))
+
+    def test_bitcoin_day_rolls_at_16_utc(self):
+        from spy import market_date
+        btc = MERCADOS["bitcoin"]
+        antes = dt.datetime(2026, 8, 8, 11, 0, tzinfo=dt.timezone.utc)
+        depois = dt.datetime(2026, 8, 8, 17, 0, tzinfo=dt.timezone.utc)
+        self.assertEqual(market_date(btc, antes), dt.date(2026, 8, 8))
+        self.assertEqual(market_date(btc, depois), dt.date(2026, 8, 9))
+
+    def test_spy_day_is_et_calendar(self):
+        from spy import market_date
+        spy = MERCADOS["spy"]
+        # 17:00 UTC = 13:00 ET → ainda dia 8 (calendário ET).
+        now = dt.datetime(2026, 8, 8, 17, 0, tzinfo=dt.timezone.utc)
+        self.assertEqual(market_date(spy, now), dt.date(2026, 8, 8))
 
 
 def _frame(rows: list[dict]) -> pd.DataFrame:

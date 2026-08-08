@@ -33,6 +33,15 @@ def _mercado(market: str | Mercado) -> Mercado:
     return market if isinstance(market, Mercado) else MERCADOS[market]
 
 
+_TZ_LABELS = {"America/New_York": "ET", "UTC": "UTC"}
+
+
+def close_label(market: str = "spy") -> str:
+    """Rótulo do fechamento, ex.: '16:00 ET' (SPY) ou '16:00 UTC' (Bitcoin)."""
+    m = _mercado(market)
+    return f"{m.close_hour:02d}:00 {_TZ_LABELS.get(m.tz, m.tz)}"
+
+
 def _load_market(market: str = "spy") -> pd.DataFrame:
     """Une o parquet commitado (dias fechados) e os buffers do dia corrente."""
     m = _mercado(market)
