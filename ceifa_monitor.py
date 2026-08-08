@@ -466,7 +466,7 @@ def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
             "Fator de lucro = ganhos brutos ÷ perdas brutas. As parcelas "
             "repetidas no mesmo contrato não são eventos independentes.")
 
-    st.subheader("Retorno de cada dia")
+    st.subheader("Retorno de cada dia (hora de Brasília)")
     days = window_selector(f"daily_window_{stats.get('archive_kind')}_{side}")
     st.plotly_chart(daily_chart(stats, days), width="stretch")
     if daily:

@@ -504,5 +504,35 @@ class WarmTargetRiskTests(unittest.TestCase):
             self.assertEqual(result["executable_snapshots"], 0)
 
 
+class BrasiliaDayBucketTests(unittest.TestCase):
+    def test_stats_bucket_daily_returns_by_brasilia_date(self):
+        # Duas entradas com a MESMA data-alvo de mercado (07-14), mas em UTC
+        # cruzando a meia-noite de Brasília (UTC-3): uma cai no dia 13, outra
+        # no dia 14. O "Retorno de cada dia" deve separá-las.
+        signals = [
+            {"icao": "A", "day": "2026-07-14", "faixa": "x",
+             "ts": pd.Timestamp("2026-07-14T02:30:00Z"),   # 23:30 BR dia 13
+             "day_br": ceifa._brasilia_day(pd.Timestamp("2026-07-14T02:30:00Z")),
+             "price": 0.97, "won": True},
+            {"icao": "B", "day": "2026-07-14", "faixa": "y",
+             "ts": pd.Timestamp("2026-07-14T15:00:00Z"),   # 12:00 BR dia 14
+             "day_br": ceifa._brasilia_day(pd.Timestamp("2026-07-14T15:00:00Z")),
+             "price": 0.97, "won": True},
+        ]
+        stats = ceifa._stats_relative_available_stake(signals, 1, 0.01)
+        dias = [d["day"] for d in stats["per_day"]]
+        self.assertEqual(dias, ["2026-07-13", "2026-07-14"])
+
+    def test_stats_without_day_br_falls_back_to_market_day(self):
+        # SPY/Bitcoin não têm day_br: mantêm a data-alvo do mercado.
+        signals = [
+            {"icao": "SPY", "day": "2026-08-09", "faixa": "z",
+             "ts": pd.Timestamp("2026-08-09T02:30:00Z"), "price": 0.97,
+             "won": True},
+        ]
+        stats = ceifa._stats_relative_available_stake(signals, 1, 0.01)
+        self.assertEqual([d["day"] for d in stats["per_day"]], ["2026-08-09"])
+
+
 if __name__ == "__main__":
     unittest.main()

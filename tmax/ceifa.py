@@ -26,6 +26,7 @@ from bisect import bisect_right
 from collections import defaultdict
 from functools import lru_cache
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pyarrow as pa
@@ -38,6 +39,22 @@ ARCHIVE = config.ROOT / "dados"
 BACKTEST_ARCHIVE = config.ROOT / "backtest_data"
 STAKE_FRAC = 0.10
 _ROOT_FRAME_CACHE: dict[tuple[str, str], tuple[tuple, pd.DataFrame]] = {}
+_BR_TZ = ZoneInfo("America/Sao_Paulo")
+
+
+def _brasilia_day(ts) -> str | None:
+    """Data (ISO) no fuso de Brasília do instante da entrada.
+
+    A ``day`` do sinal é a data-alvo do mercado (calendário da cidade); para o
+    gráfico "Retorno de cada dia" o Lucas quer o dia em que ELE operou, no fuso
+    de Brasília. Convertemos o ``ts`` real (UTC) para America/Sao_Paulo."""
+    try:
+        stamp = pd.Timestamp(ts)
+        if stamp.tzinfo is None:
+            stamp = stamp.tz_localize("UTC")
+        return stamp.tz_convert(_BR_TZ).date().isoformat()
+    except Exception:  # noqa: BLE001 — ts ausente/estranho: cai no day do mercado
+        return None
 
 
 def normalize_market_price(value) -> float | None:
@@ -638,6 +655,7 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
         # Sem stop: segura até liquidar. Vitória se o NÃO foi para ~1,0.
         won = nao_final > 0.5
         signals.append({"icao": icao, "day": dia, "faixa": faixa,
+                        "day_br": _brasilia_day(e["ts"]),
                         "ts": e["ts"], "price": entry, "won": won,
                         "stopped": False, "loss_frac": None,
                         "spread": spr})
@@ -827,6 +845,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
 
             signals.append({
                 "icao": icao, "day": day, "faixa": faixa,
+                "day_br": _brasilia_day(entry_row["ts"]),
                 "ts": entry_row["ts"], "price": price,
                 "won": final_no > 0.5, "stopped": False,
                 "loss_frac": None, "spread": spread,
@@ -964,6 +983,7 @@ def simulate_yes_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                 continue
             signals.append({
                 "icao": icao, "day": day, "faixa": faixa,
+                "day_br": _brasilia_day(entry_row["ts"]),
                 "ts": entry_row["ts"], "price": price,
                 "won": final_yes > 0.5, "stopped": False,
                 "loss_frac": None, "spread": None, "side": "SIM",
@@ -984,9 +1004,12 @@ def simulate_yes_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
 def _stats_relative_available_stake(signals: list, days: int,
                                     stake_frac: float) -> dict:
     """Parcela cada entrada com uma fração do caixa ainda disponível."""
+    # Bucket do dia: para a Ceifa, o dia em que o Lucas operou (fuso de
+    # Brasília, ``day_br``); para SPY/Bitcoin, que não têm ``day_br``, a
+    # data-alvo do próprio mercado (``day``), definida pelo fechamento dele.
     by_day: dict = defaultdict(list)
     for signal in signals:
-        by_day[signal["day"]].append(signal)
+        by_day[signal.get("day_br") or signal["day"]].append(signal)
     capital, peak, max_drawdown = 1.0, 1.0, 0.0
     executed, per_day = [], []
     for day in sorted(by_day):
