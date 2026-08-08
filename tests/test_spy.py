@@ -50,6 +50,8 @@ class RegistryTests(unittest.TestCase):
 
 def _frame(rows: list[dict]) -> pd.DataFrame:
     df = pd.DataFrame(rows)
+    if "faixa" not in df:
+        df["faixa"] = "—"                  # binário: um contrato por dia
     df["ts"] = pd.to_datetime(df["ts_utc"], utc=True)
     return df
 
@@ -180,3 +182,36 @@ class SpyStudyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StrikesTests(unittest.TestCase):
+    def _frame(self):
+        import datetime as dt
+        rows = []
+        start = dt.datetime(2026, 8, 9, 10, 0, tzinfo=dt.timezone.utc)
+        for i in range(20):                       # 10:00 .. 13:10 UTC
+            iso = (start + dt.timedelta(minutes=10 * i)).isoformat()
+            rows.append({"ts_utc": iso, "dia": "2026-08-09", "faixa": "64000",
+                         "preco_up": 0.97, "preco_down": 0.03})   # Yes na faixa
+            rows.append({"ts_utc": iso, "dia": "2026-08-09", "faixa": "66000",
+                         "preco_up": 0.10, "preco_down": 0.90})   # fora da faixa
+        res = dt.datetime(2026, 8, 9, 16, 0, tzinfo=dt.timezone.utc).isoformat()
+        rows.append({"ts_utc": res, "dia": "2026-08-09", "faixa": "64000",
+                     "preco_up": 0.999, "preco_down": 0.001})     # Yes venceu
+        rows.append({"ts_utc": res, "dia": "2026-08-09", "faixa": "66000",
+                     "preco_up": 0.001, "preco_down": 0.999})
+        return _frame(rows)
+
+    def test_in_band_strike_becomes_signal(self):
+        with mock.patch.object(study, "_load_market", return_value=self._frame()):
+            stats = study.simulate(None, "bitcoin")
+        self.assertGreater(stats["n"], 0)              # 64000 Yes vira parcela
+        self.assertEqual(stats["wins"], stats["n"])    # Yes venceu
+        self.assertEqual(stats["by_pick"]["down"], 0)  # 66000 nunca na faixa
+
+    def test_daily_summary_aggregates_strikes(self):
+        with mock.patch.object(study, "_load_market", return_value=self._frame()):
+            daily = study.daily_summary("bitcoin")
+        self.assertEqual(len(daily), 1)
+        self.assertGreater(int(daily.iloc[0]["parcelas"]), 0)
+        self.assertEqual(daily.iloc[0]["resultado"], "Acerto")

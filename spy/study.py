@@ -63,8 +63,11 @@ def _load_market(market: str = "spy") -> pd.DataFrame:
     df = pd.concat(frames, ignore_index=True)
     if "preco_down" not in df or "preco_up" not in df:
         return pd.DataFrame()
+    if "faixa" not in df:
+        df["faixa"] = "—"                  # binário antigo (SPY) sem strikes
+    df["faixa"] = df["faixa"].fillna("—")
     df["ts"] = pd.to_datetime(df["ts_utc"], utc=True)
-    df = df.drop_duplicates(["ts_utc", "dia"]).sort_values("ts")
+    df = df.drop_duplicates(["ts_utc", "dia", "faixa"]).sort_values("ts")
     return df
 
 
@@ -101,12 +104,15 @@ def simulate(window_hours: int | None = None, market: str = "spy") -> dict:
         return ceifa._stats_relative_available_stake([], 0, STAKE_FRAC)
 
     signals: list[dict] = []
-    for dia, group in df.groupby("dia"):
+    # Cada (dia, faixa) é um contrato: binário tem uma faixa "—"; strikes têm
+    # uma por alvo (Bitcoin: "acima de 64k?"). O lado (Yes/No ou Up/Down) na
+    # faixa de preço vira parcela; o intervalo de 10 min é por contrato.
+    for (dia, faixa), group in df.groupby(["dia", "faixa"]):
         group = group.sort_values("ts")
         final = {"up": _resolved(group, "preco_up"),
                  "down": _resolved(group, "preco_down")}
         if final["up"] is None and final["down"] is None:
-            continue                       # dia ainda não resolveu
+            continue                       # contrato ainda não resolveu
         close = _close_utc(market, str(dia))
         cutoff = (None if window_hours is None
                   else close - pd.Timedelta(hours=window_hours))
@@ -123,7 +129,8 @@ def simulate(window_hours: int | None = None, market: str = "spy") -> dict:
             if final[side] is None:
                 continue
             signals.append({
-                "icao": market.upper(), "day": str(dia), "faixa": side.upper(),
+                "icao": market.upper(), "day": str(dia),
+                "faixa": f"{faixa}·{side}", "pick": side,
                 "ts": row["ts"], "price": float(row[f"preco_{side}"]),
                 "won": final[side] > 0.5, "stopped": False,
                 "loss_frac": None, "spread": None,
@@ -137,8 +144,8 @@ def simulate(window_hours: int | None = None, market: str = "spy") -> dict:
     stats["repeat_minutes"] = INTERVAL_MINUTES
     stats["window_hours"] = window_hours
     stats["by_pick"] = {
-        "up": sum(1 for s in signals if s["faixa"] == "UP"),
-        "down": sum(1 for s in signals if s["faixa"] == "DOWN"),
+        "up": sum(1 for s in signals if s.get("pick") == "up"),
+        "down": sum(1 for s in signals if s.get("pick") == "down"),
     }
     return stats
 
@@ -156,7 +163,9 @@ def latest_day(market: str = "spy") -> str | None:
 
 
 def latest_prices(market: str = "spy") -> pd.DataFrame:
-    """Série de preços dos dois lados do dia mais recente (para o gráfico)."""
+    """Série de preços do dia mais recente (só para mercados binários)."""
+    if _mercado(market).kind != "binary":
+        return pd.DataFrame(columns=["ts", "preco_up", "preco_down", "dia"])
     df = _load_market(market)
     if df.empty:
         return pd.DataFrame(columns=["ts", "preco_up", "preco_down", "dia"])
@@ -165,6 +174,44 @@ def latest_prices(market: str = "spy") -> pd.DataFrame:
     out = group[["ts", "preco_up", "preco_down"]].copy()
     out["dia"] = str(day)
     return out
+
+
+def latest_strikes(market: str = "spy") -> pd.DataFrame:
+    """Strikes do último snapshot (só multi-strike), com quem está na faixa."""
+    if _mercado(market).kind != "strikes":
+        return pd.DataFrame()
+    df = _load_market(market)
+    if df.empty:
+        return pd.DataFrame()
+    day = df["dia"].max()
+    day_group = df[df["dia"] == day]
+    snap = day_group[day_group["ts"] == day_group["ts"].max()].copy()
+    snap["na_faixa"] = snap.apply(
+        lambda row: _side_in_band(row) is not None, axis=1)
+    return snap.sort_values("faixa")[
+        ["faixa", "preco_up", "preco_down", "na_faixa"]].reset_index(drop=True)
+
+
+def _count_parcelas(group: pd.DataFrame) -> tuple[int, int, bool]:
+    """Parcelas, acertos e se resolveu, para um contrato (dia, faixa)."""
+    group = group.sort_values("ts")
+    final = {"up": _resolved(group, "preco_up"),
+             "down": _resolved(group, "preco_down")}
+    resolved = final["up"] is not None or final["down"] is not None
+    parcelas = acertos = 0
+    last_ts = None
+    for _, row in group.iterrows():
+        side = _side_in_band(row)
+        if side is None:
+            continue
+        if last_ts is not None and \
+                (row["ts"] - last_ts) < pd.Timedelta(minutes=INTERVAL_MINUTES):
+            continue
+        parcelas += 1
+        last_ts = row["ts"]
+        if resolved and final[side] is not None and final[side] > 0.5:
+            acertos += 1
+    return parcelas, acertos, resolved
 
 
 def side_labels(market: str = "spy") -> tuple[str, str]:
@@ -185,23 +232,14 @@ def daily_summary(market: str = "spy") -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(columns=cols)
     rows = []
-    for dia, group in df.groupby("dia"):
-        group = group.sort_values("ts")
-        final = {"up": _resolved(group, "preco_up"),
-                 "down": _resolved(group, "preco_down")}
-        resolved = final["up"] is not None or final["down"] is not None
-        parcelas, acertos, last_ts = 0, 0, None
-        for _, row in group.iterrows():
-            side = _side_in_band(row)
-            if side is None:
-                continue
-            if last_ts is not None and \
-                    (row["ts"] - last_ts) < pd.Timedelta(minutes=INTERVAL_MINUTES):
-                continue
-            parcelas += 1
-            last_ts = row["ts"]
-            if resolved and final[side] is not None and final[side] > 0.5:
-                acertos += 1
+    for dia, day_group in df.groupby("dia"):
+        parcelas = acertos = 0
+        resolved = False
+        for _, group in day_group.groupby("faixa"):
+            p, a, r = _count_parcelas(group)
+            parcelas += p
+            acertos += a
+            resolved = resolved or r
         if not resolved:
             resultado = "Em aberto"
         elif parcelas == 0:
@@ -224,17 +262,12 @@ def today_progress(market: str = "spy") -> dict:
     if df.empty:
         return {"day": None, "snapshots": 0, "parcelas": 0, "resolved": False}
     day = str(df["dia"].max())
-    group = df[df["dia"] == day].sort_values("ts")
-    resolved = (_resolved(group, "preco_up") is not None
-                or _resolved(group, "preco_down") is not None)
-    parcelas, last_ts = 0, None
-    for _, row in group.iterrows():
-        if _side_in_band(row) is None:
-            continue
-        if last_ts is not None and \
-                (row["ts"] - last_ts) < pd.Timedelta(minutes=INTERVAL_MINUTES):
-            continue
-        parcelas += 1
-        last_ts = row["ts"]
-    return {"day": day, "snapshots": len(group),
+    day_group = df[df["dia"] == day]
+    parcelas = 0
+    resolved = False
+    for _, group in day_group.groupby("faixa"):
+        p, _a, r = _count_parcelas(group)
+        parcelas += p
+        resolved = resolved or r
+    return {"day": day, "snapshots": int(day_group["ts"].nunique()),
             "parcelas": parcelas, "resolved": resolved}

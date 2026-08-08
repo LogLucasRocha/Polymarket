@@ -28,12 +28,16 @@ class Mercado:
     #   o "dia" começa e resolve às 16:00 UTC — a janela do dia N é
     #   [N-1 16:00, N 16:00] e o slug é a data da resolução).
     rolling: bool = False
+    # kind="binary": um mercado por dia, 2 desfechos (SPY: Up/Down).
+    # kind="strikes": vários strikes por dia, cada um Yes/No (Bitcoin Above:
+    #   "acima de 60k?", "acima de 62k?", ...). Cada strike vira um contrato.
+    kind: str = "binary"
 
 
 MERCADOS: dict[str, Mercado] = {
     "spy": Mercado("spy", "SPY Daily Up or Down", "spy-up-or-down-on"),
     "bitcoin": Mercado("bitcoin", "Bitcoin Above", "bitcoin-above-on",
-                       close_hour=16, tz="UTC", rolling=True),
+                       close_hour=16, tz="UTC", rolling=True, kind="strikes"),
 }
 
 # Faixa de compra (>95¢ e <99,8¢) e cadência — iguais para todos os mercados.
