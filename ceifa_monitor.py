@@ -178,6 +178,11 @@ def load_losses(stats: dict) -> pd.DataFrame:
     return monitor.loss_details(stats)
 
 
+@st.cache_data(show_spinner="Simulando o risco de cauda…")
+def load_tail(stats: dict) -> dict | None:
+    return monitor.bootstrap_tail(stats)
+
+
 @st.cache_data
 def load_timeline(icao: str, day: str, faixa: str, entry: str,
                   archive_kind: str, side: str) -> dict:
@@ -413,6 +418,24 @@ def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
                   "∞" if math.isinf(risk["profit_factor"])
                   else f"{risk['profit_factor']:.2f}x")
         r4.metric("Contratos com erro", str(unique_losses))
+
+        tail = load_tail(stats)
+        if tail:
+            level = tail["levels"].get(0.05, {})
+            st.markdown("**Risco de cauda — bootstrap do dia**")
+            t1, t2, t3 = st.columns(3)
+            t1.metric("CVaR 5% (dia)", pct(level.get("cvar"), 2))
+            t2.metric("P(dia negativo)", f"{tail['p_loss']:.2%}")
+            t3.metric("Pior dia simulado", pct(tail["worst"], 2))
+            st.caption(
+                f"Reamostrando ~{tail['per_day']} contratos/dia "
+                f"({tail['contracts']} contratos no total), 50 mil dias "
+                "sintéticos. **CVaR 5% (dia)** = perda média nos 5% piores dias "
+                "simulados (negativo = perda). O 'pior dia simulado' é o cenário "
+                "extremo (vários contratos ruins caindo no mesmo dia). "
+                "Reamostra o contrato inteiro (preserva a correlação das "
+                "parcelas) e reflete só a frequência de perda já observada.")
+
         if consolidated:
             components = full_stats.get("active_components") or {}
             st.markdown(
