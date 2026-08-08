@@ -862,15 +862,30 @@ def market_page(market: str) -> None:
 
     daily = spy_study.daily_summary(market)
     prices = spy_study.latest_prices(market)
-    if daily.empty and prices.empty:
+    strikes = spy_study.latest_strikes(market)
+    if daily.empty and prices.empty and strikes.empty:
         st.info(
             "Ainda sem captura. A coleta roda a cada rodada no GitHub Actions; "
             "assim que houver snapshots, o dia aparece aqui. Clique em "
             "**Atualizar** para puxar o mais recente.")
         return
 
-    # Preços do dia com a faixa marcada — a aba nunca fica em branco: mesmo sem
-    # entrada, você vê o caminho do mercado em relação à faixa de compra.
+    # Multi-strike (Bitcoin): tabela dos strikes do último snapshot, marcando
+    # quem está na faixa de compra (95–99,8¢) num dos lados.
+    if not strikes.empty:
+        st.subheader("Strikes do último snapshot")
+        view = strikes.rename(columns={
+            "faixa": "Strike", "preco_up": f"{lado_a} (¢)",
+            "preco_down": f"{lado_b} (¢)", "na_faixa": "Na faixa"})
+        for col in (f"{lado_a} (¢)", f"{lado_b} (¢)"):
+            view[col] = (view[col].astype(float) * 100).round(1)
+        st.dataframe(view, hide_index=True, width="stretch",
+                     column_config={"Na faixa": st.column_config.CheckboxColumn()})
+        st.caption(
+            "Cada strike é um contrato. Qualquer lado (Yes/No) entre 95¢ e "
+            "99,8¢ vira parcela — a coluna 'Na faixa' marca quais entrariam.")
+
+    # Preços do dia com a faixa marcada (mercados binários, tipo SPY).
     if not prices.empty:
         dia = prices["dia"].iloc[0]
         st.subheader(f"Preços do dia {dia}")

@@ -1,10 +1,15 @@
-"""Captura ao vivo dos mercados binários diários (fase de observação).
+"""Captura ao vivo dos mercados binários/multi-strike diários (observação).
 
 A cada rodada (10 min no main.yml), para cada mercado do registro ``MERCADOS``,
-tira um snapshot do dia (D0, no fuso do mercado) com preço e melhor ask dos dois
-lados. Guardamos os dois lados posicionalmente (lado A → "up", lado B → "down"),
-sem depender do nome do desfecho, então serve para SPY (Up/Down), Bitcoin
-(Above/Below) etc. Fim de semana/feriado sem mercado: a rodada apenas não grava.
+tira um snapshot do dia (D0, no fuso do mercado):
+
+- kind="binary" (SPY): um mercado, dois lados (Up/Down) — um contrato por dia.
+- kind="strikes" (Bitcoin Above): vários strikes ("acima de 60k?", "acima de
+  62k?", ...), cada um Yes/No — um contrato por strike (a ``faixa``).
+
+Guardamos os dois lados posicionalmente (lado A → "up"/"Yes", lado B →
+"down"/"No"), sem depender do nome do desfecho. Fim de semana/feriado sem
+mercado: a rodada apenas não grava.
 
 Grava em data_{key}/ (buffer do dia UTC corrente, entra no zip do Atualizar) e
 dados_{key}/ (parquet por dia UTC fechado, commitado). Só arquiva; não envia
@@ -58,11 +63,21 @@ def _best_ask(book: dict | None) -> tuple[float | None, float | None]:
     return min(valid, key=lambda item: item[0])
 
 
-def fetch_binary(slug: str, timeout: int = 30) -> dict | None:
-    """Preço/token dos dois lados de um mercado binário. None se não existe hoje.
+def _side(outcomes, prices, token_ids, i: int) -> dict:
+    try:
+        price = float(prices[i])
+    except (IndexError, TypeError, ValueError):
+        price = None
+    return {"price": price,
+            "token_id": str(token_ids[i]) if i < len(token_ids) else None,
+            "label": str(outcomes[i]) if i < len(outcomes) else None}
 
-    Pega os dois desfechos por POSIÇÃO (0 → up, 1 → down), então funciona para
-    qualquer par (Up/Down, Above/Below, Yes/No)."""
+
+def fetch_market(slug: str, kind: str, timeout: int = 30) -> list[dict] | None:
+    """Lista de contratos do evento do dia. None se não existe hoje.
+
+    binary → um contrato (faixa "—"); strikes → um por strike (faixa = o alvo).
+    Cada contrato: {faixa, up, down} pegando os dois desfechos por posição."""
     response = requests.get(
         f"{pm.GAMMA_API}/events", params={"slug": slug},
         headers={"User-Agent": config.USER_AGENT}, timeout=timeout)
@@ -71,31 +86,32 @@ def fetch_binary(slug: str, timeout: int = 30) -> dict | None:
     event = data[0] if isinstance(data, list) and data else data
     if not isinstance(event, dict) or not event.get("markets"):
         return None
-    market = event["markets"][0]
-    outcomes = pm._as_list(market.get("outcomes"))
-    prices = pm._as_list(market.get("outcomePrices"))
-    token_ids = pm._as_list(market.get("clobTokenIds"))
-    if len(outcomes) < 2:
-        return None
+    markets = event["markets"]
+    entries = markets if kind == "strikes" else markets[:1]
+    out = []
+    for market in entries:
+        outcomes = pm._as_list(market.get("outcomes"))
+        prices = pm._as_list(market.get("outcomePrices"))
+        token_ids = pm._as_list(market.get("clobTokenIds"))
+        if len(outcomes) < 2:
+            continue
+        faixa = "—"
+        if kind == "strikes":
+            faixa = str(market.get("groupItemTitle")
+                        or market.get("question") or "—")
+        out.append({
+            "faixa": faixa,
+            "up": _side(outcomes, prices, token_ids, 0),
+            "down": _side(outcomes, prices, token_ids, 1),
+        })
+    return out or None
 
-    def side(i: int) -> dict:
-        try:
-            price = float(prices[i])
-        except (IndexError, TypeError, ValueError):
-            price = None
-        return {"price": price,
-                "token_id": str(token_ids[i]) if i < len(token_ids) else None,
-                "label": str(outcomes[i])}
 
-    return {"title": event.get("title") or slug,
-            "end": event.get("endDate"),
-            "up": side(0), "down": side(1)}
-
-
-def _attach_asks(market: dict, timeout: int = 30) -> None:
-    """Anexa o melhor ask executável de cada lado pelo livro CLOB."""
-    tokens = [token for token in (market["up"].get("token_id"),
-                                  market["down"].get("token_id")) if token]
+def _attach_asks(entries: list[dict], timeout: int = 30) -> None:
+    """Melhor ask executável de cada lado de cada contrato, num livro só."""
+    tokens = [entry[side].get("token_id")
+              for entry in entries for side in ("up", "down")
+              if entry[side].get("token_id")]
     books: dict[str, dict] = {}
     if tokens:
         response = requests.post(
@@ -107,10 +123,11 @@ def _attach_asks(market: dict, timeout: int = 30) -> None:
         if isinstance(data, list):
             books = {str(book.get("asset_id")): book for book in data
                      if isinstance(book, dict) and book.get("asset_id")}
-    for name in ("up", "down"):
-        ask, size = _best_ask(books.get(str(market[name].get("token_id"))))
-        market[name]["ask"] = ask
-        market[name]["ask_size"] = size
+    for entry in entries:
+        for side in ("up", "down"):
+            ask, size = _best_ask(books.get(str(entry[side].get("token_id"))))
+            entry[side]["ask"] = ask
+            entry[side]["ask_size"] = size
 
 
 def coletar(mercado: Mercado) -> list[dict]:
@@ -118,32 +135,35 @@ def coletar(mercado: Mercado) -> list[dict]:
     d0 = market_date(mercado, now)
     slug = market_slug(mercado.slug_prefix, d0)
     try:
-        book = fetch_binary(slug)
-        if book is None:
+        entries = fetch_market(slug, mercado.kind)
+        if not entries:
             print(f"sem mercado {mercado.key} hoje ({slug})")
             return []
-        _attach_asks(book)
+        _attach_asks(entries)
     except Exception as exc:  # noqa: BLE001 — captura é acessória
         print(f"captura {mercado.key} falhou: {exc}", file=sys.stderr)
         return []
-    record = {
-        "ts_utc": now.isoformat(), "dia": d0.isoformat(), "slug": slug,
-        "preco_up": book["up"].get("price"),
-        "preco_down": book["down"].get("price"),
-        "up_label": book["up"].get("label"),
-        "down_label": book["down"].get("label"),
-        "up_token_id": book["up"].get("token_id"),
-        "down_token_id": book["down"].get("token_id"),
-        "ask_up": book["up"].get("ask"),
-        "ask_up_volume": book["up"].get("ask_size"),
-        "ask_down": book["down"].get("ask"),
-        "ask_down_volume": book["down"].get("ask_size"),
-        "livro_consultado": True,
-    }
-    print(f"{mercado.key} {d0}: {book['up'].get('label')}="
-          f"{record['preco_up']} {book['down'].get('label')}="
-          f"{record['preco_down']}")
-    return [record]
+    recs = []
+    for entry in entries:
+        recs.append({
+            "ts_utc": now.isoformat(), "dia": d0.isoformat(), "slug": slug,
+            "faixa": entry["faixa"],
+            "preco_up": entry["up"].get("price"),
+            "preco_down": entry["down"].get("price"),
+            "up_label": entry["up"].get("label"),
+            "down_label": entry["down"].get("label"),
+            "up_token_id": entry["up"].get("token_id"),
+            "down_token_id": entry["down"].get("token_id"),
+            "ask_up": entry["up"].get("ask"),
+            "ask_up_volume": entry["up"].get("ask_size"),
+            "ask_down": entry["down"].get("ask"),
+            "ask_down_volume": entry["down"].get("ask_size"),
+            "livro_consultado": True,
+        })
+    resumo = ", ".join(
+        f"{r['faixa']}={r['preco_up']}/{r['preco_down']}" for r in recs[:4])
+    print(f"{mercado.key} {d0}: {len(recs)} contrato(s) · {resumo}")
+    return recs
 
 
 def salvar(mercado: Mercado, recs: list[dict]) -> None:
@@ -165,6 +185,8 @@ def salvar(mercado: Mercado, recs: list[dict]) -> None:
     if not linhas:
         return
     df = pd.DataFrame(linhas)
+    if "faixa" not in df:
+        df["faixa"] = "—"
     df["utc"] = df["ts_utc"].str[:10]
     (arch_dir / "mercado").mkdir(parents=True, exist_ok=True)
     for utc, group in df.groupby("utc"):
@@ -174,7 +196,7 @@ def salvar(mercado: Mercado, recs: list[dict]) -> None:
         group = group.drop(columns=["utc"])
         if fp.exists():
             group = pd.concat([pd.read_parquet(fp), group], ignore_index=True)
-        group = group.drop_duplicates(["ts_utc", "dia"])
+        group = group.drop_duplicates(["ts_utc", "dia", "faixa"])
         group.to_parquet(fp, index=False)
         print(f"arquivado {mercado.key}/mercado/{utc}: {len(group)} linhas")
     resto = df[df["utc"] >= hoje].drop(columns=["utc"])
