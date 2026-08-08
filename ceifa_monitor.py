@@ -43,6 +43,7 @@ BLOCK_COLORS = {
     "Desvio/nowcast quente": "#ff9500",
     "Faixa dentro de P10–P90": "#00e0a0",
     "Cauda superior perto do teto": "#ff3b3b",
+    "Cauda inferior perto do piso": "#22d3ee",
     "TAF convectivo": "#a855f7",
 }
 

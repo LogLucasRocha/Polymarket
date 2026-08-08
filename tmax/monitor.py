@@ -285,6 +285,7 @@ def run_minimum_strategy(single_band: bool = False) -> dict:
         warm_target_filter=False, uncertainty_filter=False,
         minimum_taf_filter=config.CEIFA_MINIMUM_TAF_FILTER,
         ensemble_band_filter=config.CEIFA_ENSEMBLE_BAND_FILTER,
+        lower_tail_filter=config.CEIFA_LOWER_TAIL_FILTER,
         interval_minutes=config.CEIFA_REPEAT_MINUTES,
         stake_frac=config.CEIFA_STAKE_FRAC,
         single_band=single_band)
@@ -337,6 +338,8 @@ def combine_active_strategies(maximum: dict, minimum: dict) -> dict:
             "n_filtrado_ensemble_band", 0),
         "n_filtrado_upper_tail": maximum.get(
             "n_filtrado_upper_tail", 0),
+        "n_filtrado_lower_tail": minimum.get(
+            "n_filtrado_lower_tail", 0),
         "n_filtrado_taf": minimum.get("n_filtrado_taf", 0),
         "n_filtrado_faixa_unica": (
             maximum.get("n_filtrado_faixa_unica", 0)
@@ -498,17 +501,31 @@ def filter_frame(stats: dict) -> pd.DataFrame:
             },
         ])
     if kind in {"minimum", "consolidated"}:
-        rows.append({
-            "Estratégia": "Mínima",
-            "Filtro": "TAF convectivo",
-            "Quando bloqueia": (
-                "O TAF prevê TSRA ou VCTS entre a análise e o fim do dia "
-                "local da cidade."),
-            "Entradas bloqueadas": stats.get("n_filtrado_taf", 0),
-            "Observação": (
-                "CB, TEMPO ou PROB isolados não bloqueiam; contagem desde "
-                "a ativação do filtro."),
-        })
+        rows.extend([
+            {
+                "Estratégia": "Mínima",
+                "Filtro": "TAF convectivo",
+                "Quando bloqueia": (
+                    "O TAF prevê TSRA ou VCTS entre a análise e o fim do dia "
+                    "local da cidade."),
+                "Entradas bloqueadas": stats.get("n_filtrado_taf", 0),
+                "Observação": (
+                    "CB, TEMPO ou PROB isolados não bloqueiam; contagem desde "
+                    "a ativação do filtro."),
+            },
+            {
+                "Estratégia": "Mínima",
+                "Filtro": "Cauda inferior perto do piso",
+                "Quando bloqueia": (
+                    "A faixa NÃO vendida entra na cauda fria do ensemble — do "
+                    f"piso − {config.CEIFA_LOWER_TAIL_MARGIN:.2f} °C até o P10. "
+                    "Ex.: NÃO 14°C com piso 14,47°C dentro da faixa."),
+                "Entradas bloqueadas": stats.get("n_filtrado_lower_tail", 0),
+                "Observação": (
+                    "Simétrico da cauda superior das máximas; cobre o vão "
+                    "entre o piso e o P10 que a banda P10–P90 deixa de fora."),
+            },
+        ])
     return pd.DataFrame(rows)
 
 
