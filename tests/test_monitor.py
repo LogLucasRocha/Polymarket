@@ -263,6 +263,25 @@ class MonitorTest(unittest.TestCase):
         self.assertEqual(stats["signals"][0]["extreme"], "maximum")
         self.assertEqual(stats["signals"][1]["extreme"], "minimum")
 
+    def test_bootstrap_tail_flags_losing_contract(self):
+        # 4 contratos ganhadores + 1 perdedor grande, em 2 dias.
+        signals = []
+        for i in range(4):
+            signals.append({"icao": "A", "day": "d1", "faixa": f"{i}",
+                            "ts": i, "price": 0.97, "won": True,
+                            "stake": 0.01})
+        signals.append({"icao": "B", "day": "d2", "faixa": "z", "ts": 9,
+                        "price": 0.97, "won": False, "stake": 0.05})
+        result = monitor.bootstrap_tail(
+            {"signals": signals}, n_sims=5000, seed=1)
+        self.assertEqual(result["contracts"], 5)
+        self.assertGreater(result["p_loss"], 0.0)          # há perda possível
+        self.assertLess(result["levels"][0.05]["cvar"], 0)  # CVaR negativo
+        self.assertLessEqual(result["worst"], result["levels"][0.05]["var"])
+
+    def test_bootstrap_tail_needs_two_contracts(self):
+        self.assertIsNone(monitor.bootstrap_tail({"signals": []}))
+
     def test_filter_frame_explains_rules_and_preserves_plateau_subset(self):
         stats = {
             "archive_kind": "consolidated",
