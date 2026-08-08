@@ -309,6 +309,17 @@ CEIFA_UPPER_TAIL_MARGIN = 0.75     # bloqueia se X ≤ teto do ensemble + margem
 CEIFA_LOWER_TAIL_FILTER = True
 CEIFA_LOWER_TAIL_MARGIN = 0.25
 
+# Veto de livro largo: num binário saudável, ask do Sim + ask do Não ≈ 100¢ (as
+# duas pontas são complementares). Quando o Não está na banda (~96¢) mas o Sim
+# TAMBÉM está caro, o livro está largo/ilíquido e o preço do Não não é uma
+# probabilidade confiável — é só uma ordem de venda larga. Ex.: 25°C com Sim 51¢
+# + Não 92¢ = 143¢ (overround 43¢) o mercado ainda dá ~51% ao bucket. Corta a
+# entrada quando (ask_sim + ask_nao − 100¢) passa do limite. Calibrado no
+# histórico de mínimas: p99 do overround é 6¢; 8¢ bloqueia só ~0,7% das entradas
+# (os livros claramente quebrados) sem tocar no fluxo colado.
+CEIFA_WIDE_BOOK_FILTER = True
+CEIFA_WIDE_BOOK_MAX_OVERROUND = 0.08
+
 # ----------------------------------------------------------- Execução automática
 # Executor de ordens da Ceifa via API (CLOB). SEGURANÇA EM CAMADAS:
 #  1. Desligado por padrão (CEIFA_EXEC_ENABLED=False) — nada é executado.

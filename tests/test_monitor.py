@@ -318,6 +318,7 @@ class MonitorTest(unittest.TestCase):
     def test_filter_frame_explains_rules_and_preserves_plateau_subset(self):
         stats = {
             "archive_kind": "consolidated",
+            "n_filtrado_wide_book": 4,
             "n_filtrado_spread": 11,
             "n_filtrado_nowcast": 7,
             "n_filtrado_plateau": 2,
@@ -328,13 +329,14 @@ class MonitorTest(unittest.TestCase):
         frame = monitor.filter_frame(stats)
 
         self.assertEqual(frame["Filtro"].tolist(), [
+            "Livro largo (Sim caro)",
             "Ensemble largo", "Desvio/nowcast quente",
             "Platô observado", "Faixa dentro de P10–P90",
             "Cauda superior perto do teto",
             "TAF convectivo", "Cauda inferior perto do piso",
         ])
         self.assertEqual(
-            frame["Entradas bloqueadas"].tolist(), [11, 7, 2, 3, 0, 5, 0])
+            frame["Entradas bloqueadas"].tolist(), [4, 11, 7, 2, 3, 0, 5, 0])
         plateau = frame[frame["Filtro"] == "Platô observado"].iloc[0]
         self.assertIn("Subconjunto", plateau["Observação"])
         taf = frame[frame["Filtro"] == "TAF convectivo"].iloc[0]

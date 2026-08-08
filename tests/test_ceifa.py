@@ -138,6 +138,22 @@ class WarmTargetRiskTests(unittest.TestCase):
         self.assertFalse(ceifa.is_lower_tail_floor_risk(
             "EGLC", "14°C", 14.78, None))
 
+    def test_wide_book_blocks_when_both_sides_expensive(self):
+        # NÃO 96¢ + Sim 51¢ = 147¢ (overround 47¢) → livro largo → bloqueia.
+        self.assertTrue(ceifa.is_wide_book_risk(0.96, 0.51))
+
+    def test_wide_book_allows_tight_complementary_book(self):
+        # NÃO 96¢ + Sim 5¢ = 101¢ (overround 1¢) → livro colado → passa.
+        self.assertFalse(ceifa.is_wide_book_risk(0.96, 0.05))
+
+    def test_wide_book_respects_the_eight_cent_threshold(self):
+        self.assertFalse(ceifa.is_wide_book_risk(0.96, 0.11))   # overround 7¢
+        self.assertTrue(ceifa.is_wide_book_risk(0.96, 0.13))    # overround 9¢
+
+    def test_wide_book_needs_the_yes_ask(self):
+        # Sem o ask do Sim não há como julgar o livro → não bloqueia.
+        self.assertFalse(ceifa.is_wide_book_risk(0.96, None))
+
     def test_blocks_exact_band_when_p90_touches_lower_boundary(self):
         self.assertTrue(ceifa.is_ensemble_inside_market_band_risk(
             "RPLL", "32°C", 29.0, 31.5))
