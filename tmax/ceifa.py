@@ -402,6 +402,25 @@ def is_upper_tail_ceiling_risk(icao: str, faixa, ensemble_ceiling,
     return target <= float(ensemble_ceiling) + margin
 
 
+def is_wide_book_risk(no_price, yes_ask,
+                      max_overround: float | None = None) -> bool:
+    """Veta a compra quando o livro está largo (as duas pontas caras).
+
+    Num binário saudável ``ask_sim + ask_nao ≈ 100¢``. Se o Não que vamos
+    comprar está na banda mas o Sim TAMBÉM está caro, o overround
+    (``no_price + yes_ask − 1``) estoura — o livro é ilíquido e o preço do Não
+    não é uma probabilidade confiável. Sem o ask do Sim não há como julgar:
+    não bloqueia (deixa os outros filtros decidirem)."""
+    if not config.CEIFA_WIDE_BOOK_FILTER:
+        return False
+    if yes_ask is None or pd.isna(yes_ask) or no_price is None \
+            or pd.isna(no_price):
+        return False
+    limit = (config.CEIFA_WIDE_BOOK_MAX_OVERROUND if max_overround is None
+             else float(max_overround))
+    return (float(no_price) + float(yes_ask) - 1.0) > limit
+
+
 def plateau_temperature(obs: list[dict], min_hours: float | None = None) -> float | None:
     """Temperatura do platô atual quando ele coincide com a máxima observada.
 
@@ -570,6 +589,7 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
     n_filtrado_plateau = 0
     n_filtrado_ensemble_band = 0
     n_filtrado_upper_tail = 0
+    n_filtrado_wide_book = 0
     n_filtrado_100c = 0
     n_filtrado_0c = 0
     for (icao, dia, faixa), g in mkt.groupby(["icao", "dia", "faixa"]):
@@ -660,6 +680,14 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
             else:
                 n_filtrado_0c += 1
             continue
+        if checked and is_wide_book_risk(entry, e.get("ask_sim")):
+            n_filtrado += 1
+            n_filtrado_wide_book += 1
+            if nao_final > 0.5:
+                n_filtrado_100c += 1
+            else:
+                n_filtrado_0c += 1
+            continue
         # Sem stop: segura até liquidar. Vitória se o NÃO foi para ~1,0.
         won = nao_final > 0.5
         signals.append({"icao": icao, "day": dia, "faixa": faixa,
@@ -676,6 +704,7 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
     st["n_filtrado_plateau"] = n_filtrado_plateau
     st["n_filtrado_ensemble_band"] = n_filtrado_ensemble_band
     st["n_filtrado_upper_tail"] = n_filtrado_upper_tail
+    st["n_filtrado_wide_book"] = n_filtrado_wide_book
     st["n_filtrado_100c"] = n_filtrado_100c
     st["n_filtrado_0c"] = n_filtrado_0c
     return st
@@ -734,6 +763,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
     filtered_upper_tail = 0
     filtered_lower_tail = 0
     filtered_taf = 0
+    filtered_wide_book = 0
     filtered_100c = filtered_0c = 0
     filtered_records: list[dict] = []
     for (icao, day, faixa), group in candidates.groupby(
@@ -851,6 +881,20 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                     filtered_0c += 1
                 continue
 
+            # Por último: qualidade do livro. Fica no fim para contar só as
+            # entradas que passaram por todos os vetos meteorológicos mas têm
+            # o Sim também caro (livro largo) — sem roubar a contagem deles.
+            if is_wide_book_risk(price, entry_row.get("ask_sim")):
+                filtered += 1
+                filtered_wide_book += 1
+                filtered_records.append(
+                    {"dia": day, "motivo": "Livro largo (Sim caro)"})
+                if final_no > 0.5:
+                    filtered_100c += 1
+                else:
+                    filtered_0c += 1
+                continue
+
             signals.append({
                 "icao": icao, "day": day, "faixa": faixa,
                 "day_br": _brasilia_day(entry_row["ts"]),
@@ -875,6 +919,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
         "n_filtrado_upper_tail": filtered_upper_tail,
         "n_filtrado_lower_tail": filtered_lower_tail,
         "n_filtrado_taf": filtered_taf,
+        "n_filtrado_wide_book": filtered_wide_book,
         "n_filtrado_faixa_unica": filtered_single_band,
         "single_band": single_band,
         "n_filtrado_100c": filtered_100c,

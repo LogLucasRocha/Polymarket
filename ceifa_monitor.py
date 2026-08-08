@@ -46,6 +46,7 @@ BLOCK_COLORS = {
     "Cauda superior perto do teto": "#ff3b3b",
     "Cauda inferior perto do piso": "#22d3ee",
     "TAF convectivo": "#a855f7",
+    "Livro largo (Sim caro)": "#f43f5e",
 }
 
 # Janela de exibição dos gráficos por dia — evita que o histórico inteiro

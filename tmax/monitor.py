@@ -353,6 +353,8 @@ def combine_active_strategies(maximum: dict, minimum: dict) -> dict:
         "n_filtrado_lower_tail": minimum.get(
             "n_filtrado_lower_tail", 0),
         "n_filtrado_taf": minimum.get("n_filtrado_taf", 0),
+        "n_filtrado_wide_book": (maximum.get("n_filtrado_wide_book", 0)
+                                 + minimum.get("n_filtrado_wide_book", 0)),
         "n_filtrado_faixa_unica": (
             maximum.get("n_filtrado_faixa_unica", 0)
             + minimum.get("n_filtrado_faixa_unica", 0)),
@@ -385,7 +387,7 @@ def single_band_scenario(maximum: dict, minimum: dict) -> dict:
         for key in (
             "n_filtrado", "n_filtrado_spread", "n_filtrado_nowcast",
             "n_filtrado_plateau", "n_filtrado_ensemble_band",
-            "n_filtrado_upper_tail",
+            "n_filtrado_upper_tail", "n_filtrado_wide_book",
             "n_filtrado_taf", "n_filtrado_100c",
             "n_filtrado_0c",
         ):
@@ -426,7 +428,7 @@ def slice_strategy(stats: dict, lookback_days: int | None) -> dict:
     for key in (
         "n_filtrado", "n_filtrado_spread", "n_filtrado_nowcast",
         "n_filtrado_plateau", "n_filtrado_ensemble_band",
-        "n_filtrado_upper_tail",
+        "n_filtrado_upper_tail", "n_filtrado_wide_book",
         "n_filtrado_taf", "n_filtrado_100c",
         "n_filtrado_0c", "n_filtrado_faixa_unica",
     ):
@@ -457,6 +459,20 @@ def filter_frame(stats: dict) -> pd.DataFrame:
                 "Evita exposição simultânea em faixas mutuamente "
                 "exclusivas."),
         })
+    overround = f"{config.CEIFA_WIDE_BOOK_MAX_OVERROUND * 100:.0f}"
+    rows.append({
+        "Estratégia": "Ambas" if kind == "consolidated" else (
+            "Máxima" if kind == "maximum" else "Mínima"),
+        "Filtro": "Livro largo (Sim caro)",
+        "Quando bloqueia": (
+            f"ask do Sim + ask do Não passa de 100¢ + {overround}¢. Ex.: NÃO "
+            "96¢ com Sim 51¢ (soma 147¢) — livro ilíquido, o preço do Não não "
+            "é uma probabilidade confiável."),
+        "Entradas bloqueadas": stats.get("n_filtrado_wide_book", 0),
+        "Observação": (
+            "Num binário saudável as duas pontas somam ~100¢; overround alto "
+            "denuncia book largo. Vale para máximas e mínimas."),
+    })
     if kind in {"maximum", "consolidated"}:
         rows.extend([
             {
