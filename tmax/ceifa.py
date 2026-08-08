@@ -338,6 +338,27 @@ def is_ensemble_inside_market_band_risk(icao: str, faixa, p10, p90) -> bool:
     return max(lower, central_lower) <= min(upper, central_upper)
 
 
+def is_lower_tail_floor_risk(icao: str, faixa, p10, piso_ens,
+                             margin: float | None = None) -> bool:
+    """A faixa vendida entra na cauda fria (piso do ensemble → P10)?
+
+    Simétrico da 'cauda superior perto do teto' das máximas, para o lado frio
+    das mínimas. A banda P10–P90 cobre só o miolo; a cauda fria (entre o membro
+    mais frio do ensemble e o P10) fica de fora, e é onde as mínimas perdem —
+    ex.: NÃO 14°C com piso 14,47°C dentro da faixa. Predicado puro (geometria);
+    o liga/desliga (``CEIFA_LOWER_TAIL_FILTER``) fica em quem chama.
+    """
+    interval = market_temperature_interval_c(icao, faixa)
+    if (interval is None or p10 is None or piso_ens is None
+            or pd.isna(p10) or pd.isna(piso_ens)):
+        return False
+    lower, upper = interval
+    margin = (config.CEIFA_LOWER_TAIL_MARGIN if margin is None
+              else float(margin))
+    cold_lower, cold_upper = sorted((float(piso_ens) - margin, float(p10)))
+    return max(lower, cold_lower) <= min(upper, cold_upper)
+
+
 def is_upper_tail_ceiling_risk(icao: str, faixa, ensemble_ceiling,
                                margin: float | None = None) -> bool:
     """Veta "X ou mais" quando X está perto demais do teto do ensemble."""
@@ -640,6 +661,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                       uncertainty_filter: bool = True,
                       minimum_taf_filter: bool = False,
                       ensemble_band_filter: bool = False,
+                      lower_tail_filter: bool = False,
                       single_band: bool = False) -> dict:
     """Ceifa parcelada: uma stake relativa a cada rodada elegível da H-1.
 
@@ -684,6 +706,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
     filtered = filtered_spread = filtered_nowcast = filtered_plateau = 0
     filtered_ensemble_band = 0
     filtered_upper_tail = 0
+    filtered_lower_tail = 0
     filtered_taf = 0
     filtered_100c = filtered_0c = 0
     filtered_records: list[dict] = []
@@ -757,6 +780,19 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                     filtered_0c += 1
                 continue
 
+            if (lower_tail_filter and config.CEIFA_LOWER_TAIL_FILTER
+                    and is_lower_tail_floor_risk(
+                        icao, faixa, fget("p10"), fget("piso_ens"))):
+                filtered += 1
+                filtered_lower_tail += 1
+                filtered_records.append(
+                    {"dia": day, "motivo": "Cauda inferior perto do piso"})
+                if final_no > 0.5:
+                    filtered_100c += 1
+                else:
+                    filtered_0c += 1
+                continue
+
             plateau = fget("plateau_temp")
             if plateau is None or pd.isna(plateau):
                 plateau = reconstructed_plateau_temperature(
@@ -810,6 +846,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
         "n_filtrado_plateau": filtered_plateau,
         "n_filtrado_ensemble_band": filtered_ensemble_band,
         "n_filtrado_upper_tail": filtered_upper_tail,
+        "n_filtrado_lower_tail": filtered_lower_tail,
         "n_filtrado_taf": filtered_taf,
         "n_filtrado_faixa_unica": filtered_single_band,
         "single_band": single_band,

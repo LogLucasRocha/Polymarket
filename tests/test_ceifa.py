@@ -122,6 +122,22 @@ class WarmTargetRiskTests(unittest.TestCase):
         self.assertFalse(ceifa.is_upper_tail_ceiling_risk(
             "ZUUU", "34°C", 34.0))
 
+    def test_blocks_lower_tail_when_floor_inside_band(self):
+        # EGLC 08/08: NÃO 14°C, piso 14,47 (arredonda p/ 14), P10 14,78.
+        # A faixa 14°C = [13,5; 14,5] contém o piso → cauda fria → bloqueia.
+        self.assertTrue(ceifa.is_lower_tail_floor_risk(
+            "EGLC", "14°C", 14.78, 14.47))
+
+    def test_allows_lower_tail_when_bucket_below_cold_tail(self):
+        # NÃO 13°C = [12,5; 13,5]; a cauda fria (piso−0,5=13,97 até P10 14,78)
+        # não encosta na faixa → não bloqueia.
+        self.assertFalse(ceifa.is_lower_tail_floor_risk(
+            "EGLC", "13°C", 14.78, 14.47))
+
+    def test_lower_tail_ignores_missing_floor(self):
+        self.assertFalse(ceifa.is_lower_tail_floor_risk(
+            "EGLC", "14°C", 14.78, None))
+
     def test_blocks_exact_band_when_p90_touches_lower_boundary(self):
         self.assertTrue(ceifa.is_ensemble_inside_market_band_risk(
             "RPLL", "32°C", 29.0, 31.5))

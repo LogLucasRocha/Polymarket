@@ -296,6 +296,19 @@ CEIFA_ENSEMBLE_BAND_FILTER = True
 CEIFA_UPPER_TAIL_FILTER = True
 CEIFA_UPPER_TAIL_MARGIN = 0.75     # bloqueia se X ≤ teto do ensemble + margem
 
+# Cauda FRIA das mínimas (simétrico da cauda superior das máximas). A banda
+# P10–P90 ignora o intervalo entre o piso do ensemble (membro mais frio) e o
+# P10 — foi exatamente onde a mínima do EGLC 08/08 perdeu: faixa NÃO 14°C com
+# piso 14,47°C (que arredonda para 14) e P10 14,78°C; a banda [14,78–15,0] não
+# encostava na faixa, mas o piso estava dentro dela. Este filtro veta o NÃO
+# quando a faixa vendida entra na cauda fria (piso − margem até P10).
+# Margem cirúrgica: 0,25°C abaixo do piso. Em 0,5°C o filtro vira um penhasco
+# (bloqueava 226 no histórico); 0,25°C pega o EGLC e cai para ~86, dando uma
+# folga pequena para mínimas que furam abaixo do membro mais frio (a real do
+# EGLC foi 0,47°C abaixo do piso).
+CEIFA_LOWER_TAIL_FILTER = True
+CEIFA_LOWER_TAIL_MARGIN = 0.25
+
 # ----------------------------------------------------------- Execução automática
 # Executor de ordens da Ceifa via API (CLOB). SEGURANÇA EM CAMADAS:
 #  1. Desligado por padrão (CEIFA_EXEC_ENABLED=False) — nada é executado.

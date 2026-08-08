@@ -408,6 +408,18 @@ def main() -> int:
                       f"intervalo P10–P90 (faixa={value['label']}, "
                       f"P10={p10_txt}, P90={p90_txt}).")
                 continue
+            if config.CEIFA_LOWER_TAIL_FILTER and \
+                    ceifa.is_lower_tail_floor_risk(
+                        icao, value["label"],
+                        forecast.get("p10"), forecast.get("piso_ens")):
+                piso_txt = (f"{float(forecast.get('piso_ens')):.2f}°C"
+                            if forecast.get("piso_ens") is not None else "—")
+                p10_txt = (f"{float(forecast.get('p10')):.2f}°C"
+                           if forecast.get("p10") is not None else "—")
+                print(f"[ceifa mínima] {icao}: filtrado — faixa vendida entra "
+                      f"na cauda fria (faixa={value['label']}, "
+                      f"piso={piso_txt}, P10={p10_txt}).")
+                continue
             ceifa_keep.append(k)
             if not _ceifa_send_due(
                     ceifa_last_sent.get(k), run_now_utc,
