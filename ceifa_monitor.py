@@ -831,6 +831,7 @@ def market_page(market: str) -> None:
     variants = load_market(market)
     latest = spy_study.latest_day(market)
     lado_a, lado_b = spy_study.side_labels(market)
+    fechamento = spy_study.close_label(market)
     st.caption(
         f"Último dia capturado: {latest or '—'} · aloca no lado "
         f"({lado_a} ou {lado_b}) que estiver entre 95¢ e 99,8¢, com 1% do caixa "
@@ -910,7 +911,7 @@ def market_page(market: str) -> None:
         st.info(
             f"**{abertas} parcela(s) em aberto** hoje (lado na faixa 95–99,8¢). "
             "O resultado financeiro por janela aparece depois do fechamento do "
-            "mercado (16:00 ET), quando o dia resolve.")
+            f"mercado ({fechamento}), quando o dia resolve.")
         return
 
     rows = []
@@ -930,8 +931,9 @@ def market_page(market: str) -> None:
     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
     st.caption(
         f"{resolvidos} dia(s) resolvido(s). H-n = só as parcelas dentro das "
-        "últimas n horas antes do fechamento (16:00 ET). 'Sem janela' entra o "
-        f"dia todo. {lado_a}/{lado_b} = quantas parcelas caíram em cada lado.")
+        f"últimas n horas antes do fechamento ({fechamento}). 'Sem janela' "
+        f"entra o dia todo. {lado_a}/{lado_b} = quantas parcelas caíram em "
+        "cada lado.")
 
     base = variants[0][1]
     if base.get("per_day"):
