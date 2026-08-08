@@ -147,6 +147,56 @@ def latest_day() -> str | None:
     return str(df["dia"].max())
 
 
+def daily_summary() -> pd.DataFrame:
+    """Uma linha por dia capturado: parcelas, se resolveu e o resultado.
+
+    Inclui o dia em andamento (ainda não resolvido) — assim o gráfico de
+    parcelas por dia aparece mesmo antes do fechamento do mercado.
+    """
+    df = _load_market()
+    cols = ["dia", "parcelas", "acertos", "resolvido", "resultado"]
+    if df.empty:
+        return pd.DataFrame(columns=cols)
+    rows = []
+    for dia, group in df.groupby("dia"):
+        group = group.sort_values("ts")
+        final = {"up": _resolved(group, "preco_up"),
+                 "down": _resolved(group, "preco_down")}
+        resolved = final["up"] is not None or final["down"] is not None
+        parcelas, acertos, last_ts = 0, 0, None
+        for _, row in group.iterrows():
+            side = None
+            for name in ("up", "down"):
+                price = row.get(f"preco_{name}")
+                if price is not None and not pd.isna(price) \
+                        and BAND[0] < float(price) < BAND[1]:
+                    side = name
+                    break
+            if side is None:
+                continue
+            if last_ts is not None and \
+                    (row["ts"] - last_ts) < pd.Timedelta(minutes=INTERVAL_MINUTES):
+                continue
+            parcelas += 1
+            last_ts = row["ts"]
+            if resolved and final[side] is not None and final[side] > 0.5:
+                acertos += 1
+        if not resolved:
+            resultado = "Em aberto"
+        elif parcelas == 0:
+            resultado = "Sem entrada"
+        elif acertos == parcelas:
+            resultado = "Acerto"
+        elif acertos == 0:
+            resultado = "Erro"
+        else:
+            resultado = f"{acertos}/{parcelas}"
+        rows.append({"dia": pd.to_datetime(str(dia)), "parcelas": parcelas,
+                     "acertos": acertos, "resolvido": resolved,
+                     "resultado": resultado})
+    return pd.DataFrame(rows).sort_values("dia").reset_index(drop=True)
+
+
 def today_progress() -> dict:
     """Andamento do dia mais recente capturado, mesmo antes de resolver.
 

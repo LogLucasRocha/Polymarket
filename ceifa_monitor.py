@@ -140,6 +140,17 @@ def pct(value: float | None, digits: int = 1) -> str:
     return "—" if value is None else f"{value * 100:+.{digits}f}%"
 
 
+def num_or_dash(value, suffix: str = "", digits: int = 1) -> str:
+    """Formata um número; devolve '—' quando o valor é nulo/NaN.
+
+    Vários campos da autópsia (ex.: 'Máxima final' quando o mercado ainda não
+    resolveu, ou os campos meteorológicos do teste do SIM) podem vir vazios.
+    """
+    if value is None or pd.isna(value):
+        return "—"
+    return f"{value:.{digits}f}{suffix}"
+
+
 def hero(subtitle: str) -> None:
     st.markdown(
         f"<div class='hero'><h1>🌾 Ceifa Monitor</h1><p>{subtitle}</p></div>",
@@ -607,12 +618,15 @@ def errors_page(stats: dict) -> None:
     a, b, c, d, e = st.columns(5)
     unit = selected["Unidade"]
     a.metric("Observado na entrada",
-             f"{selected['Observado na entrada']:.1f} °{unit}")
-    b.metric("Máxima final", f"{selected['Máxima final']:.1f} °{unit}",
-             selected["Horário da máxima"])
-    c.metric("Mediana", f"{selected['Mediana']:.1f} °{unit}")
-    d.metric("P90", f"{selected['P90']:.1f} °{unit}")
-    e.metric("Spread", f"{selected['Spread (°C)']:.2f} °C")
+             num_or_dash(selected["Observado na entrada"], f" °{unit}"))
+    hora_max = selected["Horário da máxima"]
+    b.metric("Máxima final",
+             num_or_dash(selected["Máxima final"], f" °{unit}"),
+             hora_max if isinstance(hora_max, str) or pd.notna(hora_max)
+             else None)
+    c.metric("Mediana", num_or_dash(selected["Mediana"], f" °{unit}"))
+    d.metric("P90", num_or_dash(selected["P90"], f" °{unit}"))
+    e.metric("Spread", num_or_dash(selected["Spread (°C)"], " °C", 2))
 
     timeline = load_timeline(
         selected["ICAO"], selected["Dia"], selected["Faixa"],
@@ -676,23 +690,31 @@ def errors_page(stats: dict) -> None:
             hide_index=True, width="stretch")
         return
 
+    def passou(value, limit) -> str:
+        if value is None or pd.isna(value):
+            return "—"
+        return "Passou" if value < limit else "Cortaria"
+
     st.subheader("Por que os filtros permitiram a entrada")
     diagnostic = pd.DataFrame([
         ["Desvio observado usado", selected["Desvio usado (°C)"],
          config.CEIFA_OBS_DEVIATION_MIN,
-         "Passou" if selected["Desvio usado (°C)"] < config.CEIFA_OBS_DEVIATION_MIN else "Cortaria"],
-        ["Desvio usando a hora real do METAR", selected["Desvio com hora METAR (°C)"],
-         config.CEIFA_OBS_DEVIATION_MIN,
-         "Passou" if selected["Desvio com hora METAR (°C)"] < config.CEIFA_OBS_DEVIATION_MIN else "Cortaria"],
+         passou(selected["Desvio usado (°C)"], config.CEIFA_OBS_DEVIATION_MIN)],
+        ["Desvio usando a hora real do METAR",
+         selected["Desvio com hora METAR (°C)"], config.CEIFA_OBS_DEVIATION_MIN,
+         passou(selected["Desvio com hora METAR (°C)"],
+                config.CEIFA_OBS_DEVIATION_MIN)],
         ["Nowcast shift", selected["Shift (°C)"],
          config.CEIFA_NOWCAST_SHIFT_MIN,
-         "Passou" if selected["Shift (°C)"] < config.CEIFA_NOWCAST_SHIFT_MIN else "Cortaria"],
+         passou(selected["Shift (°C)"], config.CEIFA_NOWCAST_SHIFT_MIN)],
         ["Spread absoluto", selected["Spread (°C)"],
          config.CEIFA_SPREAD_ABS,
-         "Passou" if selected["Spread (°C)"] < config.CEIFA_SPREAD_ABS else "Cortaria"],
+         passou(selected["Spread (°C)"], config.CEIFA_SPREAD_ABS)],
     ], columns=["Indicador", "Valor", "Limite", "Resultado"])
-    st.dataframe(diagnostic.style.format({"Valor": "{:.2f} °C", "Limite": "{:.2f} °C"}),
-                 hide_index=True, width="stretch")
+    st.dataframe(
+        diagnostic.style.format(
+            {"Valor": "{:.2f} °C", "Limite": "{:.2f} °C"}, na_rep="—"),
+        hide_index=True, width="stretch")
 
     st.subheader(f"Erros em {selected_day_label}")
     table = day_losses[["Cidade", "Dia", "Faixa", "Preço (¢)",
@@ -811,21 +833,43 @@ def spy_page() -> None:
         "que estiver entre 95¢ e 99,6¢, com 1% do caixa livre a cada 10 min. "
         "Fase de observação — sem apostas reais.")
 
+    daily = spy_study.daily_summary()
+    if daily.empty or daily["parcelas"].sum() == 0:
+        st.info(
+            "Ainda sem parcelas do SPY. A coleta roda a cada rodada no GitHub "
+            "Actions; assim que o Up ou o Down entrar na faixa (95–99,6¢), o "
+            "andamento aparece aqui. Clique em **Atualizar** para puxar o "
+            "snapshot mais recente.")
+        return
+
+    # Gráfico dia a dia de parcelas — mostra sempre que há captura, mesmo com
+    # o dia em andamento (barra âmbar = ainda em aberto; verde = já resolvido).
+    st.subheader("Parcelas por dia")
+    plot = daily.copy()
+    plot["estado"] = plot["resolvido"].map(
+        {True: "Resolvido", False: "Em aberto"})
+    fig = px.bar(
+        plot, x="dia", y="parcelas", color="estado", text="parcelas",
+        color_discrete_map={"Resolvido": GREEN, "Em aberto": AMBER},
+        custom_data=["resultado"])
+    fig.update_traces(
+        textposition="outside", cliponaxis=False,
+        hovertemplate=("%{x|%d/%m}<br>Parcelas: %{y}"
+                       "<br>%{customdata[0]}<extra></extra>"))
+    fig.update_layout(
+        height=300, margin=dict(l=15, r=15, t=10, b=10),
+        xaxis_title=None, yaxis_title="Parcelas", legend_title_text=None,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0))
+    fig.update_xaxes(showgrid=False)
+    st.plotly_chart(dark_figure(fig), width="stretch")
+
+    resolvidos = int(daily["resolvido"].sum())
     if not any(stats.get("n", 0) for _, stats in variants):
-        progress = spy_study.today_progress()
-        if progress["snapshots"]:
-            st.info(
-                f"Capturando o dia **{progress['day']}**: "
-                f"{progress['snapshots']} snapshots, **{progress['parcelas']} "
-                "parcela(s) em aberto** (lado na faixa 95–99,6¢). Os resultados "
-                "financeiros aparecem depois do fechamento do mercado (16:00 ET), "
-                "quando o dia resolve. Clique em **Atualizar** para puxar os "
-                "snapshots mais recentes.")
-        else:
-            st.info(
-                "Ainda sem captura do SPY. A coleta roda a cada rodada no GitHub "
-                "Actions; assim que houver snapshots do dia, o andamento aparece "
-                "aqui. Clique em **Atualizar** para puxar o mais recente.")
+        abertas = int(daily.loc[~daily["resolvido"], "parcelas"].sum())
+        st.info(
+            f"**{abertas} parcela(s) em aberto** hoje (lado na faixa 95–99,6¢). "
+            "O resultado financeiro por janela aparece depois do fechamento do "
+            "mercado (16:00 ET), quando o dia resolve.")
         return
 
     rows = []
@@ -844,9 +888,9 @@ def spy_page() -> None:
     st.subheader("Resultado por janela de entrada")
     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
     st.caption(
-        "H-n = só as parcelas dentro das últimas n horas antes do fechamento "
-        "(16:00 ET). 'Sem janela' entra o dia todo. Up/Down = quantas parcelas "
-        "caíram em cada lado.")
+        f"{resolvidos} dia(s) resolvido(s). H-n = só as parcelas dentro das "
+        "últimas n horas antes do fechamento (16:00 ET). 'Sem janela' entra o "
+        "dia todo. Up/Down = quantas parcelas caíram em cada lado.")
 
     base = variants[0][1]
     if base.get("per_day"):

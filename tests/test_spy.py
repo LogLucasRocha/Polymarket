@@ -85,6 +85,24 @@ class SpyStudyTests(unittest.TestCase):
         self.assertEqual(progress["snapshots"], 49)
         self.assertEqual(progress["parcelas"], 48)   # 12:00..19:50 na faixa
 
+    def test_daily_summary_marks_open_day(self):
+        frame = _day_series({}, last_up=0.60)   # não resolveu
+        with mock.patch.object(study, "_load_market", return_value=frame):
+            daily = study.daily_summary()
+        self.assertEqual(len(daily), 1)
+        row = daily.iloc[0]
+        self.assertFalse(bool(row["resolvido"]))
+        self.assertEqual(row["resultado"], "Em aberto")
+        self.assertEqual(int(row["parcelas"]), 48)
+
+    def test_daily_summary_marks_resolved_win(self):
+        frame = _day_series({}, last_up=0.999)  # resolveu Up=1
+        with mock.patch.object(study, "_load_market", return_value=frame):
+            daily = study.daily_summary()
+        row = daily.iloc[0]
+        self.assertTrue(bool(row["resolvido"]))
+        self.assertEqual(row["resultado"], "Acerto")
+
     def test_empty_lake_returns_zeroed_stats(self):
         with mock.patch.object(study, "_load_market",
                                return_value=pd.DataFrame()):
