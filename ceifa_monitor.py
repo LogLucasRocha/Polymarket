@@ -783,7 +783,7 @@ def cities_page(stats: dict, full_stats: dict,
         # próprio: já está contido em "Desvio/nowcast quente".
         blocks = monitor.blocks_by_day_frame(full_stats)
         if not blocks.empty:
-            st.markdown("**Bloqueios por dia**")
+            st.markdown("**Bloqueios por dia (hora de Brasília)**")
             days = window_selector(f"blocks_window_{stats.get('archive_kind')}")
             st.plotly_chart(
                 blocks_by_day_chart(blocks, days), width="stretch")

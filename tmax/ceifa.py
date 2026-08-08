@@ -781,6 +781,9 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                 continue
 
             price = float(entry_row["_entry_price"])
+            # Bloqueio carimbado no dia de Brasília da entrada (igual ao
+            # "Retorno de cada dia"), não na data-alvo do mercado.
+            day_br = _brasilia_day(entry_row["ts"]) or day
 
             taf_blocked = fget("taf_convective_blocked")
             taf_blocked = (taf_blocked is not None
@@ -789,7 +792,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
             if minimum_taf_filter and taf_blocked:
                 filtered += 1
                 filtered_taf += 1
-                filtered_records.append({"dia": day, "motivo": "TAF convectivo"})
+                filtered_records.append({"dia": day_br, "motivo": "TAF convectivo"})
                 if final_no > 0.5:
                     filtered_100c += 1
                 else:
@@ -803,7 +806,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
             if uncertainty_filter and is_uncertain(icao, spread, spread_norm):
                 filtered += 1
                 filtered_spread += 1
-                filtered_records.append({"dia": day, "motivo": "Ensemble largo"})
+                filtered_records.append({"dia": day_br, "motivo": "Ensemble largo"})
                 if final_no > 0.5:
                     filtered_100c += 1
                 else:
@@ -817,7 +820,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                 filtered += 1
                 filtered_ensemble_band += 1
                 filtered_records.append(
-                    {"dia": day, "motivo": "Faixa dentro de P10–P90"})
+                    {"dia": day_br, "motivo": "Faixa dentro de P10–P90"})
                 if final_no > 0.5:
                     filtered_100c += 1
                 else:
@@ -829,7 +832,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                 filtered += 1
                 filtered_upper_tail += 1
                 filtered_records.append(
-                    {"dia": day, "motivo": "Cauda superior perto do teto"})
+                    {"dia": day_br, "motivo": "Cauda superior perto do teto"})
                 if final_no > 0.5:
                     filtered_100c += 1
                 else:
@@ -842,7 +845,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                 filtered += 1
                 filtered_lower_tail += 1
                 filtered_records.append(
-                    {"dia": day, "motivo": "Cauda inferior perto do piso"})
+                    {"dia": day_br, "motivo": "Cauda inferior perto do piso"})
                 if final_no > 0.5:
                     filtered_100c += 1
                 else:
@@ -872,7 +875,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                 filtered += 1
                 filtered_nowcast += 1
                 filtered_records.append(
-                    {"dia": day, "motivo": "Desvio/nowcast quente"})
+                    {"dia": day_br, "motivo": "Desvio/nowcast quente"})
                 if not warm_without_plateau:
                     filtered_plateau += 1
                 if final_no > 0.5:
@@ -888,7 +891,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                 filtered += 1
                 filtered_wide_book += 1
                 filtered_records.append(
-                    {"dia": day, "motivo": "Livro largo (Sim caro)"})
+                    {"dia": day_br, "motivo": "Livro largo (Sim caro)"})
                 if final_no > 0.5:
                     filtered_100c += 1
                 else:

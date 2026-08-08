@@ -259,6 +259,9 @@ class WarmTargetRiskTests(unittest.TestCase):
             self.assertEqual(result["n"], 0)
             self.assertEqual(result["n_filtrado_taf"], 1)
             self.assertEqual(result["n_filtrado_100c"], 1)
+            # Bloqueio carimbado no dia de Brasília da entrada (13:10 UTC →
+            # 10:10 BRT = 26/07), igual ao "Retorno de cada dia".
+            self.assertEqual(result["filtered_records"][0]["dia"], "2026-07-26")
 
     def test_repeated_strategy_filters_upper_tail_near_ceiling(self):
         with TemporaryDirectory() as tmp:
