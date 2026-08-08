@@ -215,3 +215,22 @@ class StrikesTests(unittest.TestCase):
         self.assertEqual(len(daily), 1)
         self.assertGreater(int(daily.iloc[0]["parcelas"]), 0)
         self.assertEqual(daily.iloc[0]["resultado"], "Acerto")
+
+    def test_open_day_deep_itm_strike_is_not_scored(self):
+        # Dia ainda aberto (sem snapshot no fechamento): um strike fundo no
+        # dinheiro (Yes ~100¢ na abertura) NÃO pode pontuar como resolvido.
+        rows = []
+        start = dt.datetime(2026, 8, 9, 10, 0, tzinfo=dt.timezone.utc)
+        for i in range(6):                     # 10:00..10:50, longe do 16:00 UTC
+            iso = (start + dt.timedelta(minutes=10 * i)).isoformat()
+            rows.append({"ts_utc": iso, "dia": "2026-08-09", "faixa": "62000",
+                         "preco_up": 0.9975, "preco_down": 0.0025})  # na faixa
+        frame = _frame(rows)
+        with mock.patch.object(study, "_load_market", return_value=frame):
+            stats = study.simulate(None, "bitcoin")
+            daily = study.daily_summary("bitcoin")
+            progress = study.today_progress("bitcoin")
+        self.assertEqual(stats["n"], 0)                       # nada pontuado
+        self.assertEqual(daily.iloc[0]["resultado"], "Em aberto")
+        self.assertFalse(progress["resolved"])
+        self.assertGreater(progress["parcelas"], 0)           # mas conta parcelas
