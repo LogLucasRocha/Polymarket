@@ -1,16 +1,12 @@
-"""Estudo observacional da estratégia SPY Up or Down.
+"""Estudo observacional dos mercados binários diários (SPY, Bitcoin, ...).
 
-A cada 10 min, aloca no lado (Up **ou** Down) cujo preço estiver na faixa
-(0,95, 0,996), adicionando 1% do caixa livre — o mesmo modelo de parcelas da
-Ceifa. Como o mercado é binário (up + down ≈ 1), no máximo um lado cabe na
-faixa por rodada.
+Para cada mercado, a cada 10 min aloca no lado (up **ou** down) cujo preço
+estiver na faixa (0,95, 0,998), somando 1% do caixa livre — o modelo de
+parcelas da Ceifa. Como o mercado é binário, no máximo um lado cabe na faixa.
 
-Roda seis variantes de janela em relação ao fechamento do mercado (16:00 ET):
-sem janela, H-1, H-2, H-3, H-6 e H-12 (cada H-n = só as parcelas dentro das
-últimas n horas antes do fechamento).
-
-Só lê os snapshots capturados por spy.capture (dados_spy/ + data_spy/); não
-coleta nada online.
+Roda seis variantes de janela em relação ao fechamento (padrão 16:00 ET): sem
+janela, H-1, H-2, H-3, H-6 e H-12. Só lê os snapshots capturados (dados_{key}/
++ data_{key}/); não coleta nada online.
 """
 from __future__ import annotations
 
@@ -22,16 +18,8 @@ import pandas as pd
 
 from tmax import ceifa, config
 
-MARKET_TZ = ZoneInfo("America/New_York")
-MARKET_CLOSE_HOUR = 16                     # SPY fecha 16:00 ET
-ARCH_DIR = config.ROOT / "dados_spy" / "mercado"
-# Buffers do dia corrente: o local (Actions/execução) e o extraído do zip do
-# botão Atualizar (data_spy_live, escrito por monitor._sync_live_snapshot).
-BUF_FILES = (config.ROOT / "data_spy" / "mercado.jsonl",
-             config.ROOT / "data_spy_live" / "mercado.jsonl")
+from . import BAND, INTERVAL_MINUTES, MERCADOS, Mercado
 
-BAND = (0.95, 0.996)                       # >95¢ e <99,6¢, estritamente
-INTERVAL_MINUTES = 10
 STAKE_FRAC = config.CEIFA_STAKE_FRAC       # 1% do caixa livre por parcela
 
 # (rótulo, horas antes do fechamento). None = sem janela.
@@ -41,13 +29,21 @@ WINDOWS: list[tuple[str, int | None]] = [
 ]
 
 
-def _load_market() -> pd.DataFrame:
+def _mercado(market: str | Mercado) -> Mercado:
+    return market if isinstance(market, Mercado) else MERCADOS[market]
+
+
+def _load_market(market: str = "spy") -> pd.DataFrame:
     """Une o parquet commitado (dias fechados) e os buffers do dia corrente."""
+    m = _mercado(market)
+    arch_dir = config.ROOT / f"dados_{m.key}" / "mercado"
+    buf_files = (config.ROOT / f"data_{m.key}" / "mercado.jsonl",
+                 config.ROOT / f"data_{m.key}_live" / "mercado.jsonl")
     frames: list[pd.DataFrame] = []
-    if ARCH_DIR.exists():
-        for fp in sorted(ARCH_DIR.glob("*.parquet")):
+    if arch_dir.exists():
+        for fp in sorted(arch_dir.glob("*.parquet")):
             frames.append(pd.read_parquet(fp))
-    for buf in BUF_FILES:
+    for buf in buf_files:
         if buf.exists():
             rows = [json.loads(line) for line in
                     buf.read_text(encoding="utf-8").splitlines() if line.strip()]
@@ -63,10 +59,11 @@ def _load_market() -> pd.DataFrame:
     return df
 
 
-def _close_utc(dia: str) -> pd.Timestamp:
+def _close_utc(market: str, dia: str) -> pd.Timestamp:
+    m = _mercado(market)
     d = dt.date.fromisoformat(dia)
-    close = dt.datetime(d.year, d.month, d.day, MARKET_CLOSE_HOUR, 0,
-                        tzinfo=MARKET_TZ)
+    close = dt.datetime(d.year, d.month, d.day, m.close_hour, 0,
+                        tzinfo=ZoneInfo(m.tz))
     return pd.Timestamp(close).tz_convert("UTC")
 
 
@@ -79,9 +76,18 @@ def _resolved(group: pd.DataFrame, column: str) -> float | None:
     return value if value >= 0.99 or value <= 0.01 else None
 
 
-def simulate(window_hours: int | None = None) -> dict:
+def _side_in_band(row) -> str | None:
+    for name in ("up", "down"):
+        price = row.get(f"preco_{name}")
+        if price is not None and not pd.isna(price) \
+                and BAND[0] < float(price) < BAND[1]:
+            return name
+    return None
+
+
+def simulate(window_hours: int | None = None, market: str = "spy") -> dict:
     """Backtest de uma variante de janela; devolve stats no formato da Ceifa."""
-    df = _load_market()
+    df = _load_market(market)
     if df.empty:
         return ceifa._stats_relative_available_stake([], 0, STAKE_FRAC)
 
@@ -92,18 +98,12 @@ def simulate(window_hours: int | None = None) -> dict:
                  "down": _resolved(group, "preco_down")}
         if final["up"] is None and final["down"] is None:
             continue                       # dia ainda não resolveu
-        close = _close_utc(str(dia))
+        close = _close_utc(market, str(dia))
         cutoff = (None if window_hours is None
                   else close - pd.Timedelta(hours=window_hours))
         last_ts = None
         for _, row in group.iterrows():
-            side = None
-            for name in ("up", "down"):
-                price = row.get(f"preco_{name}")
-                if price is not None and not pd.isna(price) \
-                        and BAND[0] < float(price) < BAND[1]:
-                    side = name
-                    break
+            side = _side_in_band(row)
             if side is None:
                 continue
             if cutoff is not None and (row["ts"] < cutoff or row["ts"] > close):
@@ -114,7 +114,7 @@ def simulate(window_hours: int | None = None) -> dict:
             if final[side] is None:
                 continue
             signals.append({
-                "icao": "SPY", "day": str(dia), "faixa": side.upper(),
+                "icao": market.upper(), "day": str(dia), "faixa": side.upper(),
                 "ts": row["ts"], "price": float(row[f"preco_{side}"]),
                 "won": final[side] > 0.5, "stopped": False,
                 "loss_frac": None, "spread": None,
@@ -123,11 +123,10 @@ def simulate(window_hours: int | None = None) -> dict:
 
     stats = ceifa._stats_relative_available_stake(
         signals, df["dia"].nunique(), STAKE_FRAC)
-    stats["archive_kind"] = "spy"
-    stats["side"] = "SPY"
+    stats["archive_kind"] = "mercado"
+    stats["side"] = market.upper()
     stats["repeat_minutes"] = INTERVAL_MINUTES
     stats["window_hours"] = window_hours
-    # Quantas parcelas caíram em cada lado — só para leitura.
     stats["by_pick"] = {
         "up": sum(1 for s in signals if s["faixa"] == "UP"),
         "down": sum(1 for s in signals if s["faixa"] == "DOWN"),
@@ -135,21 +134,21 @@ def simulate(window_hours: int | None = None) -> dict:
     return stats
 
 
-def run_variants() -> list[tuple[str, dict]]:
+def run_variants(market: str = "spy") -> list[tuple[str, dict]]:
     """Roda as seis janelas e devolve [(rótulo, stats), ...]."""
-    return [(label, simulate(hours)) for label, hours in WINDOWS]
+    return [(label, simulate(hours, market)) for label, hours in WINDOWS]
 
 
-def latest_day() -> str | None:
-    df = _load_market()
+def latest_day(market: str = "spy") -> str | None:
+    df = _load_market(market)
     if df.empty:
         return None
     return str(df["dia"].max())
 
 
-def latest_prices() -> pd.DataFrame:
-    """Série de preços Up/Down do dia mais recente capturado (para o gráfico)."""
-    df = _load_market()
+def latest_prices(market: str = "spy") -> pd.DataFrame:
+    """Série de preços dos dois lados do dia mais recente (para o gráfico)."""
+    df = _load_market(market)
     if df.empty:
         return pd.DataFrame(columns=["ts", "preco_up", "preco_down", "dia"])
     day = df["dia"].max()
@@ -159,13 +158,20 @@ def latest_prices() -> pd.DataFrame:
     return out
 
 
-def daily_summary() -> pd.DataFrame:
-    """Uma linha por dia capturado: parcelas, se resolveu e o resultado.
+def side_labels(market: str = "spy") -> tuple[str, str]:
+    """Rótulos dos dois lados (up/down) do dia mais recente, se gravados."""
+    df = _load_market(market)
+    up, down = "Up", "Down"
+    if not df.empty and "up_label" in df and "down_label" in df:
+        last = df.sort_values("ts").iloc[-1]
+        up = str(last.get("up_label") or up)
+        down = str(last.get("down_label") or down)
+    return up, down
 
-    Inclui o dia em andamento (ainda não resolvido) — assim o gráfico de
-    parcelas por dia aparece mesmo antes do fechamento do mercado.
-    """
-    df = _load_market()
+
+def daily_summary(market: str = "spy") -> pd.DataFrame:
+    """Uma linha por dia capturado: parcelas, se resolveu e o resultado."""
+    df = _load_market(market)
     cols = ["dia", "parcelas", "acertos", "resolvido", "resultado"]
     if df.empty:
         return pd.DataFrame(columns=cols)
@@ -177,13 +183,7 @@ def daily_summary() -> pd.DataFrame:
         resolved = final["up"] is not None or final["down"] is not None
         parcelas, acertos, last_ts = 0, 0, None
         for _, row in group.iterrows():
-            side = None
-            for name in ("up", "down"):
-                price = row.get(f"preco_{name}")
-                if price is not None and not pd.isna(price) \
-                        and BAND[0] < float(price) < BAND[1]:
-                    side = name
-                    break
+            side = _side_in_band(row)
             if side is None:
                 continue
             if last_ts is not None and \
@@ -209,13 +209,9 @@ def daily_summary() -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values("dia").reset_index(drop=True)
 
 
-def today_progress() -> dict:
-    """Andamento do dia mais recente capturado, mesmo antes de resolver.
-
-    Deixa o painel mostrar 'capturando: N snapshots, M parcelas em aberto'
-    enquanto o mercado do dia não fecha (16:00 ET).
-    """
-    df = _load_market()
+def today_progress(market: str = "spy") -> dict:
+    """Andamento do dia mais recente, mesmo antes de resolver."""
+    df = _load_market(market)
     if df.empty:
         return {"day": None, "snapshots": 0, "parcelas": 0, "resolved": False}
     day = str(df["dia"].max())
@@ -224,14 +220,7 @@ def today_progress() -> dict:
                 or _resolved(group, "preco_down") is not None)
     parcelas, last_ts = 0, None
     for _, row in group.iterrows():
-        in_band = False
-        for name in ("up", "down"):
-            price = row.get(f"preco_{name}")
-            if price is not None and not pd.isna(price) \
-                    and BAND[0] < float(price) < BAND[1]:
-                in_band = True
-                break
-        if not in_band:
+        if _side_in_band(row) is None:
             continue
         if last_ts is not None and \
                 (row["ts"] - last_ts) < pd.Timedelta(minutes=INTERVAL_MINUTES):

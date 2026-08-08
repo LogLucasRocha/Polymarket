@@ -4,7 +4,27 @@ from unittest import mock
 
 import pandas as pd
 
-from spy import capture, study
+from spy import BAND, MERCADOS, capture, study
+
+
+class RegistryTests(unittest.TestCase):
+    def test_band_is_95_to_998(self):
+        self.assertEqual(BAND, (0.95, 0.998))
+
+    def test_bitcoin_market_registered(self):
+        self.assertIn("bitcoin", MERCADOS)
+        self.assertEqual(MERCADOS["bitcoin"].slug_prefix, "bitcoin-above-on")
+
+    def test_bitcoin_slug_matches_url(self):
+        slug = capture.market_slug(
+            MERCADOS["bitcoin"].slug_prefix, dt.date(2026, 8, 8))
+        self.assertEqual(slug, "bitcoin-above-on-august-8-2026")
+
+    def test_close_uses_market_timezone(self):
+        # 16:00 ET (EDT em agosto) = 20:00 UTC, para qualquer mercado.
+        self.assertEqual(
+            study._close_utc("bitcoin", "2026-08-08"),
+            pd.Timestamp("2026-08-08T20:00:00Z"))
 
 
 def _frame(rows: list[dict]) -> pd.DataFrame:
