@@ -421,20 +421,14 @@ def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
 
         tail = load_tail(stats)
         if tail:
-            level = tail["levels"].get(0.05, {})
-            st.markdown("**Risco de cauda — bootstrap do dia**")
-            t1, t2, t3 = st.columns(3)
-            t1.metric("CVaR 5% (dia)", pct(level.get("cvar"), 2))
-            t2.metric("P(dia negativo)", f"{tail['p_loss']:.2%}")
-            t3.metric("Pior dia simulado", pct(tail["worst"], 2))
+            level = tail["levels"].get(0.01, {})
+            st.metric("Média dos 1% piores dias (CVaR)",
+                      pct(level.get("cvar"), 2))
             st.caption(
-                f"Reamostrando ~{tail['per_day']} contratos/dia "
-                f"({tail['contracts']} contratos no total), 50 mil dias "
-                "sintéticos. **CVaR 5% (dia)** = perda média nos 5% piores dias "
-                "simulados (negativo = perda). O 'pior dia simulado' é o cenário "
-                "extremo (vários contratos ruins caindo no mesmo dia). "
-                "Reamostra o contrato inteiro (preserva a correlação das "
-                "parcelas) e reflete só a frequência de perda já observada.")
+                f"Média do resultado nos 1% piores dias, sobre 50 mil dias "
+                f"sintéticos (~{tail['per_day']} contratos/dia). Reamostra cada "
+                "contrato como unidade (preserva a correlação das parcelas) e "
+                "reflete só a frequência de perda já observada.")
 
         if consolidated:
             components = full_stats.get("active_components") or {}
