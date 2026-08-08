@@ -232,6 +232,37 @@ class MonitorTest(unittest.TestCase):
         self.assertAlmostEqual(stakes[0], 0.01)
         self.assertAlmostEqual(stakes[1], 0.0099)
 
+    def test_slice_keeps_boundary_day_whole_by_brasilia_bucket(self):
+        # Um dia de Brasília (02/08) reúne parcelas de duas datas-alvo de
+        # mercado (02/08 e a virada UTC do 03/08). A janela deve manter o dia
+        # inteiro — não perder as parcelas cuja data DE MERCADO caiu fora.
+        signals = [
+            {"icao": "A", "day": "2026-08-02", "day_br": "2026-08-02",
+             "ts": dt.datetime(2026, 8, 2, 20, 0), "price": 0.98,
+             "won": True, "stopped": False, "loss_frac": None},
+            {"icao": "B", "day": "2026-08-03", "day_br": "2026-08-02",
+             "ts": dt.datetime(2026, 8, 3, 1, 0), "price": 0.98,
+             "won": True, "stopped": False, "loss_frac": None},
+            {"icao": "C", "day": "2026-08-03", "day_br": "2026-08-03",
+             "ts": dt.datetime(2026, 8, 3, 15, 0), "price": 0.98,
+             "won": True, "stopped": False, "loss_frac": None},
+            # data-alvo 04/08 mas entra na virada UTC → dia de Brasília 03/08:
+            # empurra a "última data de mercado" além do último dia de Brasília.
+            {"icao": "D", "day": "2026-08-04", "day_br": "2026-08-03",
+             "ts": dt.datetime(2026, 8, 4, 1, 0), "price": 0.98,
+             "won": True, "stopped": False, "loss_frac": None},
+        ]
+        stats = {"signals": signals, "repeat_minutes": 5}
+
+        def parcelas(sliced, day):
+            return next((d["n"] for d in sliced["per_day"]
+                         if d["day"] == day), None)
+
+        full = monitor.slice_strategy(stats, 30)
+        sliced = monitor.slice_strategy(stats, 2)          # 02/08 e 03/08
+        self.assertEqual(parcelas(full, "2026-08-02"), 2)
+        self.assertEqual(parcelas(sliced, "2026-08-02"), 2)  # não perde a A
+
     def test_consolidated_active_strategies_share_one_bankroll(self):
         maximum = {
             "n": 1,

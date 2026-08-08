@@ -57,6 +57,14 @@ def _brasilia_day(ts) -> str | None:
         return None
 
 
+def _day_bucket(signal: dict) -> str:
+    """Chave do dia de um sinal: dia de Brasília (Ceifa) ou data-alvo (mercado).
+
+    Fonte única para agrupar E fatiar por janela — se divergirem, um dia de
+    fronteira ganha/perde parcelas ao trocar de janela."""
+    return str(signal.get("day_br") or signal["day"])
+
+
 def normalize_market_price(value) -> float | None:
     """Remove somente o ruído binário antes de comparar os limites.
 
@@ -1009,7 +1017,7 @@ def _stats_relative_available_stake(signals: list, days: int,
     # data-alvo do próprio mercado (``day``), definida pelo fechamento dele.
     by_day: dict = defaultdict(list)
     for signal in signals:
-        by_day[signal.get("day_br") or signal["day"]].append(signal)
+        by_day[_day_bucket(signal)].append(signal)
     capital, peak, max_drawdown = 1.0, 1.0, 0.0
     executed, per_day = [], []
     for day in sorted(by_day):
