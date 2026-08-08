@@ -1,14 +1,14 @@
-"""Captura ao vivo do mercado 'SPY Daily Up or Down' (fase de observação).
+"""Captura ao vivo dos mercados binários diários (fase de observação).
 
-A cada rodada (10 min no main.yml) tira um snapshot do mercado do dia (D0, no
-calendário de Nova York) com o preço e o melhor ask dos dois lados — Up e Down.
-Guardamos os dois lados; o estudo (spy.study) aloca no lado (Up ou Down) que
-estiver na faixa de preço. Fins de semana e feriados não têm mercado: quando a
-Gamma não devolve o evento, a rodada apenas não grava.
+A cada rodada (10 min no main.yml), para cada mercado do registro ``MERCADOS``,
+tira um snapshot do dia (D0, no fuso do mercado) com preço e melhor ask dos dois
+lados. Guardamos os dois lados posicionalmente (lado A → "up", lado B → "down"),
+sem depender do nome do desfecho, então serve para SPY (Up/Down), Bitcoin
+(Above/Below) etc. Fim de semana/feriado sem mercado: a rodada apenas não grava.
 
-Grava no lago data_spy/ (buffer do dia UTC corrente, entra no zip do botão
-Atualizar) e dados_spy/ (parquet por dia UTC fechado, commitado). Só arquiva;
-não envia alerta nem ordem.
+Grava em data_{key}/ (buffer do dia UTC corrente, entra no zip do Atualizar) e
+dados_{key}/ (parquet por dia UTC fechado, commitado). Só arquiva; não envia
+alerta nem ordem.
 
 Roda no .github/workflows/main.yml. Uso: python -m spy.capture
 """
@@ -31,15 +31,17 @@ import requests
 from tmax import config
 from tmax import polymarket as pm
 
-# O "dia" do mercado é o pregão dos EUA — o slug usa o calendário de Nova York.
-MARKET_TZ = ZoneInfo("America/New_York")
-BUF_DIR = config.ROOT / "data_spy"       # buffer (cache do Actions / live zip)
-ARCH_DIR = config.ROOT / "dados_spy"     # parquet por dia UTC fechado (commitado)
+from . import MERCADOS, Mercado
+
+
+def market_slug(prefix: str, d: dt.date) -> str:
+    """Slug determinístico do dia, ex.: spy-up-or-down-on-august-7-2026."""
+    return f"{prefix}-{pm._MONTHS[d.month - 1]}-{d.day}-{d.year}"
 
 
 def spy_slug(d: dt.date) -> str:
-    """Slug determinístico do mercado do dia, ex.: spy-up-or-down-on-august-7-2026."""
-    return f"spy-up-or-down-on-{pm._MONTHS[d.month - 1]}-{d.day}-{d.year}"
+    """Compat.: slug do SPY (o registro é a fonte da verdade)."""
+    return market_slug(MERCADOS["spy"].slug_prefix, d)
 
 
 def _best_ask(book: dict | None) -> tuple[float | None, float | None]:
@@ -57,8 +59,11 @@ def _best_ask(book: dict | None) -> tuple[float | None, float | None]:
     return min(valid, key=lambda item: item[0])
 
 
-def fetch_spy(slug: str, timeout: int = 30) -> dict | None:
-    """Preço e token de Up/Down do mercado SPY do dia. None se não existe hoje."""
+def fetch_binary(slug: str, timeout: int = 30) -> dict | None:
+    """Preço/token dos dois lados de um mercado binário. None se não existe hoje.
+
+    Pega os dois desfechos por POSIÇÃO (0 → up, 1 → down), então funciona para
+    qualquer par (Up/Down, Above/Below, Yes/No)."""
     response = requests.get(
         f"{pm.GAMMA_API}/events", params={"slug": slug},
         headers={"User-Agent": config.USER_AGENT}, timeout=timeout)
@@ -68,31 +73,30 @@ def fetch_spy(slug: str, timeout: int = 30) -> dict | None:
     if not isinstance(event, dict) or not event.get("markets"):
         return None
     market = event["markets"][0]
-    outcomes = [str(o).strip().lower()
-                for o in pm._as_list(market.get("outcomes"))]
+    outcomes = pm._as_list(market.get("outcomes"))
     prices = pm._as_list(market.get("outcomePrices"))
     token_ids = pm._as_list(market.get("clobTokenIds"))
-    side: dict[str, dict] = {"up": {}, "down": {}}
-    for i, outcome in enumerate(outcomes):
-        if outcome not in side:
-            continue
-        try:
-            side[outcome]["price"] = float(prices[i])
-        except (IndexError, TypeError, ValueError):
-            side[outcome]["price"] = None
-        side[outcome]["token_id"] = (str(token_ids[i])
-                                     if i < len(token_ids) else None)
-    if not side["up"] or not side["down"]:
+    if len(outcomes) < 2:
         return None
+
+    def side(i: int) -> dict:
+        try:
+            price = float(prices[i])
+        except (IndexError, TypeError, ValueError):
+            price = None
+        return {"price": price,
+                "token_id": str(token_ids[i]) if i < len(token_ids) else None,
+                "label": str(outcomes[i])}
+
     return {"title": event.get("title") or slug,
             "end": event.get("endDate"),
-            "up": side["up"], "down": side["down"]}
+            "up": side(0), "down": side(1)}
 
 
-def _attach_asks(spy: dict, timeout: int = 30) -> None:
-    """Anexa o melhor ask executável de cada lado (Up e Down) pelo livro CLOB."""
-    tokens = [token for token in (spy["up"].get("token_id"),
-                                  spy["down"].get("token_id")) if token]
+def _attach_asks(market: dict, timeout: int = 30) -> None:
+    """Anexa o melhor ask executável de cada lado pelo livro CLOB."""
+    tokens = [token for token in (market["up"].get("token_id"),
+                                  market["down"].get("token_id")) if token]
     books: dict[str, dict] = {}
     if tokens:
         response = requests.post(
@@ -105,45 +109,51 @@ def _attach_asks(spy: dict, timeout: int = 30) -> None:
             books = {str(book.get("asset_id")): book for book in data
                      if isinstance(book, dict) and book.get("asset_id")}
     for name in ("up", "down"):
-        ask, size = _best_ask(books.get(str(spy[name].get("token_id"))))
-        spy[name]["ask"] = ask
-        spy[name]["ask_size"] = size
+        ask, size = _best_ask(books.get(str(market[name].get("token_id"))))
+        market[name]["ask"] = ask
+        market[name]["ask_size"] = size
 
 
-def coletar() -> list[dict]:
+def coletar(mercado: Mercado) -> list[dict]:
     now = dt.datetime.now(dt.timezone.utc)
-    d0 = dt.datetime.now(MARKET_TZ).date()
-    slug = spy_slug(d0)
+    d0 = dt.datetime.now(ZoneInfo(mercado.tz)).date()
+    slug = market_slug(mercado.slug_prefix, d0)
     try:
-        spy = fetch_spy(slug)
-        if spy is None:
-            print(f"sem mercado SPY hoje ({slug})")
+        book = fetch_binary(slug)
+        if book is None:
+            print(f"sem mercado {mercado.key} hoje ({slug})")
             return []
-        _attach_asks(spy)
+        _attach_asks(book)
     except Exception as exc:  # noqa: BLE001 — captura é acessória
-        print(f"captura SPY falhou: {exc}", file=sys.stderr)
+        print(f"captura {mercado.key} falhou: {exc}", file=sys.stderr)
         return []
     record = {
         "ts_utc": now.isoformat(), "dia": d0.isoformat(), "slug": slug,
-        "preco_up": spy["up"].get("price"),
-        "preco_down": spy["down"].get("price"),
-        "up_token_id": spy["up"].get("token_id"),
-        "down_token_id": spy["down"].get("token_id"),
-        "ask_up": spy["up"].get("ask"),
-        "ask_up_volume": spy["up"].get("ask_size"),
-        "ask_down": spy["down"].get("ask"),
-        "ask_down_volume": spy["down"].get("ask_size"),
+        "preco_up": book["up"].get("price"),
+        "preco_down": book["down"].get("price"),
+        "up_label": book["up"].get("label"),
+        "down_label": book["down"].get("label"),
+        "up_token_id": book["up"].get("token_id"),
+        "down_token_id": book["down"].get("token_id"),
+        "ask_up": book["up"].get("ask"),
+        "ask_up_volume": book["up"].get("ask_size"),
+        "ask_down": book["down"].get("ask"),
+        "ask_down_volume": book["down"].get("ask_size"),
         "livro_consultado": True,
     }
-    print(f"SPY {d0}: up={record['preco_up']} down={record['preco_down']}")
+    print(f"{mercado.key} {d0}: {book['up'].get('label')}="
+          f"{record['preco_up']} {book['down'].get('label')}="
+          f"{record['preco_down']}")
     return [record]
 
 
-def salvar(recs: list[dict]) -> None:
+def salvar(mercado: Mercado, recs: list[dict]) -> None:
     import pandas as pd
 
-    BUF_DIR.mkdir(exist_ok=True)
-    buf = BUF_DIR / "mercado.jsonl"
+    buf_dir = config.ROOT / f"data_{mercado.key}"
+    arch_dir = config.ROOT / f"dados_{mercado.key}"
+    buf_dir.mkdir(exist_ok=True)
+    buf = buf_dir / "mercado.jsonl"
     if recs:
         with open(buf, "a", encoding="utf-8") as handle:
             for record in recs:
@@ -157,17 +167,17 @@ def salvar(recs: list[dict]) -> None:
         return
     df = pd.DataFrame(linhas)
     df["utc"] = df["ts_utc"].str[:10]
-    (ARCH_DIR / "mercado").mkdir(parents=True, exist_ok=True)
+    (arch_dir / "mercado").mkdir(parents=True, exist_ok=True)
     for utc, group in df.groupby("utc"):
         if utc >= hoje:
             continue                        # dia UTC corrente fica no buffer
-        fp = ARCH_DIR / "mercado" / f"{utc}.parquet"
+        fp = arch_dir / "mercado" / f"{utc}.parquet"
         group = group.drop(columns=["utc"])
         if fp.exists():
             group = pd.concat([pd.read_parquet(fp), group], ignore_index=True)
         group = group.drop_duplicates(["ts_utc", "dia"])
         group.to_parquet(fp, index=False)
-        print(f"arquivado spy/mercado/{utc}: {len(group)} linhas")
+        print(f"arquivado {mercado.key}/mercado/{utc}: {len(group)} linhas")
     resto = df[df["utc"] >= hoje].drop(columns=["utc"])
     with open(buf, "w", encoding="utf-8") as handle:
         for _, record in resto.iterrows():
@@ -175,11 +185,11 @@ def salvar(recs: list[dict]) -> None:
 
 
 def main() -> int:
-    recs = coletar()
-    try:
-        salvar(recs)
-    except Exception as exc:  # noqa: BLE001 — captura é acessória
-        print(f"erro ao salvar SPY: {exc}", file=sys.stderr)
+    for mercado in MERCADOS.values():
+        try:
+            salvar(mercado, coletar(mercado))
+        except Exception as exc:  # noqa: BLE001 — captura é acessória
+            print(f"erro ao salvar {mercado.key}: {exc}", file=sys.stderr)
     return 0
 
 

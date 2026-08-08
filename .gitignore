@@ -5,6 +5,8 @@ dados_live/
 dados_low_live/
 data_spy/
 data_spy_live/
+data_bitcoin/
+data_bitcoin_live/
 
 # Python
 __pycache__/

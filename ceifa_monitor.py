@@ -20,6 +20,7 @@ except Exception:
     pass
 
 from tmax import config, monitor
+from spy import MERCADOS
 from spy import study as spy_study
 
 GREEN = "#38d39f"
@@ -167,9 +168,9 @@ def load_strategy(kind: str, side: str) -> dict:
             else monitor.run_strategy())
 
 
-@st.cache_data(show_spinner="Recalculando o estudo do SPY…")
-def load_spy() -> list[tuple[str, dict]]:
-    return spy_study.run_variants()
+@st.cache_data(show_spinner="Recalculando o estudo do mercado…")
+def load_market(market: str) -> list[tuple[str, dict]]:
+    return spy_study.run_variants(market)
 
 
 @st.cache_data
@@ -825,21 +826,22 @@ def cities_page(stats: dict, full_stats: dict,
             f"{config.CEIFA_REPEAT_MINUTES} minutos · sem alavancagem.")
 
 
-def spy_page() -> None:
-    """Estudo do SPY Daily Up or Down (fase de observação)."""
-    variants = load_spy()
-    latest = spy_study.latest_day()
+def market_page(market: str) -> None:
+    """Estudo observacional de um mercado binário diário (SPY, Bitcoin, ...)."""
+    variants = load_market(market)
+    latest = spy_study.latest_day(market)
+    lado_a, lado_b = spy_study.side_labels(market)
     st.caption(
-        f"Último dia capturado: {latest or '—'} · aloca no lado (Up ou Down) "
-        "que estiver entre 95¢ e 99,6¢, com 1% do caixa livre a cada 10 min. "
-        "Fase de observação — sem apostas reais.")
+        f"Último dia capturado: {latest or '—'} · aloca no lado "
+        f"({lado_a} ou {lado_b}) que estiver entre 95¢ e 99,8¢, com 1% do caixa "
+        "livre a cada 10 min. Fase de observação — sem apostas reais.")
 
-    daily = spy_study.daily_summary()
-    prices = spy_study.latest_prices()
+    daily = spy_study.daily_summary(market)
+    prices = spy_study.latest_prices(market)
     if daily.empty and prices.empty:
         st.info(
-            "Ainda sem captura do SPY. A coleta roda a cada rodada no GitHub "
-            "Actions; assim que houver snapshots, o dia aparece aqui. Clique em "
+            "Ainda sem captura. A coleta roda a cada rodada no GitHub Actions; "
+            "assim que houver snapshots, o dia aparece aqui. Clique em "
             "**Atualizar** para puxar o mais recente.")
         return
 
@@ -849,14 +851,14 @@ def spy_page() -> None:
         dia = prices["dia"].iloc[0]
         st.subheader(f"Preços do dia {dia}")
         figp = go.Figure()
-        figp.add_hrect(y0=0.95, y1=0.996, fillcolor=GREEN, opacity=0.12,
+        figp.add_hrect(y0=0.95, y1=0.998, fillcolor=GREEN, opacity=0.12,
                        line_width=0, annotation_text="faixa de compra",
                        annotation_position="top left")
         figp.add_trace(go.Scatter(
-            x=prices["ts"], y=prices["preco_up"], name="Up",
+            x=prices["ts"], y=prices["preco_up"], name=lado_a,
             mode="lines", line=dict(color=BLUE, width=2)))
         figp.add_trace(go.Scatter(
-            x=prices["ts"], y=prices["preco_down"], name="Down",
+            x=prices["ts"], y=prices["preco_down"], name=lado_b,
             mode="lines", line=dict(color=AMBER, width=2)))
         figp.update_layout(
             height=280, margin=dict(l=15, r=15, t=10, b=10),
@@ -864,7 +866,7 @@ def spy_page() -> None:
             legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0))
         st.plotly_chart(dark_figure(figp), width="stretch")
         st.caption(
-            "Faixa verde = 95–99,6¢, onde a estratégia entra. Sem nenhum lado "
+            "Faixa verde = 95–99,8¢, onde a estratégia entra. Sem nenhum lado "
             "dentro dela, não há parcela naquele instante.")
 
     if daily.empty or daily["parcelas"].sum() == 0:
@@ -872,15 +874,13 @@ def spy_page() -> None:
         if resolvidos:
             st.info(
                 "O mercado do dia **resolveu**, mas nenhum snapshot capturado "
-                "caiu na faixa (95–99,6¢) — então **0 parcelas**. Isso acontece "
-                "quando o mercado já estava resolvido (preço em 0 ou 1) durante "
-                "as capturas. A partir de agora o `heal_buffer` protege o "
-                "intradiário, então os dias completos passam a pegar as "
-                "entradas.")
+                "caiu na faixa (95–99,8¢) — então **0 parcelas**. Costuma "
+                "acontecer quando o mercado já estava resolvido (preço em 0 ou "
+                "1) durante as capturas.")
         else:
             st.info(
-                "Capturando — ainda sem nenhum lado na faixa (95–99,6¢). "
-                "As parcelas aparecem quando o Up ou o Down entrar na faixa.")
+                "Capturando — ainda sem nenhum lado na faixa (95–99,8¢). "
+                "As parcelas aparecem quando um dos lados entrar na faixa.")
         return
 
     # Gráfico dia a dia de parcelas — mostra sempre que há captura, mesmo com
@@ -908,7 +908,7 @@ def spy_page() -> None:
     if not any(stats.get("n", 0) for _, stats in variants):
         abertas = int(daily.loc[~daily["resolvido"], "parcelas"].sum())
         st.info(
-            f"**{abertas} parcela(s) em aberto** hoje (lado na faixa 95–99,6¢). "
+            f"**{abertas} parcela(s) em aberto** hoje (lado na faixa 95–99,8¢). "
             "O resultado financeiro por janela aparece depois do fechamento do "
             "mercado (16:00 ET), quando o dia resolve.")
         return
@@ -924,14 +924,14 @@ def spy_page() -> None:
             "Assertividade": f"{stats.get('hit', 0):.2%}",
             "Rendimento": pct(stats.get("real_mult", 1) - 1, 2),
             "Drawdown": f"{stats.get('real_dd', 0):.2%}",
-            "Up/Down": f"{pick.get('up', 0)}/{pick.get('down', 0)}",
+            f"{lado_a}/{lado_b}": f"{pick.get('up', 0)}/{pick.get('down', 0)}",
         })
     st.subheader("Resultado por janela de entrada")
     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
     st.caption(
         f"{resolvidos} dia(s) resolvido(s). H-n = só as parcelas dentro das "
         "últimas n horas antes do fechamento (16:00 ET). 'Sem janela' entra o "
-        "dia todo. Up/Down = quantas parcelas caíram em cada lado.")
+        f"dia todo. {lado_a}/{lado_b} = quantas parcelas caíram em cada lado.")
 
     base = variants[0][1]
     if base.get("per_day"):
@@ -973,7 +973,7 @@ def main() -> None:
         else:
             choice = pick_col.radio(
                 "Hipótese em teste",
-                ["🌡️ Máximas (SIM)", "❄️ Mínimas (SIM)", "◇ SPY"],
+                ["◇ SPY", "₿ Bitcoin Above"],
                 horizontal=True, key="test_navigation")
         period_label = period_col.selectbox(
             "Período",
@@ -987,7 +987,7 @@ def main() -> None:
                 load_strategy.clear()
                 load_losses.clear()
                 load_timeline.clear()
-                load_spy.clear()
+                load_market.clear()
             st.session_state["refresh_notice"] = refresh_result
             st.rerun()
 
@@ -996,34 +996,28 @@ def main() -> None:
         "Últimos 14 dias": 14, "Últimos 7 dias": 7,
     }[period_label]
 
-    # Hipótese SPY: página própria (Up/Down, não tem lado NÃO/SIM nem filtros).
-    if not producao and "SPY" in choice:
-        hero("SPY Daily Up or Down · hipótese em teste · aloca no lado (Up ou "
-             "Down) na faixa 95–99,6¢, 1% do caixa livre a cada 10 min.")
-        spy_page()
+    # Área "Em teste": mercados binários diários (SPY, Bitcoin). Página própria,
+    # sem lado NÃO/SIM nem filtros meteorológicos.
+    if not producao:
+        market = "bitcoin" if "Bitcoin" in choice else "spy"
+        hero(f"{MERCADOS[market].nome} · hipótese em teste · aloca no lado na "
+             "faixa 95–99,8¢, 1% do caixa livre a cada 10 min.")
+        market_page(market)
         return
 
-    if producao:
-        consolidated = choice == "📊 Ativas consolidadas"
-        side = "NÃO"
-        kind = ("consolidated" if consolidated else
-                "minimum" if choice == "❄️ Mínimas" else "maximum")
-    else:
-        consolidated = False
-        side = "SIM"
-        kind = "minimum" if "Mínimas" in choice else "maximum"
+    # Daqui pra baixo é só produção (estratégias ativas, lado NÃO).
+    consolidated = choice == "📊 Ativas consolidadas"
+    side = "NÃO"
+    kind = ("consolidated" if consolidated else
+            "minimum" if choice == "❄️ Mínimas" else "maximum")
     minimum = kind == "minimum"
 
-    if producao and consolidated:
+    if consolidated:
         subtitle = ("Estratégias ativas em produção · NÃO de máximas e mínimas "
                     "numa única banca compartilhada.")
-    elif producao:
+    else:
         subtitle = (f"Temperaturas {'mínimas' if minimum else 'máximas'} · "
                     "estratégia ativa (NÃO), parcelada a cada cinco minutos.")
-    else:
-        subtitle = (f"Hipótese em teste · SIM de temperaturas "
-                    f"{'mínimas' if minimum else 'máximas'} · observação, "
-                    "sem apostas reais.")
     hero(subtitle)
     freshness = monitor.data_freshness(kind)
     st.caption(
@@ -1044,20 +1038,16 @@ def main() -> None:
         full_stats = load_strategy(kind, side)
     stats = monitor.slice_strategy(full_stats, lookback)
 
-    # Visão geral + Erros + (Cidades e filtros) reunidos em abas — em produção
-    # os três; nas hipóteses SIM só Visão geral e Erros (o SIM não tem filtros).
-    if producao:
-        tab_overview, tab_errors, tab_cities = st.tabs(
-            ["▦ Visão geral", "◎ Erros", "⌁ Cidades e filtros"])
-        with tab_cities:
-            cities_page(stats, full_stats, consolidated)
-    else:
-        tab_overview, tab_errors = st.tabs(["▦ Visão geral", "◎ Erros"])
+    # Visão geral + Erros + Cidades e filtros reunidos em abas.
+    tab_overview, tab_errors, tab_cities = st.tabs(
+        ["▦ Visão geral", "◎ Erros", "⌁ Cidades e filtros"])
     with tab_overview:
         overview(stats, full_stats, minimum, side, consolidated,
                  experimental_stats)
     with tab_errors:
         errors_page(stats)
+    with tab_cities:
+        cities_page(stats, full_stats, consolidated)
 
 
 if __name__ == "__main__":

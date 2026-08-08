@@ -29,13 +29,16 @@ from zipfile import BadZipFile, ZipFile
 
 import requests
 
+from spy import MERCADOS
 from tmax import config
 
 RELEASE_API = ("https://api.github.com/repos/LogLucasRocha/Polymarket/"
                "releases/tags/ceifa-live")
 # Prefixos de buffer que o release carrega (os mesmos do passo do zip no
-# main.yml). Só curamos esses caminhos, nunca algo fora do buffer.
-BUFFER_PREFIXES = ("data/capture/buffer/", "data_low/", "data_spy/")
+# main.yml). Só curamos esses caminhos, nunca algo fora do buffer. Os mercados
+# binários (data_spy, data_bitcoin, ...) vêm do registro.
+BUFFER_PREFIXES = ("data/capture/buffer/", "data_low/",
+                   *(f"data_{key}/" for key in MERCADOS))
 
 
 def _merge_lines(dest: Path, incoming: list[str]) -> int:

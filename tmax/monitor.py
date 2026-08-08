@@ -16,6 +16,8 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import requests
 
+from spy import MERCADOS
+
 from . import ceifa, config
 
 MAXIMUM_ARCHIVE = config.ROOT / "dados"
@@ -152,15 +154,22 @@ def _write_live_frames(rows_by_archive: dict[tuple[str, str], list[dict]]) -> in
     return written
 
 
-def _write_spy_live_buffer(lines: list[str]) -> None:
-    """Grava o buffer intradiário do SPY vindo do zip para data_spy_live/."""
-    destination = config.ROOT / "data_spy_live"
-    shutil.rmtree(destination, ignore_errors=True)
-    if not lines:
-        return
-    destination.mkdir(parents=True, exist_ok=True)
-    (destination / "mercado.jsonl").write_text(
-        "\n".join(lines) + "\n", encoding="utf-8")
+def _write_market_live_buffers(files: dict[str, list[str]]) -> None:
+    """Grava os buffers intradiários dos mercados (data_{key}) vindos do zip
+    para data_{key}_live/, verbatim (o estudo lê o JSONL cru).
+
+    Zera o _live de TODOS os mercados conhecidos antes de escrever — assim um
+    mercado sem dados hoje (fim de semana etc.) não deixa buffer velho.
+    """
+    for key in MERCADOS:
+        shutil.rmtree(config.ROOT / f"data_{key}_live", ignore_errors=True)
+    for rel, lines in files.items():
+        if not lines:
+            continue
+        root, _, rest = rel.partition("/")
+        dest = config.ROOT / f"{root}_live" / rest
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _sync_live_snapshot() -> dict:
@@ -194,17 +203,19 @@ def _sync_live_snapshot() -> dict:
         f"{url}?v={version}", headers=headers, timeout=60)
     response.raise_for_status()
 
+    market_roots = {f"data_{key}" for key in MERCADOS}
     rows_by_archive: dict[tuple[str, str], list[dict]] = defaultdict(list)
-    spy_lines: list[str] = []
+    market_files: dict[str, list[str]] = defaultdict(list)
     with ZipFile(io.BytesIO(response.content)) as archive:
         for name in archive.namelist():
             path = PurePosixPath(name)
             if path.suffix != ".jsonl":
                 continue
             parts = path.parts
-            if parts[:1] == ("data_spy",):
-                # Buffer do SPY copiado verbatim (o estudo lê o JSONL cru).
-                spy_lines.extend(
+            if parts and parts[0] in market_roots:
+                # Buffer de mercado (data_spy, data_bitcoin, ...) copiado
+                # verbatim; o estudo lê o JSONL cru por mercado.
+                market_files[path.as_posix()].extend(
                     line for line in archive.read(name).decode("utf-8")
                     .splitlines() if line.strip())
                 continue
@@ -219,7 +230,7 @@ def _sync_live_snapshot() -> dict:
                 if line.strip():
                     rows_by_archive[(kind, base)].append(json.loads(line))
     written = _write_live_frames(rows_by_archive)
-    _write_spy_live_buffer(spy_lines)
+    _write_market_live_buffers(market_files)
     captured = max(
         (str(row.get("ts_utc")) for rows in rows_by_archive.values()
          for row in rows if row.get("ts_utc")), default=None)
