@@ -147,6 +147,18 @@ def latest_day() -> str | None:
     return str(df["dia"].max())
 
 
+def latest_prices() -> pd.DataFrame:
+    """Série de preços Up/Down do dia mais recente capturado (para o gráfico)."""
+    df = _load_market()
+    if df.empty:
+        return pd.DataFrame(columns=["ts", "preco_up", "preco_down", "dia"])
+    day = df["dia"].max()
+    group = df[df["dia"] == day].sort_values("ts")
+    out = group[["ts", "preco_up", "preco_down"]].copy()
+    out["dia"] = str(day)
+    return out
+
+
 def daily_summary() -> pd.DataFrame:
     """Uma linha por dia capturado: parcelas, se resolveu e o resultado.
 

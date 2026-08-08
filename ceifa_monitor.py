@@ -834,12 +834,52 @@ def spy_page() -> None:
         "Fase de observação — sem apostas reais.")
 
     daily = spy_study.daily_summary()
-    if daily.empty or daily["parcelas"].sum() == 0:
+    prices = spy_study.latest_prices()
+    if daily.empty and prices.empty:
         st.info(
-            "Ainda sem parcelas do SPY. A coleta roda a cada rodada no GitHub "
-            "Actions; assim que o Up ou o Down entrar na faixa (95–99,6¢), o "
-            "andamento aparece aqui. Clique em **Atualizar** para puxar o "
-            "snapshot mais recente.")
+            "Ainda sem captura do SPY. A coleta roda a cada rodada no GitHub "
+            "Actions; assim que houver snapshots, o dia aparece aqui. Clique em "
+            "**Atualizar** para puxar o mais recente.")
+        return
+
+    # Preços do dia com a faixa marcada — a aba nunca fica em branco: mesmo sem
+    # entrada, você vê o caminho do mercado em relação à faixa de compra.
+    if not prices.empty:
+        dia = prices["dia"].iloc[0]
+        st.subheader(f"Preços do dia {dia}")
+        figp = go.Figure()
+        figp.add_hrect(y0=0.95, y1=0.996, fillcolor=GREEN, opacity=0.12,
+                       line_width=0, annotation_text="faixa de compra",
+                       annotation_position="top left")
+        figp.add_trace(go.Scatter(
+            x=prices["ts"], y=prices["preco_up"], name="Up",
+            mode="lines", line=dict(color=BLUE, width=2)))
+        figp.add_trace(go.Scatter(
+            x=prices["ts"], y=prices["preco_down"], name="Down",
+            mode="lines", line=dict(color=AMBER, width=2)))
+        figp.update_layout(
+            height=280, margin=dict(l=15, r=15, t=10, b=10),
+            yaxis_title="Preço", xaxis_title=None, yaxis_range=[-0.02, 1.02],
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0))
+        st.plotly_chart(dark_figure(figp), width="stretch")
+        st.caption(
+            "Faixa verde = 95–99,6¢, onde a estratégia entra. Sem nenhum lado "
+            "dentro dela, não há parcela naquele instante.")
+
+    if daily.empty or daily["parcelas"].sum() == 0:
+        resolvidos = daily["resolvido"].sum() if not daily.empty else 0
+        if resolvidos:
+            st.info(
+                "O mercado do dia **resolveu**, mas nenhum snapshot capturado "
+                "caiu na faixa (95–99,6¢) — então **0 parcelas**. Isso acontece "
+                "quando o mercado já estava resolvido (preço em 0 ou 1) durante "
+                "as capturas. A partir de agora o `heal_buffer` protege o "
+                "intradiário, então os dias completos passam a pegar as "
+                "entradas.")
+        else:
+            st.info(
+                "Capturando — ainda sem nenhum lado na faixa (95–99,6¢). "
+                "As parcelas aparecem quando o Up ou o Down entrar na faixa.")
         return
 
     # Gráfico dia a dia de parcelas — mostra sempre que há captura, mesmo com

@@ -103,6 +103,32 @@ class SpyStudyTests(unittest.TestCase):
         self.assertTrue(bool(row["resolvido"]))
         self.assertEqual(row["resultado"], "Acerto")
 
+    def test_latest_prices_returns_series_of_latest_day(self):
+        frame = _day_series({}, last_up=0.999)
+        with mock.patch.object(study, "_load_market", return_value=frame):
+            prices = study.latest_prices()
+        self.assertEqual(len(prices), 49)
+        self.assertEqual(set(prices.columns),
+                         {"ts", "preco_up", "preco_down", "dia"})
+        self.assertEqual(prices["dia"].iloc[0], "2026-08-07")
+
+    def test_resolved_day_without_band_entry_has_zero_parcelas(self):
+        # Mercado já resolvido (Up=1.0 o tempo todo): fora da faixa → 0 parcelas.
+        rows = []
+        import datetime as dt
+        start = dt.datetime(2026, 8, 8, 0, 2, tzinfo=dt.timezone.utc)
+        for i in range(10):
+            ts = start + dt.timedelta(minutes=5 * i)
+            rows.append({"ts_utc": ts.isoformat(), "dia": "2026-08-07",
+                         "preco_up": 1.0, "preco_down": 0.0})
+        frame = _frame(rows)
+        with mock.patch.object(study, "_load_market", return_value=frame):
+            daily = study.daily_summary()
+        row = daily.iloc[0]
+        self.assertEqual(int(row["parcelas"]), 0)
+        self.assertTrue(bool(row["resolvido"]))
+        self.assertEqual(row["resultado"], "Sem entrada")
+
     def test_empty_lake_returns_zeroed_stats(self):
         with mock.patch.object(study, "_load_market",
                                return_value=pd.DataFrame()):
