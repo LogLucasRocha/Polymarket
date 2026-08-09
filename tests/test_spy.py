@@ -47,6 +47,21 @@ class RegistryTests(unittest.TestCase):
         now = dt.datetime(2026, 8, 8, 17, 0, tzinfo=dt.timezone.utc)
         self.assertEqual(market_date(spy, now), dt.date(2026, 8, 8))
 
+    def test_btc_updown_is_binary_daily_rolling_at_16_utc(self):
+        from spy import market_date
+        m = MERCADOS["btc_updown"]
+        self.assertEqual(m.kind, "binary")
+        self.assertEqual(m.slug_prefix, "bitcoin-up-or-down-on")
+        self.assertEqual(
+            capture.market_slug(m.slug_prefix, dt.date(2026, 8, 9)),
+            "bitcoin-up-or-down-on-august-9-2026")
+        self.assertEqual(
+            study._close_utc("btc_updown", "2026-08-09"),
+            pd.Timestamp("2026-08-09T16:00:00Z"))
+        # o dia vira às 16:00 UTC, como o Bitcoin Above
+        depois = dt.datetime(2026, 8, 8, 17, 0, tzinfo=dt.timezone.utc)
+        self.assertEqual(market_date(m, depois), dt.date(2026, 8, 9))
+
 
 def _frame(rows: list[dict]) -> pd.DataFrame:
     df = pd.DataFrame(rows)
