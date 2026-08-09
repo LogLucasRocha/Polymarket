@@ -143,6 +143,21 @@ def pct(value: float | None, digits: int = 1) -> str:
     return "—" if value is None else f"{value * 100:+.{digits}f}%"
 
 
+def brl(value: float | None) -> str:
+    """Valor em reais no formato pt-BR, com sinal (ex.: '−R$ 1.234')."""
+    if value is None or pd.isna(value):
+        return "—"
+    body = f"{abs(value):,.0f}".replace(",", ".")
+    return f"−R$ {body}" if value < 0 else f"R$ {body}"
+
+
+def money_pct(frac: float | None, banca: float) -> str:
+    """'R$ 174 (+17,4%)' a partir de uma fração e da banca de referência."""
+    if frac is None or pd.isna(frac):
+        return "—"
+    return f"{brl(banca * frac)} ({pct(frac, 2)})"
+
+
 def num_or_dash(value, suffix: str = "", digits: int = 1) -> str:
     """Formata um número; devolve '—' quando o valor é nulo/NaN.
 
@@ -946,26 +961,37 @@ def market_page(market: str) -> None:
             f"mercado ({fechamento}), quando o dia resolve.")
         return
 
+    st.subheader("Resultado por janela de entrada")
+    banca = st.number_input(
+        "Banca de referência (R$)", min_value=100.0, max_value=1_000_000.0,
+        value=1000.0, step=100.0, key=f"banca_{market}",
+        help="Converte os retornos relativos em R$. A estratégia aposta 1% do "
+             "caixa livre por parcela; os valores escalam com esta banca.")
     rows = []
     for label, stats in variants:
         pick = stats.get("by_pick", {})
+        per_day = stats.get("per_day", [])
+        worst = min((d["ret"] for d in per_day), default=None)
+        tail = monitor.observed_cvar(stats, 0.01)
+        cvar = tail["cvar"] if tail else None
         rows.append({
             "Janela": label,
             "Parcelas": stats.get("n", 0),
-            "Acertos": stats.get("wins", 0),
+            "Acerto": f"{stats.get('hit', 0):.2%}",
             "Erros": stats.get("n", 0) - stats.get("wins", 0),
-            "Assertividade": f"{stats.get('hit', 0):.2%}",
-            "Rendimento": pct(stats.get("real_mult", 1) - 1, 2),
+            "Rendimento": money_pct(stats.get("real_mult", 1) - 1, banca),
+            "Pior dia": money_pct(worst, banca),
+            "CVaR 1%": money_pct(cvar, banca),
             "Drawdown": f"{stats.get('real_dd', 0):.2%}",
             f"{lado_a}/{lado_b}": f"{pick.get('up', 0)}/{pick.get('down', 0)}",
         })
-    st.subheader("Resultado por janela de entrada")
     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
     st.caption(
-        f"{resolvidos} dia(s) resolvido(s). H-n = só as parcelas dentro das "
-        f"últimas n horas antes do fechamento ({fechamento}). 'Sem janela' "
-        f"entra o dia todo. {lado_a}/{lado_b} = quantas parcelas caíram em "
-        "cada lado.")
+        f"{resolvidos} dia(s) resolvido(s). **Pior dia** = o retorno do dia mais "
+        "negativo; **CVaR 1%** = média dos 1% piores dias (com histórico curto "
+        "equivale ao pior dia). H-n = só as parcelas nas últimas n horas antes "
+        f"do fechamento ({fechamento}); 'Sem janela' entra o dia todo. "
+        f"{lado_a}/{lado_b} = parcelas em cada lado.")
 
     base = variants[0][1]
     if base.get("per_day"):
