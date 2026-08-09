@@ -42,6 +42,7 @@ jobs:
             data_low
             data_spy
             data_bitcoin
+            data_btc_updown
           key: tmax-data-${{ github.run_id }}
           restore-keys: |
             tmax-data-
@@ -114,7 +115,8 @@ jobs:
           from zipfile import ZIP_DEFLATED, ZipFile
 
           roots = (Path("data/capture/buffer"), Path("data_low"),
-                   Path("data_spy"), Path("data_bitcoin"))
+                   Path("data_spy"), Path("data_bitcoin"),
+                   Path("data_btc_updown"))
           with ZipFile("ceifa-live.zip", "w", ZIP_DEFLATED) as archive:
               for root in roots:
                   if not root.exists():
@@ -145,6 +147,7 @@ jobs:
           [ -d dados_low ] && git add dados_low || true
           [ -d dados_spy ] && git add dados_spy || true
           [ -d dados_bitcoin ] && git add dados_bitcoin || true
+          [ -d dados_btc_updown ] && git add dados_btc_updown || true
           if git diff --cached --quiet; then
             echo "sem dados novos para commitar"; exit 0
           fi

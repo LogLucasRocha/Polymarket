@@ -38,6 +38,11 @@ MERCADOS: dict[str, Mercado] = {
     "spy": Mercado("spy", "SPY Daily Up or Down", "spy-up-or-down-on"),
     "bitcoin": Mercado("bitcoin", "Bitcoin Above", "bitcoin-above-on",
                        close_hour=16, tz="UTC", rolling=True, kind="strikes"),
+    # Binário diário do BTC (mesmo esquema do SPY), mas o dia vira/resolve às
+    # 16:00 UTC como o Bitcoin Above — mesma convenção da Polymarket pro BTC.
+    "btc_updown": Mercado("btc_updown", "Bitcoin Up or Down",
+                          "bitcoin-up-or-down-on", close_hour=16, tz="UTC",
+                          rolling=True, kind="binary"),
 }
 
 # Faixa de compra (>95¢ e <99,8¢) e cadência — iguais para todos os mercados.
