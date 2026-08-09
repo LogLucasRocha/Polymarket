@@ -79,21 +79,31 @@ def _close_utc(market: str, dia: str) -> pd.Timestamp:
     return pd.Timestamp(close).tz_convert("UTC")
 
 
-def _resolved(group: pd.DataFrame, column: str,
-              close: pd.Timestamp) -> float | None:
-    """Preço final de um lado, só se o dia já FECHOU (temos snapshot ≥ close).
+def _resolved(group: pd.DataFrame, column: str, close: pd.Timestamp,
+              now_ts: pd.Timestamp) -> float | None:
+    """Preço final de um lado, quando o dia já ACABOU.
 
-    Sem a trava de horário, um strike fundo no dinheiro (Yes ~100¢ na abertura)
-    pareceria "resolvido" enquanto o dia ainda está aberto — pontuando cedo. Só
-    contamos quando há dado no fechamento ou depois; aí o preço final vira o
-    desfecho (encostado em 0/1)."""
-    if group["ts"].max() < close:
+    O dia acabou quando o relógio — o último snapshot do lago (``now_ts``) —
+    passou o fechamento. Dois regimes de captura:
+
+    - **Não rolling (SPY):** seguimos capturando o mesmo dia depois do fechamento,
+      então há snapshot ≥ close e exigimos o preço pinado (0/1). Assim uma captura
+      incompleta que parou no meio (ex.: 0,60) não é pontuada.
+    - **Rolling (Bitcoin):** o dia vira no próprio fechamento e NUNCA há snapshot
+      depois dele. Quando o relógio já passou o close, o último preço antes do
+      fechamento é o desfecho (melhor estimativa disponível).
+
+    Sem isso, um strike fundo no dinheiro pareceria resolvido cedo demais, e um
+    mercado rolling nunca resolveria."""
+    if now_ts < close:
         return None                        # dia ainda aberto — não pontua
     valid = group.dropna(subset=[column])
     if valid.empty:
         return None
     value = float(valid.sort_values("ts").iloc[-1][column])
-    return value if value >= 0.99 or value <= 0.01 else None
+    if group["ts"].max() >= close:         # há dado no fechamento → exige pino
+        return value if value >= 0.99 or value <= 0.01 else None
+    return value                           # rolling: último preço pré-fechamento
 
 
 def _side_in_band(row) -> str | None:
@@ -112,14 +122,15 @@ def simulate(window_hours: int | None = None, market: str = "spy") -> dict:
         return ceifa._stats_relative_available_stake([], 0, STAKE_FRAC)
 
     signals: list[dict] = []
+    now_ts = df["ts"].max()                # relógio: último snapshot do lago
     # Cada (dia, faixa) é um contrato: binário tem uma faixa "—"; strikes têm
     # uma por alvo (Bitcoin: "acima de 64k?"). O lado (Yes/No ou Up/Down) na
     # faixa de preço vira parcela; o intervalo de 10 min é por contrato.
     for (dia, faixa), group in df.groupby(["dia", "faixa"]):
         group = group.sort_values("ts")
         close = _close_utc(market, str(dia))
-        final = {"up": _resolved(group, "preco_up", close),
-                 "down": _resolved(group, "preco_down", close)}
+        final = {"up": _resolved(group, "preco_up", close, now_ts),
+                 "down": _resolved(group, "preco_down", close, now_ts)}
         if final["up"] is None and final["down"] is None:
             continue                       # contrato ainda não resolveu
         cutoff = (None if window_hours is None
@@ -200,12 +211,12 @@ def latest_strikes(market: str = "spy") -> pd.DataFrame:
         ["faixa", "preco_up", "preco_down", "na_faixa"]].reset_index(drop=True)
 
 
-def _count_parcelas(group: pd.DataFrame,
-                    close: pd.Timestamp) -> tuple[int, int, bool]:
+def _count_parcelas(group: pd.DataFrame, close: pd.Timestamp,
+                    now_ts: pd.Timestamp) -> tuple[int, int, bool]:
     """Parcelas, acertos e se resolveu, para um contrato (dia, faixa)."""
     group = group.sort_values("ts")
-    final = {"up": _resolved(group, "preco_up", close),
-             "down": _resolved(group, "preco_down", close)}
+    final = {"up": _resolved(group, "preco_up", close, now_ts),
+             "down": _resolved(group, "preco_down", close, now_ts)}
     resolved = final["up"] is not None or final["down"] is not None
     parcelas = acertos = 0
     last_ts = None
@@ -241,12 +252,13 @@ def daily_summary(market: str = "spy") -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(columns=cols)
     rows = []
+    now_ts = df["ts"].max()
     for dia, day_group in df.groupby("dia"):
         close = _close_utc(market, str(dia))
         parcelas = acertos = 0
         resolved = False
         for _, group in day_group.groupby("faixa"):
-            p, a, r = _count_parcelas(group, close)
+            p, a, r = _count_parcelas(group, close, now_ts)
             parcelas += p
             acertos += a
             resolved = resolved or r
@@ -273,11 +285,12 @@ def today_progress(market: str = "spy") -> dict:
         return {"day": None, "snapshots": 0, "parcelas": 0, "resolved": False}
     day = str(df["dia"].max())
     close = _close_utc(market, day)
+    now_ts = df["ts"].max()
     day_group = df[df["dia"] == day]
     parcelas = 0
     resolved = False
     for _, group in day_group.groupby("faixa"):
-        p, _a, r = _count_parcelas(group, close)
+        p, _a, r = _count_parcelas(group, close, now_ts)
         parcelas += p
         resolved = resolved or r
     return {"day": day, "snapshots": int(day_group["ts"].nunique()),

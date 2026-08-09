@@ -249,3 +249,32 @@ class StrikesTests(unittest.TestCase):
         self.assertEqual(daily.iloc[0]["resultado"], "Em aberto")
         self.assertFalse(progress["resolved"])
         self.assertGreater(progress["parcelas"], 0)           # mas conta parcelas
+
+    def test_rolling_day_resolves_after_it_rolls(self):
+        # Bitcoin (rolling): o dia vira às 16:00 UTC e NUNCA há snapshot depois
+        # dele para o próprio dia — o último é ~15:50. Assim que a captura do dia
+        # seguinte aparece (relógio > fechamento), o dia fechado deve resolver
+        # pelo último preço pré-fechamento. Era o bug do "eterno em aberto".
+        rows = []
+        start = dt.datetime(2026, 8, 9, 10, 0, tzinfo=dt.timezone.utc)
+        for i in range(36):                       # 10:00 .. 15:50 UTC, na faixa
+            iso = (start + dt.timedelta(minutes=10 * i)).isoformat()
+            rows.append({"ts_utc": iso, "dia": "2026-08-09", "faixa": "64000",
+                         "preco_up": 0.97, "preco_down": 0.03})
+        # o dia rolou: primeiro snapshot do dia seguinte, já depois das 16:00.
+        roll = dt.datetime(2026, 8, 9, 16, 10, tzinfo=dt.timezone.utc).isoformat()
+        rows.append({"ts_utc": roll, "dia": "2026-08-10", "faixa": "64000",
+                     "preco_up": 0.55, "preco_down": 0.45})   # dia novo, aberto
+        frame = _frame(rows)
+        with mock.patch.object(study, "_load_market", return_value=frame):
+            stats = study.simulate(None, "bitcoin")
+            daily = study.daily_summary("bitcoin")
+        # o dia 09 resolveu (Yes 0,97 > 0,5 = venceu), mesmo sem pino no close
+        self.assertGreater(stats["n"], 0)
+        self.assertEqual(stats["wins"], stats["n"])
+        row09 = daily[daily["dia"] == pd.Timestamp("2026-08-09")].iloc[0]
+        self.assertTrue(bool(row09["resolvido"]))
+        self.assertEqual(row09["resultado"], "Acerto")
+        # o dia 10, ainda aberto (relógio < seu fechamento), não pontua
+        row10 = daily[daily["dia"] == pd.Timestamp("2026-08-10")].iloc[0]
+        self.assertFalse(bool(row10["resolvido"]))
