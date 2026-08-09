@@ -19,7 +19,9 @@ try:
 except Exception:
     pass
 
-from tmax import config, monitor
+import os
+
+from tmax import config, monitor, polymarket
 from spy import MERCADOS
 from spy import study as spy_study
 
@@ -143,19 +145,34 @@ def pct(value: float | None, digits: int = 1) -> str:
     return "—" if value is None else f"{value * 100:+.{digits}f}%"
 
 
-def brl(value: float | None) -> str:
-    """Valor em reais no formato pt-BR, com sinal (ex.: '−R$ 1.234')."""
+def usd(value: float | None) -> str:
+    """Valor em PUSD (dólar da Polymarket), com sinal (ex.: '−$1,234.00')."""
     if value is None or pd.isna(value):
         return "—"
-    body = f"{abs(value):,.0f}".replace(",", ".")
-    return f"−R$ {body}" if value < 0 else f"R$ {body}"
+    return f"−${abs(value):,.2f}" if value < 0 else f"${value:,.2f}"
 
 
 def money_pct(frac: float | None, banca: float) -> str:
-    """'R$ 174 (+17,4%)' a partir de uma fração e da banca de referência."""
+    """'$174.40 (+17,4%)' a partir de uma fração e do saldo/banca."""
     if frac is None or pd.isna(frac):
         return "—"
-    return f"{brl(banca * frac)} ({pct(frac, 2)})"
+    return f"{usd(banca * frac)} ({pct(frac, 2)})"
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def load_saldo() -> float | None:
+    """Saldo livre da carteira (PUSD), o mesmo que a produção usa pra parcelar.
+
+    Lê POLYMARKET_WALLET e consulta o saldo on-chain. None se a carteira não
+    está configurada no ambiente ou a consulta falhou (aí cai no input manual).
+    """
+    wallet = os.environ.get("POLYMARKET_WALLET")
+    if not wallet:
+        return None
+    try:
+        return float(polymarket.fetch_pusd_balance(wallet))
+    except Exception:  # noqa: BLE001 — sem saldo → fallback manual
+        return None
 
 
 def num_or_dash(value, suffix: str = "", digits: int = 1) -> str:
@@ -962,11 +979,19 @@ def market_page(market: str) -> None:
         return
 
     st.subheader("Resultado por janela de entrada")
-    banca = st.number_input(
-        "Banca de referência (R$)", min_value=100.0, max_value=1_000_000.0,
-        value=1000.0, step=100.0, key=f"banca_{market}",
-        help="Converte os retornos relativos em R$. A estratégia aposta 1% do "
-             "caixa livre por parcela; os valores escalam com esta banca.")
+    saldo = load_saldo()
+    if saldo is not None:
+        banca = saldo
+        st.caption(
+            f"Valores em PUSD sobre o **saldo atual da carteira: {usd(saldo)}** "
+            "— o mesmo que a produção usa pra parcelar (1% do caixa livre).")
+    else:
+        banca = st.number_input(
+            "Banca de referência (PUSD)", min_value=10.0, max_value=1_000_000.0,
+            value=1000.0, step=100.0, key=f"banca_{market}",
+            help="Sem POLYMARKET_WALLET no ambiente — usando uma banca manual. "
+                 "A estratégia aposta 1% do caixa livre; os valores escalam "
+                 "com esta banca.")
     rows = []
     for label, stats in variants:
         pick = stats.get("by_pick", {})
