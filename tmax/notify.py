@@ -472,14 +472,6 @@ def station_hourly_lines(ctx: dict) -> str:
     return "\n\n".join(blocks)
 
 
-def station_divider(station) -> str:
-    """Separador visual que abre o bloco de uma estação no digest."""
-    return (f"━━━━━━━━━━━━━━━\n"
-            f"{station.flag} <b>{html.escape(station.city).upper()} "
-            f"({station.icao})</b>\n"
-            f"━━━━━━━━━━━━━━━")
-
-
 # ----------------------------------------------------------- envio Telegram
 
 _RETRY_WAITS = (3, 8, 20)  # segundos entre tentativas

@@ -309,6 +309,11 @@ def main() -> int:
                 continue
             if not ceifa.is_ceifa_price(price):
                 continue
+            if ceifa.is_wide_book_risk(price, v.get("yes_ask")):
+                print(f"[ceifa] {icao}: filtrado — livro largo (NÃO "
+                      f"{v['label']} ${price:.3f} + Sim "
+                      f"${float(v.get('yes_ask')):.3f} passa de 100¢).")
+                continue
             H = peak_by_icao.get(icao)
             ctx_i = contexts.get(icao)
             if H is None or ctx_i is None or ctx_i["now"].hour != (H - 1) % 24:
@@ -380,6 +385,11 @@ def main() -> int:
                           f"(indicativo=${indicative:.3f}).")
                 continue
             if not ceifa.is_ceifa_price(price):
+                continue
+            if ceifa.is_wide_book_risk(price, value.get("yes_ask")):
+                print(f"[ceifa mínima] {icao}: filtrado — livro largo (NÃO "
+                      f"{value['label']} ${price:.3f} + Sim "
+                      f"${float(value.get('yes_ask')):.3f} passa de 100¢).")
                 continue
             forecast = minimum_forecasts.get(icao) or {}
             cold_hour = forecast.get("pico_hora")
@@ -648,6 +658,7 @@ def _collect_signal_rows(stations, contexts, yes_prob) -> dict:
                           "book_checked": r.get("book_checked", False),
                           "no_ask": r.get("no_ask"),
                           "no_ask_size": r.get("no_ask_size"),
+                          "yes_ask": r.get("yes_ask"),
                           "no_token_id": r.get("no_token_id"),
                           "mp": r["mp"]}
     return json.loads(json.dumps(rows))
@@ -700,6 +711,7 @@ def _collect_minimum_signal_rows(stations, contexts) -> tuple[dict, dict, dict]:
                 "book_checked": row.get("book_checked", False),
                 "no_ask": row.get("no_ask"),
                 "no_ask_size": row.get("no_ask_size"),
+                "yes_ask": row.get("yes_ask"),
                 "no_token_id": row.get("no_token_id"),
                 "extreme": "minimum",
             }
@@ -1183,7 +1195,6 @@ def _send_ceifa_block(token, chat_id, station, ctx, contratos,
     """Bloco enxuto da Ceifa: divisor, texto (compra + pico + mediana) e o
     gráfico da distribuição (ensemble + TAF + mediana). Sem tabela de
     probabilidades e sem hora a hora."""
-    notify.send_message(token, chat_id, notify.station_divider(station))
     notify.send_message(
         token, chat_id,
         _ceifa_text(station, ctx, contratos, extreme, forecast))
@@ -1394,7 +1405,6 @@ def _send_station_block(token, chat_id, station, ctx, positions,
     """Envia o bloco completo de UMA estação (divisor, sinais/alertas da
     rodada, posições, tabela de odds, gráfico e hora a hora). Levanta na
     primeira falha de envio."""
-    notify.send_message(token, chat_id, notify.station_divider(station))
     for m in pre_msgs or []:
         notify.send_message(token, chat_id, m)
 
