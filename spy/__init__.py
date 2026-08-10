@@ -50,6 +50,13 @@ BAND = (0.95, 0.998)
 INTERVAL_MINUTES = 10
 
 
+def close_utc(mercado: Mercado, d: dt.date) -> dt.datetime:
+    """Fechamento (UTC, tz-aware) do mercado do dia ``d``."""
+    close = dt.datetime(d.year, d.month, d.day, mercado.close_hour, 0,
+                        tzinfo=ZoneInfo(mercado.tz))
+    return close.astimezone(dt.timezone.utc)
+
+
 def next_close(mercado: Mercado, now_utc: dt.datetime) -> dt.datetime:
     """Próximo fechamento (resolução) do mercado após ``now`` (tz-aware)."""
     local = now_utc.astimezone(ZoneInfo(mercado.tz))
