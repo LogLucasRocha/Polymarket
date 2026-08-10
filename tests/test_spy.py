@@ -135,6 +135,15 @@ class SpyStudyTests(unittest.TestCase):
         self.assertEqual(stats["by_pick"], {"up": 48, "down": 0})
         self.assertGreater(stats["real_mult"], 1.0)
 
+    def test_stakes_are_one_percent_of_remaining_daily_cash(self):
+        frame = _day_series({}, last_up=0.999)
+        with mock.patch.object(study, "_load_market", return_value=frame):
+            stats = study.simulate(window_hours=None)
+        stakes = [signal["stake"] for signal in stats["signals"][:3]]
+        self.assertAlmostEqual(stakes[0], 0.01)
+        self.assertAlmostEqual(stakes[1], 0.0099)
+        self.assertAlmostEqual(stakes[2], 0.009801)
+
     def test_h1_window_keeps_only_last_hour(self):
         frame = _day_series({}, last_up=0.999)
         with mock.patch.object(study, "_load_market", return_value=frame):
