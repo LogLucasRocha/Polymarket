@@ -1087,6 +1087,15 @@ def main() -> None:
         market = ("spy_above" if "SPY Above" in choice
                   else "bitcoin" if "Above" in choice
                   else "btc_updown" if "Up/Down" in choice else "spy")
+        if market not in MERCADOS:
+            # O Streamlit recarrega este arquivo mas mantém o pacote spy antigo
+            # em memória (sem o mercado novo). Reiniciar o processo resolve.
+            st.warning(
+                f"O mercado **{choice}** ainda não está carregado nesta sessão. "
+                "O Streamlit recarregou a tela mas manteve o código antigo em "
+                "memória. **Reinicie o processo** (feche o `streamlit run` e "
+                "suba de novo) para carregar — recarregar a aba não basta.")
+            return
         hero(f"{MERCADOS[market].nome} · hipótese em teste · aloca no lado na "
              "faixa 95–99,8¢, 1% do caixa livre a cada 10 min.")
         market_page(market)
