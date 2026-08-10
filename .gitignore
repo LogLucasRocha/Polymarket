@@ -20,3 +20,6 @@ __pycache__/
 
 # Config local do Claude Code
 .claude/settings.local.json
+.heal_ok
+data_spy_above/
+data_spy_above_live/
