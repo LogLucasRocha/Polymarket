@@ -43,6 +43,13 @@ MERCADOS: dict[str, Mercado] = {
     "btc_updown": Mercado("btc_updown", "Bitcoin Up or Down",
                           "bitcoin-up-or-down-on", close_hour=16, tz="UTC",
                           rolling=True, kind="binary"),
+    # Solana segue a mesma janela diária dos mercados cripto do Bitcoin:
+    # o slug do dia N cobre o período até 16:00 UTC do próprio dia N.
+    "solana": Mercado("solana", "Solana Above", "solana-above-on",
+                       close_hour=16, tz="UTC", rolling=True, kind="strikes"),
+    "sol_updown": Mercado("sol_updown", "Solana Up or Down",
+                          "solana-up-or-down-on", close_hour=16, tz="UTC",
+                          rolling=True, kind="binary"),
     # SPY multi-strike ("fecha acima de X?"), resolve no fechamento do pregão
     # (16:00 ET) como o SPY Up or Down — não rolling, calendário ET.
     "spy_above": Mercado("spy_above", "SPY Closes Above", "spy-closes-above-on",

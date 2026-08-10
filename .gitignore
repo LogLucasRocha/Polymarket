@@ -9,6 +9,10 @@ data_bitcoin/
 data_bitcoin_live/
 data_btc_updown/
 data_btc_updown_live/
+data_solana/
+data_solana_live/
+data_sol_updown/
+data_sol_updown_live/
 
 # Python
 __pycache__/

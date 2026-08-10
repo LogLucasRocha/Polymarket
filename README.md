@@ -10,7 +10,8 @@ autópsia visual de cada erro. A navegação (fixada no rodapé) separa duas ár
   mínimas. Cada uma reúne, em abas, a **Visão geral**, os **Erros** e as
   **Cidades e filtros**.
 - **🧪 Em teste (hipóteses)** — mercados binários diários em observação:
-  **SPY** (Daily Up or Down) e **Bitcoin Above**.
+  **SPY**, **Bitcoin** e **Solana**, nas modalidades **Up or Down** e
+  **Above** disponíveis para cada ativo.
 
 No Windows, abra `Monitor Ceifa.cmd` ou use o atalho de mesmo nome criado na
 Área de Trabalho. O iniciador sobe o Streamlit em segundo plano e abre
@@ -38,11 +39,11 @@ O backtest das mínimas usa parcelas de 1% do caixa livre a cada cinco minutos
 enquanto preço, oferta e H-1 continuarem elegíveis, sem teto por contrato e sem
 alavancagem. Trata-se apenas de monitoramento; nenhum alerta executa uma aposta.
 
-### Estudo de mercados binários diários (SPY, Bitcoin, ...)
+### Estudo de mercados binários diários (SPY, Bitcoin, Solana, ...)
 
 Monitor observacional de mercados binários da Polymarket, definidos no registro
-`spy.MERCADOS` (hoje **SPY Daily Up or Down** e **Bitcoin Above**; novos entram
-só nesse dicionário). A cada 10 min o `spy.capture` (pendurado no `main.yml`)
+`spy.MERCADOS` (hoje **SPY**, **Bitcoin** e **Solana**; novos entram só nesse
+dicionário). A cada 10 min o `spy.capture` (pendurado no `main.yml`)
 arquiva, para cada mercado, um snapshot do dia com preço e melhor ask dos dois
 lados em `dados_{key}/` (parquet commitado) e `data_{key}/` (buffer do dia, que
 entra no zip do botão Atualizar). Fim de semana/feriado sem mercado — a rodada
