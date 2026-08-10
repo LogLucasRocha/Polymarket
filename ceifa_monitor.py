@@ -5,8 +5,6 @@ na Área de Trabalho.
 """
 from __future__ import annotations
 
-import math
-
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -359,39 +357,54 @@ def hourly_average(stats: dict) -> pd.Series:
     return counts.astype(float) / days
 
 
-def hourly_chart(stats: dict) -> go.Figure:
-    """Média diária das parcelas por horário — quando ficar online.
+def hourly_by_extreme(stats: dict) -> pd.DataFrame:
+    """Média diária de parcelas por hora (0–23) × extremo (máxima/mínima)."""
+    rows = [(signal.get("ts"), signal.get("extreme"))
+            for signal in stats.get("signals", [])
+            if signal.get("ts") is not None]
+    if not rows:
+        return pd.DataFrame()
+    frame = pd.DataFrame(rows, columns=["ts", "extreme"])
+    ts = pd.to_datetime(frame["ts"], utc=True).dt.tz_convert(USER_TZ)
+    frame["hora"] = ts.dt.hour
+    frame["cat"] = frame["extreme"].map(
+        {"maximum": "Máxima", "minimum": "Mínima"}).fillna("Outra")
+    days = int(ts.dt.normalize().nunique()) or 1
+    piv = (frame.groupby(["hora", "cat"]).size().unstack(fill_value=0)
+           .reindex(range(24), fill_value=0))
+    return piv.astype(float) / days
 
-    A linha tracejada marca a média por hora; a barra âmbar é o horário de
-    pico e as barras verdes são as horas acima da média.
-    """
-    counts = hourly_counts(stats)
-    averages = hourly_average(stats)
-    days = hourly_day_count(stats)
-    if averages.empty:
+
+def hourly_chart(stats: dict) -> go.Figure:
+    """Média diária das parcelas por horário, empilhada por máxima/mínima.
+
+    Cada barra é a média de parcelas/dia naquela hora (fuso de Brasília),
+    quebrada por cor: laranja = máxima, azul = mínima. A tracejada é a média
+    do total por hora."""
+    piv = hourly_by_extreme(stats)
+    if piv.empty:
         return go.Figure()
-    mean = averages.mean()
-    peak = int(averages.idxmax())
-    colors = [AMBER if hour == peak else (GREEN if value >= mean else "#2f6b58")
-              for hour, value in averages.items()]
+    total = piv.sum(axis=1)
+    mean = float(total.mean())
+    hours = [f"{hour:02d}h" for hour in piv.index]
+    cores = {"Máxima": AMBER, "Mínima": BLUE, "Outra": GREEN}
     fig = go.Figure()
-    fig.add_trace(go.Bar(
-        x=[f"{hour:02d}h" for hour in averages.index], y=averages.values,
-        customdata=[[int(counts.loc[hour]), days]
-                    for hour in averages.index],
-        marker_color=colors,
-        hovertemplate=("%{x} (Brasília)<br>Média: %{y:.2f} parcelas/dia"
-                       "<br>Acumulado: %{customdata[0]}"
-                       "<br>Dias com apostas: %{customdata[1]}<extra></extra>"),
-    ))
+    for cat in ("Máxima", "Mínima", "Outra"):
+        if cat not in piv.columns:
+            continue
+        fig.add_trace(go.Bar(
+            x=hours, y=piv[cat].values, name=cat, marker_color=cores[cat],
+            hovertemplate=("%{x} (Brasília)<br>" + cat +
+                           ": %{y:.2f}/dia<extra></extra>")))
     fig.add_hline(
         y=mean, line_dash="dash", line_color=INK,
         annotation_text=f"média {mean:.2f}/dia",
         annotation_position="top left", annotation_font_color=INK)
     fig.update_layout(
-        height=330, margin=dict(l=15, r=15, t=20, b=10),
+        barmode="stack", height=330, margin=dict(l=15, r=15, t=20, b=10),
         xaxis_title=None, yaxis_title="Média de parcelas por dia",
-        showlegend=False, bargap=0.15,
+        bargap=0.15,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
     )
     fig.update_xaxes(showgrid=False)
     return dark_figure(fig)
@@ -446,11 +459,7 @@ def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
         r1, r2 = st.columns(2)
         r1.metric("Melhor dia", pct(risk["best_day"], 2))
         r2.metric("Pior dia", pct(risk["worst_day"], 2))
-        r3, r4 = st.columns(2)
-        r3.metric("Fator de lucro",
-                  "∞" if math.isinf(risk["profit_factor"])
-                  else f"{risk['profit_factor']:.2f}x")
-        r4.metric("Contratos com erro", str(unique_losses))
+        st.metric("Contratos com erro", str(unique_losses))
 
         tail = load_tail(stats)
         if tail:
@@ -496,8 +505,8 @@ def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
                 f"e {full_stats.get('n_filtrado_100c', 0)} que terminariam em 100¢.</div>"
                 .replace(",", "."), unsafe_allow_html=True)
         st.caption(
-            "Fator de lucro = ganhos brutos ÷ perdas brutas. As parcelas "
-            "repetidas no mesmo contrato não são eventos independentes.")
+            "As parcelas repetidas no mesmo contrato não são eventos "
+            "independentes.")
 
     st.subheader("Retorno de cada dia (hora de Brasília)")
     days = window_selector(f"daily_window_{stats.get('archive_kind')}_{side}")
@@ -555,8 +564,7 @@ def errors_page(stats: dict) -> None:
         c2.metric("Máximas", int((losses["Estratégia"] == "Máxima").sum()))
         c3.metric("Mínimas", int((losses["Estratégia"] == "Mínima").sum()))
         st.info(
-            "Esta é a lista consolidada. Para abrir a autópsia meteorológica "
-            "de um contrato, selecione Máximas ou Mínimas no topo.")
+            "Lista consolidada de erros (máximas e mínimas na mesma banca).")
         st.dataframe(losses, hide_index=True, width="stretch")
         return
 
@@ -1051,10 +1059,11 @@ def main() -> None:
         pick_col, period_col, refresh_col = st.columns(
             [2.6, 1.25, .65], vertical_alignment="bottom")
         if producao:
-            choice = pick_col.radio(
-                "Estratégia ativa",
-                ["📊 Ativas consolidadas", "🌡️ Máximas", "❄️ Mínimas"],
-                horizontal=True, key="prod_navigation")
+            # Só a visão consolidada faz sentido (máximas + mínimas numa banca).
+            choice = "📊 Ativas consolidadas"
+            pick_col.markdown(
+                "<div style='padding-top:.35rem'><b>📊 Estratégias ativas "
+                "consolidadas</b></div>", unsafe_allow_html=True)
         else:
             choice = pick_col.radio(
                 "Hipótese em teste",

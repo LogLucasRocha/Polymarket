@@ -7,10 +7,10 @@ class DashboardHourlyTest(unittest.TestCase):
     def setUp(self):
         self.stats = {
             "signals": [
-                {"ts": "2026-08-01T13:00:00Z"},  # 10h em Brasília
-                {"ts": "2026-08-01T13:05:00Z"},
-                {"ts": "2026-08-01T14:00:00Z"},  # 11h em Brasília
-                {"ts": "2026-08-02T14:00:00Z"},
+                {"ts": "2026-08-01T13:00:00Z", "extreme": "maximum"},  # 10h BR
+                {"ts": "2026-08-01T13:05:00Z", "extreme": "minimum"},  # 10h BR
+                {"ts": "2026-08-01T14:00:00Z", "extreme": "maximum"},  # 11h BR
+                {"ts": "2026-08-02T14:00:00Z", "extreme": "maximum"},  # 11h BR
             ]
         }
 
@@ -22,13 +22,17 @@ class DashboardHourlyTest(unittest.TestCase):
         self.assertEqual(averages.loc[11], 1.0)
         self.assertEqual(averages.loc[12], 0.0)
 
-    def test_chart_keeps_accumulated_count_in_hover_data(self):
-        chart = dashboard.hourly_chart(self.stats)
-        tenth_hour = list(chart.data[0].x).index("10h")
+    def test_hourly_chart_stacks_by_extreme(self):
+        piv = dashboard.hourly_by_extreme(self.stats)
+        # 10h BR: 1 máxima + 1 mínima; 11h BR: 2 máximas (÷ 2 dias).
+        self.assertEqual(piv.loc[10, "Máxima"], 0.5)
+        self.assertEqual(piv.loc[10, "Mínima"], 0.5)
+        self.assertEqual(piv.loc[11, "Máxima"], 1.0)
 
-        self.assertEqual(chart.data[0].y[tenth_hour], 1.0)
-        self.assertEqual(chart.data[0].customdata[tenth_hour][0], 2)
-        self.assertEqual(chart.data[0].customdata[tenth_hour][1], 2)
+        chart = dashboard.hourly_chart(self.stats)
+        self.assertEqual({trace.name for trace in chart.data},
+                         {"Máxima", "Mínima"})
+        self.assertEqual(chart.layout.barmode, "stack")
 
 
 if __name__ == "__main__":
