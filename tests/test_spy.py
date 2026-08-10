@@ -20,6 +20,24 @@ class RegistryTests(unittest.TestCase):
             MERCADOS["bitcoin"].slug_prefix, dt.date(2026, 8, 8))
         self.assertEqual(slug, "bitcoin-above-on-august-8-2026")
 
+    def test_solana_markets_match_urls_and_bitcoin_schedule(self):
+        above = MERCADOS["solana"]
+        updown = MERCADOS["sol_updown"]
+        self.assertEqual(above.kind, "strikes")
+        self.assertEqual(updown.kind, "binary")
+        for market, expected in (
+                (above, "solana-above-on-august-10-2026"),
+                (updown, "solana-up-or-down-on-august-10-2026")):
+            self.assertTrue(market.rolling)
+            self.assertEqual(market.close_hour, 16)
+            self.assertEqual(market.tz, "UTC")
+            self.assertEqual(
+                capture.market_slug(market.slug_prefix, dt.date(2026, 8, 10)),
+                expected)
+            self.assertEqual(
+                study._close_utc(market.key, "2026-08-10"),
+                pd.Timestamp("2026-08-10T16:00:00Z"))
+
     def test_spy_closes_at_16_et(self):
         # SPY: 16:00 ET (EDT em agosto) = 20:00 UTC.
         self.assertEqual(

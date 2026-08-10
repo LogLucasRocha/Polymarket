@@ -924,15 +924,19 @@ def market_page(market: str) -> None:
         dia = prices["dia"].iloc[0]
         st.subheader(f"Preços do dia {dia}")
         figp = go.Figure()
+        # Um mercado recém-adicionado pode ter só o primeiro snapshot. Plotly
+        # não desenha uma linha com um único ponto, então mostra o marcador até
+        # a série ganhar o segundo registro; depois mantém a curva limpa.
+        price_mode = "lines+markers" if len(prices) == 1 else "lines"
         figp.add_hrect(y0=0.95, y1=0.998, fillcolor=GREEN, opacity=0.12,
                        line_width=0, annotation_text="faixa de compra",
                        annotation_position="top left")
         figp.add_trace(go.Scatter(
             x=prices["ts"], y=prices["preco_up"], name=lado_a,
-            mode="lines", line=dict(color=BLUE, width=2)))
+            mode=price_mode, line=dict(color=BLUE, width=2)))
         figp.add_trace(go.Scatter(
             x=prices["ts"], y=prices["preco_down"], name=lado_b,
-            mode="lines", line=dict(color=AMBER, width=2)))
+            mode=price_mode, line=dict(color=AMBER, width=2)))
         figp.update_layout(
             height=280, margin=dict(l=15, r=15, t=10, b=10),
             yaxis_title="Preço", xaxis_title=None, yaxis_range=[-0.02, 1.02],
@@ -1069,7 +1073,8 @@ def main() -> None:
         else:
             choice = pick_col.radio(
                 "Hipótese em teste",
-                ["◇ SPY", "↕ BTC Up/Down", "▲ SPY Above", "₿ Bitcoin Above"],
+                ["◇ SPY", "↕ BTC Up/Down", "↕ SOL Up/Down",
+                 "▲ SPY Above", "₿ Bitcoin Above", "◎ Solana Above"],
                 horizontal=True, key="test_navigation")
         period_label = period_col.selectbox(
             "Período",
@@ -1092,12 +1097,17 @@ def main() -> None:
         "Últimos 14 dias": 14, "Últimos 7 dias": 7,
     }[period_label]
 
-    # Área "Em teste": mercados binários diários (SPY, Bitcoin). Página própria,
+    # Área "Em teste": mercados binários diários (SPY, Bitcoin, Solana).
     # sem lado NÃO/SIM nem filtros meteorológicos.
     if not producao:
-        market = ("spy_above" if "SPY Above" in choice
-                  else "bitcoin" if "Above" in choice
-                  else "btc_updown" if "Up/Down" in choice else "spy")
+        market = {
+            "◇ SPY": "spy",
+            "↕ BTC Up/Down": "btc_updown",
+            "↕ SOL Up/Down": "sol_updown",
+            "▲ SPY Above": "spy_above",
+            "₿ Bitcoin Above": "bitcoin",
+            "◎ Solana Above": "solana",
+        }[choice]
         if market not in MERCADOS:
             # O Streamlit recarrega este arquivo mas mantém o pacote spy antigo
             # em memória (sem o mercado novo). Reiniciar o processo resolve.
