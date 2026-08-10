@@ -1058,7 +1058,7 @@ def main() -> None:
         else:
             choice = pick_col.radio(
                 "Hipótese em teste",
-                ["◇ SPY", "↕ BTC Up/Down", "₿ Bitcoin Above"],
+                ["◇ SPY", "↕ BTC Up/Down", "▲ SPY Above", "₿ Bitcoin Above"],
                 horizontal=True, key="test_navigation")
         period_label = period_col.selectbox(
             "Período",
@@ -1084,7 +1084,8 @@ def main() -> None:
     # Área "Em teste": mercados binários diários (SPY, Bitcoin). Página própria,
     # sem lado NÃO/SIM nem filtros meteorológicos.
     if not producao:
-        market = ("bitcoin" if "Above" in choice
+        market = ("spy_above" if "SPY Above" in choice
+                  else "bitcoin" if "Above" in choice
                   else "btc_updown" if "Up/Down" in choice else "spy")
         hero(f"{MERCADOS[market].nome} · hipótese em teste · aloca no lado na "
              "faixa 95–99,8¢, 1% do caixa livre a cada 10 min.")

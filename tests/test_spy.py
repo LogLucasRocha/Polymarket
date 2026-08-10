@@ -47,6 +47,21 @@ class RegistryTests(unittest.TestCase):
         now = dt.datetime(2026, 8, 8, 17, 0, tzinfo=dt.timezone.utc)
         self.assertEqual(market_date(spy, now), dt.date(2026, 8, 8))
 
+    def test_spy_above_is_strikes_closing_16_et(self):
+        from spy import market_date
+        m = MERCADOS["spy_above"]
+        self.assertEqual(m.kind, "strikes")
+        self.assertFalse(m.rolling)
+        self.assertEqual(
+            capture.market_slug(m.slug_prefix, dt.date(2026, 8, 10)),
+            "spy-closes-above-on-august-10-2026")
+        # fecha 16:00 ET = 20:00 UTC (EDT), calendário ET (não rolling)
+        self.assertEqual(
+            study._close_utc("spy_above", "2026-08-10"),
+            pd.Timestamp("2026-08-10T20:00:00Z"))
+        now = dt.datetime(2026, 8, 10, 17, 0, tzinfo=dt.timezone.utc)
+        self.assertEqual(market_date(m, now), dt.date(2026, 8, 10))
+
     def test_btc_updown_is_binary_daily_rolling_at_16_utc(self):
         from spy import market_date
         m = MERCADOS["btc_updown"]

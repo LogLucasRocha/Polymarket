@@ -60,17 +60,30 @@ def _merge_lines(dest: Path, incoming: list[str]) -> int:
     return added
 
 
-def heal() -> int:
+# Marcador de que o release foi CONFIRMADO nesta rodada (existe e foi lido, ou
+# ainda não existe). Só então é seguro sobrescrever o release com o buffer local
+# — senão o --clobber pode apagar dado que a cache resetada não tem. O passo de
+# publicação no main.yml só sobrescreve o release se este marcador existir.
+OK_MARKER = config.ROOT / ".heal_ok"
+
+
+def heal() -> bool:
+    """Restaura o buffer do release. Devolve True se é SEGURO republicar
+    (release lido com sucesso, ou ainda não existe); False se o release existe
+    mas não deu para confirmar — aí NÃO se deve sobrescrever (preserva o dado)."""
     headers = {"User-Agent": config.USER_AGENT,
                "Accept": "application/vnd.github+json"}
     try:
         release = requests.get(RELEASE_API, headers=headers, timeout=30)
+        if release.status_code == 404:
+            print("[heal] release ainda não publicado; nada a curar.")
+            return True                        # não há dado a preservar
         release.raise_for_status()
         asset = next((item for item in release.json().get("assets", [])
                       if item.get("name") == "ceifa-live.zip"), None)
         if not asset:
-            print("[heal] release ainda não publicado; nada a curar.")
-            return 0
+            print("[heal] release sem asset; nada a curar.")
+            return True
         blob = requests.get(asset["browser_download_url"], headers=headers,
                             timeout=60)
         blob.raise_for_status()
@@ -84,12 +97,15 @@ def heal() -> int:
                 lines = archive.read(name).decode("utf-8").splitlines()
                 total += _merge_lines(config.ROOT / name, lines)
         print(f"[heal] {total} linha(s) restaurada(s) do release para o buffer.")
-        return total
+        return True
     except (requests.RequestException, BadZipFile, OSError) as exc:  # noqa: BLE001
-        print(f"[heal] falha (segue sem curar): {exc}", file=sys.stderr)
-        return 0
+        # Release pode EXISTIR mas não deu para baixar → NÃO é seguro republicar.
+        print(f"[heal] falha ao confirmar o release: {exc}", file=sys.stderr)
+        return False
 
 
 if __name__ == "__main__":
-    heal()
+    OK_MARKER.unlink(missing_ok=True)
+    if heal():
+        OK_MARKER.write_text("ok", encoding="utf-8")
     sys.exit(0)

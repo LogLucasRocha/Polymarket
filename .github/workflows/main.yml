@@ -43,6 +43,7 @@ jobs:
             data_spy
             data_bitcoin
             data_btc_updown
+            data_spy_above
           key: tmax-data-${{ github.run_id }}
           restore-keys: |
             tmax-data-
@@ -116,7 +117,7 @@ jobs:
 
           roots = (Path("data/capture/buffer"), Path("data_low"),
                    Path("data_spy"), Path("data_bitcoin"),
-                   Path("data_btc_updown"))
+                   Path("data_btc_updown"), Path("data_spy_above"))
           with ZipFile("ceifa-live.zip", "w", ZIP_DEFLATED) as archive:
               for root in roots:
                   if not root.exists():
@@ -129,7 +130,15 @@ jobs:
               --title "Ceifa — snapshot intradiário" \
               --notes "Arquivo automático usado pelo botão Atualizar do monitor."
           fi
-          gh release upload ceifa-live ceifa-live.zip --clobber
+          # SÓ sobrescreve o release se o heal confirmou o dado (.heal_ok). Se o
+          # heal falhou (release inacessível) e a cache resetou, o buffer local
+          # está incompleto — o --clobber apagaria o release. Sem confirmação,
+          # pula e preserva o dado até uma rodada que confirme.
+          if [ -f .heal_ok ]; then
+            gh release upload ceifa-live ceifa-live.zip --clobber
+          else
+            echo "[publicar] heal não confirmou o release — NÃO sobrescrevendo (preserva o dado)."
+          fi
 
       # Arquivo de dados ao vivo: o send_telegram acumula num buffer no cache
       # (data/capture) e, quando o dia UTC fecha, consolida em dados/*.parquet.
@@ -148,6 +157,7 @@ jobs:
           [ -d dados_spy ] && git add dados_spy || true
           [ -d dados_bitcoin ] && git add dados_bitcoin || true
           [ -d dados_btc_updown ] && git add dados_btc_updown || true
+          [ -d dados_spy_above ] && git add dados_spy_above || true
           if git diff --cached --quiet; then
             echo "sem dados novos para commitar"; exit 0
           fi

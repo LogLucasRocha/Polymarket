@@ -43,6 +43,10 @@ MERCADOS: dict[str, Mercado] = {
     "btc_updown": Mercado("btc_updown", "Bitcoin Up or Down",
                           "bitcoin-up-or-down-on", close_hour=16, tz="UTC",
                           rolling=True, kind="binary"),
+    # SPY multi-strike ("fecha acima de X?"), resolve no fechamento do pregão
+    # (16:00 ET) como o SPY Up or Down — não rolling, calendário ET.
+    "spy_above": Mercado("spy_above", "SPY Closes Above", "spy-closes-above-on",
+                         kind="strikes"),
 }
 
 # Faixa de compra (>95¢ e <99,8¢) e cadência — iguais para todos os mercados.
