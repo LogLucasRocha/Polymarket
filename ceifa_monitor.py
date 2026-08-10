@@ -924,15 +924,19 @@ def market_page(market: str) -> None:
         dia = prices["dia"].iloc[0]
         st.subheader(f"Preços do dia {dia}")
         figp = go.Figure()
+        # Um mercado recém-adicionado pode ter só o primeiro snapshot. Plotly
+        # não desenha uma linha com um único ponto, então mostra o marcador até
+        # a série ganhar o segundo registro; depois mantém a curva limpa.
+        price_mode = "lines+markers" if len(prices) == 1 else "lines"
         figp.add_hrect(y0=0.95, y1=0.998, fillcolor=GREEN, opacity=0.12,
                        line_width=0, annotation_text="faixa de compra",
                        annotation_position="top left")
         figp.add_trace(go.Scatter(
             x=prices["ts"], y=prices["preco_up"], name=lado_a,
-            mode="lines", line=dict(color=BLUE, width=2)))
+            mode=price_mode, line=dict(color=BLUE, width=2)))
         figp.add_trace(go.Scatter(
             x=prices["ts"], y=prices["preco_down"], name=lado_b,
-            mode="lines", line=dict(color=AMBER, width=2)))
+            mode=price_mode, line=dict(color=AMBER, width=2)))
         figp.update_layout(
             height=280, margin=dict(l=15, r=15, t=10, b=10),
             yaxis_title="Preço", xaxis_title=None, yaxis_range=[-0.02, 1.02],
