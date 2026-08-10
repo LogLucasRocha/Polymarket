@@ -387,7 +387,7 @@ def hourly_chart(stats: dict) -> go.Figure:
     total = piv.sum(axis=1)
     mean = float(total.mean())
     hours = [f"{hour:02d}h" for hour in piv.index]
-    cores = {"Máxima": AMBER, "Mínima": BLUE, "Outra": GREEN}
+    cores = {"Máxima": RED, "Mínima": BLUE, "Outra": GREEN}
     fig = go.Figure()
     for cat in ("Máxima", "Mínima", "Outra"):
         if cat not in piv.columns:
@@ -1062,8 +1062,10 @@ def main() -> None:
             # Só a visão consolidada faz sentido (máximas + mínimas numa banca).
             choice = "📊 Ativas consolidadas"
             pick_col.markdown(
-                "<div style='padding-top:.35rem'><b>📊 Estratégias ativas "
-                "consolidadas</b></div>", unsafe_allow_html=True)
+                "<div style='display:flex;align-items:center;min-height:2.6rem;"
+                "padding-bottom:.15rem;font-weight:600;font-size:1.02rem'>"
+                "📊 Estratégias ativas consolidadas</div>",
+                unsafe_allow_html=True)
         else:
             choice = pick_col.radio(
                 "Hipótese em teste",
