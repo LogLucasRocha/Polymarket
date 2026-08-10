@@ -278,3 +278,30 @@ class StrikesTests(unittest.TestCase):
         # o dia 10, ainda aberto (relógio < seu fechamento), não pontua
         row10 = daily[daily["dia"] == pd.Timestamp("2026-08-10")].iloc[0]
         self.assertFalse(bool(row10["resolvido"]))
+
+
+class ArchiveByCloseTests(unittest.TestCase):
+    def test_closed_day_archived_open_day_stays_in_buffer(self):
+        import tempfile
+        from pathlib import Path
+        from tmax import config as cfg
+        btc = MERCADOS["bitcoin"]                 # rolling, fecha 16:00 UTC
+        recs = [
+            {"ts_utc": "2020-01-01T10:00:00+00:00", "dia": "2020-01-01",
+             "faixa": "—", "preco_up": 0.97, "preco_down": 0.03},   # fechado
+            {"ts_utc": "2099-01-01T10:00:00+00:00", "dia": "2099-01-01",
+             "faixa": "—", "preco_up": 0.97, "preco_down": 0.03},   # aberto
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with mock.patch.object(cfg, "ROOT", root):
+                capture.salvar(btc, recs)
+                arch = root / "dados_bitcoin" / "mercado" / "2020-01-01.parquet"
+                self.assertTrue(arch.exists())        # fechado → permanente já
+                self.assertFalse(
+                    (root / "dados_bitcoin" / "mercado"
+                     / "2099-01-01.parquet").exists())
+                buf = (root / "data_bitcoin" / "mercado.jsonl").read_text(
+                    encoding="utf-8")
+                self.assertIn("2099-01-01", buf)      # aberto fica no buffer
+                self.assertNotIn("2020-01-01", buf)   # fechado saiu do buffer

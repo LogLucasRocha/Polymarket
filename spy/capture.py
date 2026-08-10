@@ -35,7 +35,7 @@ import requests
 from tmax import config
 from tmax import polymarket as pm
 
-from . import MERCADOS, Mercado, market_date
+from . import MERCADOS, Mercado, close_utc, market_date
 
 
 def market_slug(prefix: str, d: dt.date) -> str:
@@ -179,7 +179,7 @@ def salvar(mercado: Mercado, recs: list[dict]) -> None:
                 handle.write(json.dumps(record, default=str) + "\n")
     if not buf.exists():
         return
-    hoje = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
+    now = dt.datetime.now(dt.timezone.utc)
     with buf.open(encoding="utf-8") as handle:
         linhas = [json.loads(line) for line in handle if line.strip()]
     if not linhas:
@@ -187,19 +187,30 @@ def salvar(mercado: Mercado, recs: list[dict]) -> None:
     df = pd.DataFrame(linhas)
     if "faixa" not in df:
         df["faixa"] = "—"
-    df["utc"] = df["ts_utc"].str[:10]
+
+    # Arquiva por DIA DE MERCADO assim que o mercado dele FECHOU (não na meia-
+    # noite UTC). Um mercado rolling (Bitcoin) tem o dia cruzando a meia-noite
+    # UTC; arquivar só na virada UTC deixava a metade perto do fechamento até
+    # ~16h parada no buffer efêmero — e um reset da cache do Actions perdia
+    # exatamente H-1…H-12. Fechou, vai pro permanente na próxima rodada.
+    def _closed(dia_str: str) -> bool:
+        try:
+            d = dt.date.fromisoformat(str(dia_str))
+        except ValueError:
+            return False
+        return now >= close_utc(mercado, d)
+
+    df["_closed"] = df["dia"].map(_closed)
     (arch_dir / "mercado").mkdir(parents=True, exist_ok=True)
-    for utc, group in df.groupby("utc"):
-        if utc >= hoje:
-            continue                        # dia UTC corrente fica no buffer
-        fp = arch_dir / "mercado" / f"{utc}.parquet"
-        group = group.drop(columns=["utc"])
+    for dia, group in df[df["_closed"]].groupby("dia"):
+        fp = arch_dir / "mercado" / f"{dia}.parquet"
+        group = group.drop(columns=["_closed"])
         if fp.exists():
             group = pd.concat([pd.read_parquet(fp), group], ignore_index=True)
         group = group.drop_duplicates(["ts_utc", "dia", "faixa"])
         group.to_parquet(fp, index=False)
-        print(f"arquivado {mercado.key}/mercado/{utc}: {len(group)} linhas")
-    resto = df[df["utc"] >= hoje].drop(columns=["utc"])
+        print(f"arquivado {mercado.key}/mercado/{dia}: {len(group)} linhas")
+    resto = df[~df["_closed"]].drop(columns=["_closed"])
     with open(buf, "w", encoding="utf-8") as handle:
         for _, record in resto.iterrows():
             handle.write(json.dumps(record.to_dict(), default=str) + "\n")
