@@ -66,7 +66,9 @@ def _load_market(market: str = "spy") -> pd.DataFrame:
     if "faixa" not in df:
         df["faixa"] = "—"                  # binário antigo (SPY) sem strikes
     df["faixa"] = df["faixa"].fillna("—")
-    df["ts"] = pd.to_datetime(df["ts_utc"], utc=True)
+    # ISO8601 com precisão variável: o ao vivo tem microssegundos, o
+    # reconstruído (backfill) não. format="ISO8601" aceita os dois.
+    df["ts"] = pd.to_datetime(df["ts_utc"], utc=True, format="ISO8601")
     df = df.drop_duplicates(["ts_utc", "dia", "faixa"]).sort_values("ts")
     return df
 
