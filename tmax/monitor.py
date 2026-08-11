@@ -5,8 +5,10 @@ import datetime as dt
 import gzip
 import io
 import json
+import re
 import shutil
 import subprocess
+from bisect import bisect_right
 from collections import defaultdict
 from pathlib import Path
 from pathlib import PurePosixPath
@@ -400,6 +402,113 @@ def single_band_scenario(maximum: dict, minimum: dict) -> dict:
             scenario[key] = source.get(key, 0)
         scenarios.append(scenario)
     return combine_active_strategies(*scenarios)
+
+
+_OPEN_TAIL_MARKERS = (
+    "or lower", "or below", "or less", "ou menos", "ou abaixo",
+    "or higher", "or above", "or more", "ou mais", "ou acima",
+)
+
+
+def is_proximity_comparison_risk(icao: str, faixa, observed_extreme,
+                                 extreme: str) -> bool:
+    """Regra experimental simétrica, usada somente na tabela comparativa.
+
+    Para máximas, veta o NÃO exato na temperatura observada ou no próximo
+    grau acima. Para mínimas, espelha o critério: temperatura observada ou o
+    próximo grau abaixo. O passo é um grau na unidade do contrato (1 °C ou
+    1 °F). Caudas abertas não entram nesse cenário.
+    """
+    if observed_extreme is None or pd.isna(observed_extreme):
+        return False
+    label = str(faixa or "").lower()
+    if any(marker in label for marker in _OPEN_TAIL_MARKERS):
+        return False
+    values = re.findall(r"(?<![\d.,])-?\d+(?:[.,]\d+)?", label)
+    if len(values) != 1:
+        return False
+    target = ceifa.target_temperature_c(icao, faixa)
+    if target is None:
+        return False
+    observed = float(observed_extreme)
+    step_c = 5.0 / 9.0 if ceifa._station_unit(icao) == "F" else 1.0
+    if extreme == "maximum":
+        return observed <= target <= observed + step_c + 1e-9
+    if extreme == "minimum":
+        return observed - step_c - 1e-9 <= target <= observed
+    raise ValueError(f"Extremo inválido: {extreme}")
+
+
+def _forecast_extreme_lookup(archive: Path, field: str) -> dict:
+    forecast = ceifa._load("previsao", archive)
+    lookup = {}
+    if forecast.empty or field not in forecast:
+        return lookup
+    for key, group in forecast.groupby(["icao", "dia"]):
+        ordered = group.sort_values("ts")
+        lookup[key] = (
+            [timestamp.value for timestamp in ordered["ts"]],
+            ordered[field].tolist(),
+        )
+    return lookup
+
+
+def _observed_extreme_at_entry(signal: dict, lookup: dict,
+                               extreme: str) -> float | None:
+    item = lookup.get((signal["icao"], signal["day"]))
+    if item is not None:
+        timestamps, values = item
+        index = bisect_right(timestamps, pd.Timestamp(signal["ts"]).value) - 1
+        if index >= 0:
+            value = values[index]
+            if value is not None and not pd.isna(value):
+                return float(value)
+
+    timestamp = pd.Timestamp(signal["ts"])
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.tz_localize("UTC")
+    cutoff = timestamp.tz_convert(ceifa._tz(signal["icao"])).to_pydatetime()
+    observed = [
+        value for when, value in ceifa._archived_observations(
+            signal["icao"], str(signal["day"]))
+        if when <= cutoff
+    ]
+    if not observed:
+        return None
+    return max(observed) if extreme == "maximum" else min(observed)
+
+
+def proximity_scenario(maximum: dict, minimum: dict) -> dict:
+    """Aplica a proximidade apenas sobre sinais que a regra ativa aceitou."""
+    scenarios = []
+    blocked_total = 0
+    for source, archive, field, extreme in (
+            (maximum, MAXIMUM_ARCHIVE, "obs_max", "maximum"),
+            (minimum, MINIMUM_ARCHIVE, "obs_min", "minimum")):
+        lookup = _forecast_extreme_lookup(archive, field)
+        kept = []
+        blocked = 0
+        for signal in source.get("signals", []):
+            observed = _observed_extreme_at_entry(signal, lookup, extreme)
+            if is_proximity_comparison_risk(
+                    signal["icao"], signal["faixa"], observed, extreme):
+                blocked += 1
+            else:
+                kept.append(signal)
+        scenario = ceifa._stats_relative_available_stake(
+            kept, days=source.get("days", 0),
+            stake_frac=config.CEIFA_STAKE_FRAC)
+        scenario.update({
+            "repeat_minutes": source.get("repeat_minutes"),
+            "archive_kind": source.get("archive_kind"),
+            "side": "NAO",
+            "n_filtrado_proximidade": blocked,
+        })
+        scenarios.append(scenario)
+        blocked_total += blocked
+    combined = combine_active_strategies(*scenarios)
+    combined["n_filtrado_proximidade"] = blocked_total
+    return combined
 
 
 def slice_strategy(stats: dict, lookback_days: int | None) -> dict:

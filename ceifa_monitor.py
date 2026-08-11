@@ -393,7 +393,8 @@ def hourly_chart(stats: dict) -> go.Figure:
 
 def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
              consolidated: bool = False,
-             experimental_stats: dict | None = None) -> None:
+             experimental_stats: dict | None = None,
+             proximity_stats: dict | None = None) -> None:
     risk = monitor.risk_metrics(stats)
     unique_n, unique_losses = monitor.unique_contracts(stats)
     errors = stats.get("n", 0) - stats.get("wins", 0)
@@ -409,11 +410,13 @@ def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
     c4.metric("Erros", str(errors), f"em {unique_n} contratos")
     c5.metric("Drawdown máximo", f"{stats.get('real_dd', 0):.2%}")
 
-    if experimental_stats is not None:
+    if experimental_stats is not None and proximity_stats is not None:
         comparison = []
         for label, result in (("Regra ativa", stats),
                               ("Faixa única (experimental)",
-                               experimental_stats)):
+                               experimental_stats),
+                              ("Proximidade (experimental)",
+                               proximity_stats)):
             total = result.get("n", 0)
             wins = result.get("wins", 0)
             comparison.append({
@@ -424,12 +427,14 @@ def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
                 "Assertividade": f"{result.get('hit', 0):.2%}",
                 "Retorno": pct(result.get("real_mult", 1) - 1, 2),
             })
-        st.subheader("Regra ativa versus faixa única")
+        st.subheader("Regra ativa versus cenários experimentais")
         st.dataframe(pd.DataFrame(comparison), hide_index=True,
                      width="stretch")
         st.caption(
-            "Faixa única é somente um cenário de backtest. Ela não altera "
-            "os alertas, as stakes nem os indicadores da estratégia ativa.")
+            "Faixa única e proximidade são somente cenários de backtest. "
+            "Nenhum deles altera os alertas, as stakes ou os indicadores da "
+            "estratégia ativa. Proximidade usa um grau na unidade do contrato, "
+            "acima da máxima ou abaixo da mínima já observada.")
 
     left, right = st.columns([1.65, 1])
     with left:
@@ -1145,6 +1150,7 @@ def main() -> None:
         "indicadores calculados exclusivamente a partir dos nossos snapshots.")
 
     experimental_stats = None
+    proximity_stats = None
     if consolidated:
         maximum_stats = load_strategy("maximum", "NÃO")
         minimum_stats = load_strategy("minimum", "NÃO")
@@ -1154,6 +1160,10 @@ def main() -> None:
             maximum_stats, minimum_stats)
         experimental_stats = monitor.slice_strategy(
             experimental_full, lookback)
+        proximity_full = monitor.proximity_scenario(
+            maximum_stats, minimum_stats)
+        proximity_stats = monitor.slice_strategy(
+            proximity_full, lookback)
     else:
         full_stats = load_strategy(kind, side)
     stats = monitor.slice_strategy(full_stats, lookback)
@@ -1163,7 +1173,7 @@ def main() -> None:
         ["▦ Visão geral", "◎ Erros", "⌁ Cidades e filtros"])
     with tab_overview:
         overview(stats, full_stats, minimum, side, consolidated,
-                 experimental_stats)
+                 experimental_stats, proximity_stats)
     with tab_errors:
         errors_page(stats)
     with tab_cities:
