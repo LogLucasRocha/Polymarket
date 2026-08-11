@@ -130,14 +130,35 @@ def _attach_asks(entries: list[dict], timeout: int = 30) -> None:
             entry[side]["ask_size"] = size
 
 
+def _candidate_market_dates(mercado: Mercado, now: dt.datetime) -> list[dt.date]:
+    """Datas a consultar; mercados de bolsa avançam até o próximo pregão.
+
+    O primeiro item respeita a virada das 16:00 ET. Os seguintes cobrem
+    feriados, quando não existe evento para a data calculada.
+    """
+    first = market_date(mercado, now)
+    if not mercado.weekdays_only:
+        return [first]
+    candidates = [first]
+    candidate = first
+    while len(candidates) < 6:
+        candidate += dt.timedelta(days=1)
+        if candidate.weekday() < 5:
+            candidates.append(candidate)
+    return candidates
+
+
 def coletar(mercado: Mercado) -> list[dict]:
     now = dt.datetime.now(dt.timezone.utc)
-    d0 = market_date(mercado, now)
-    slug = market_slug(mercado.slug_prefix, d0)
     try:
-        entries = fetch_market(slug, mercado.kind)
+        entries = None
+        for d0 in _candidate_market_dates(mercado, now):
+            slug = market_slug(mercado.slug_prefix, d0)
+            entries = fetch_market(slug, mercado.kind)
+            if entries:
+                break
         if not entries:
-            print(f"sem mercado {mercado.key} hoje ({slug})")
+            print(f"sem próximo mercado {mercado.key} (até {slug})")
             return []
         _attach_asks(entries)
     except Exception as exc:  # noqa: BLE001 — captura é acessória
