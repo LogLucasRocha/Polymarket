@@ -34,6 +34,17 @@ class DashboardHourlyTest(unittest.TestCase):
                          {"Máxima", "Mínima"})
         self.assertEqual(chart.layout.barmode, "stack")
 
+    def test_mean_daily_return_averages_resolved_days_with_entries(self):
+        stats = {"per_day": [
+            {"day": "2026-08-08", "ret": 0.01},
+            {"day": "2026-08-09", "ret": -0.004},
+            {"day": "2026-08-10", "ret": 0.006},
+        ]}
+        self.assertAlmostEqual(dashboard.mean_daily_return(stats), 0.004)
+
+    def test_mean_daily_return_is_empty_without_days(self):
+        self.assertIsNone(dashboard.mean_daily_return({"per_day": []}))
+
 
 if __name__ == "__main__":
     unittest.main()

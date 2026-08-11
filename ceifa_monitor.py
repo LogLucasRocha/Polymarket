@@ -141,6 +141,13 @@ def pct(value: float | None, digits: int = 1) -> str:
     return "—" if value is None else f"{value * 100:+.{digits}f}%"
 
 
+def mean_daily_return(stats: dict) -> float | None:
+    """Média aritmética do retorno nos dias com parcelas da variante."""
+    returns = [day.get("ret") for day in stats.get("per_day", [])
+               if day.get("ret") is not None]
+    return sum(returns) / len(returns) if returns else None
+
+
 def num_or_dash(value, suffix: str = "", digits: int = 1) -> str:
     """Formata um número; devolve '—' quando o valor é nulo/NaN.
 
@@ -998,6 +1005,7 @@ def market_page(market: str) -> None:
             "Acerto": f"{stats.get('hit', 0):.2%}",
             "Erros": stats.get("n", 0) - stats.get("wins", 0),
             "Rendimento": pct(stats.get("real_mult", 1) - 1, 2),
+            "Média diária": pct(mean_daily_return(stats), 2),
             "Pior dia": pct(worst, 2),
             "CVaR 1%": pct(cvar, 2),
             "Drawdown": f"{stats.get('real_dd', 0):.2%}",
@@ -1005,10 +1013,12 @@ def market_page(market: str) -> None:
         })
     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
     st.caption(
-        f"{resolvidos} dia(s) resolvido(s). **Pior dia** = o retorno do dia mais "
-        "negativo; **CVaR 1%** = média dos 1% piores dias (com histórico curto "
-        "equivale ao pior dia). H-n = só as parcelas nas últimas n horas antes "
-        f"do fechamento ({fechamento}); 'Sem janela' entra o dia todo. "
+        f"{resolvidos} dia(s) resolvido(s). **Média diária** = média aritmética "
+        "dos retornos dos dias com parcelas naquela janela; **Pior dia** = o "
+        "retorno do dia mais negativo; **CVaR 1%** = média dos 1% piores dias "
+        "(com histórico curto equivale ao pior dia). H-n = só as parcelas nas "
+        f"últimas n horas antes do fechamento ({fechamento}); 'Sem janela' "
+        "entra o dia todo. "
         f"{lado_a}/{lado_b} = parcelas em cada lado.")
 
     base = variants[0][1]
