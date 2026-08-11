@@ -6,10 +6,21 @@ from unittest.mock import patch
 import matplotlib.pyplot as plt
 
 import send_telegram
-from tmax import notify
+from tmax import config, notify
 
 
 class TemperatureDisplayTests(unittest.TestCase):
+    def test_live_alert_uses_shenzhen_resolution_proximity_guard(self):
+        ctx = {
+            "station": config.STATIONS["ZGSZ"],
+            "obs_max_today": 34.0,
+        }
+
+        self.assertTrue(send_telegram._resolution_proximity_blocked(
+            ctx, "35°C"))
+        self.assertFalse(send_telegram._resolution_proximity_blocked(
+            ctx, "36°C"))
+
     def test_converts_celsius_to_fahrenheit_for_display(self):
         self.assertEqual(notify.temperature_for_unit(0.0, "F"), 32.0)
         self.assertEqual(notify.temperature_for_unit(25.0, "F"), 77.0)
