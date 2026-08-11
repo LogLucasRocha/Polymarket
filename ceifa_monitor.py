@@ -889,8 +889,25 @@ def market_page(market: str) -> None:
 
     # Preços do dia com a faixa marcada (mercados binários, tipo SPY).
     if not prices.empty:
-        dia = prices["dia"].iloc[0]
-        st.subheader(f"Preços do dia {dia}")
+        days = spy_study.price_days(market)
+        day_key = f"market_price_day_{market}"
+        if st.session_state.get(day_key) not in days:
+            st.session_state[day_key] = days[-1]
+        day_index = days.index(st.session_state[day_key])
+        previous_col, title_col, next_col = st.columns([1, 8, 1])
+        if previous_col.button(
+                "◀", key=f"price_previous_{market}",
+                disabled=day_index == 0, help="Ver dia anterior"):
+            st.session_state[day_key] = days[day_index - 1]
+            st.rerun()
+        dia = st.session_state[day_key]
+        title_col.subheader(f"Preços do dia {dia}")
+        if next_col.button(
+                "▶", key=f"price_next_{market}",
+                disabled=day_index == len(days) - 1, help="Ver próximo dia"):
+            st.session_state[day_key] = days[day_index + 1]
+            st.rerun()
+        prices = spy_study.prices_for_day(market, dia)
         figp = go.Figure()
         # Um único snapshot precisa de marcador porque ainda não forma linha.
         # A partir do segundo, mantém a curva limpa como a do Bitcoin; o

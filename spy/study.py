@@ -183,18 +183,37 @@ def latest_day(market: str = "spy") -> str | None:
     return str(df["dia"].max())
 
 
-def latest_prices(market: str = "spy") -> pd.DataFrame:
-    """Série de preços do dia mais recente (só para mercados binários)."""
+def price_days(market: str = "spy") -> list[str]:
+    """Dias com trajetória de preços disponível, em ordem cronológica."""
     if _mercado(market).kind != "binary":
-        return pd.DataFrame(columns=["ts", "preco_up", "preco_down", "dia"])
+        return []
     df = _load_market(market)
     if df.empty:
-        return pd.DataFrame(columns=["ts", "preco_up", "preco_down", "dia"])
-    day = df["dia"].max()
-    group = df[df["dia"] == day].sort_values("ts")
+        return []
+    return sorted(df["dia"].dropna().astype(str).unique().tolist())
+
+
+def prices_for_day(market: str = "spy", day: str | None = None) -> pd.DataFrame:
+    """Série de preços de um dia; sem data explícita, usa o mais recente."""
+    columns = ["ts", "preco_up", "preco_down", "dia"]
+    if _mercado(market).kind != "binary":
+        return pd.DataFrame(columns=columns)
+    df = _load_market(market)
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+    available = sorted(df["dia"].dropna().astype(str).unique().tolist())
+    selected = day or available[-1]
+    if selected not in available:
+        return pd.DataFrame(columns=columns)
+    group = df[df["dia"].astype(str) == selected].sort_values("ts")
     out = group[["ts", "preco_up", "preco_down"]].copy()
-    out["dia"] = str(day)
+    out["dia"] = selected
     return out
+
+
+def latest_prices(market: str = "spy") -> pd.DataFrame:
+    """Compat.: série de preços do dia mais recente."""
+    return prices_for_day(market)
 
 
 def latest_strikes(market: str = "spy") -> pd.DataFrame:

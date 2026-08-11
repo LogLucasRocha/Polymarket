@@ -236,6 +236,23 @@ class SpyStudyTests(unittest.TestCase):
                          {"ts", "preco_up", "preco_down", "dia"})
         self.assertEqual(prices["dia"].iloc[0], "2026-08-07")
 
+    def test_price_days_and_prices_for_previous_day(self):
+        older = _day_series({}, last_up=0.999, dia="2026-08-06")
+        latest = _day_series({}, last_up=0.60, dia="2026-08-07")
+        frame = pd.concat([latest, older], ignore_index=True)
+        with mock.patch.object(study, "_load_market", return_value=frame):
+            self.assertEqual(study.price_days(),
+                             ["2026-08-06", "2026-08-07"])
+            prices = study.prices_for_day(day="2026-08-06")
+        self.assertEqual(len(prices), 49)
+        self.assertEqual(prices["dia"].unique().tolist(), ["2026-08-06"])
+
+    def test_prices_for_unknown_day_is_empty(self):
+        frame = _day_series({}, last_up=0.999)
+        with mock.patch.object(study, "_load_market", return_value=frame):
+            prices = study.prices_for_day(day="2026-08-05")
+        self.assertTrue(prices.empty)
+
     def test_resolved_day_without_band_entry_has_zero_parcelas(self):
         # Mercado já resolvido (Up=1.0 o tempo todo): fora da faixa → 0 parcelas.
         rows = []
