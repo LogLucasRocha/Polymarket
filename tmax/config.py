@@ -11,7 +11,13 @@ REPORTS_DIR = ROOT / "reports"
 
 @dataclass(frozen=True)
 class Station:
-    """Aeroporto cujo METAR é a verdade terrestre do mercado de temperatura."""
+    """Local usado para prever e observar o mercado de temperatura.
+
+    ``icao`` continua sendo a identidade usada no slug do Polymarket. Alguns
+    links do Wunderground, porém, entregam observações de outra estação física;
+    nesses casos os campos ``wu_*`` registram a fonte que realmente liquida o
+    contrato e ``lat``/``lon`` apontam para essa fonte.
+    """
 
     icao: str
     city: str      # nome curto usado em títulos e abas
@@ -21,6 +27,10 @@ class Station:
     lon: float
     timezone: str
     unit: str = "C"   # unidade em que o mercado da cidade resolve (C ou F)
+    wu_history_url: str | None = None
+    wu_location_id: str | None = None
+    wu_observation_id: str | None = None
+    resolution_proximity_gap_c: float | None = None
 
     @property
     def tz(self) -> ZoneInfo:
@@ -35,11 +45,12 @@ class Station:
         return DATA_DIR / f"bias_cache_{self.icao}.json"
 
 
-# A estação de cada cidade vem da DESCRIÇÃO oficial do mercado no Polymarket
-# (todas citam o ICAO na URL de resolução — Wunderground ou NOAA timeseries).
-# check_resolution_sources() no backtest confere periodicamente se o ICAO
-# ainda aparece na descrição. Hong Kong ficou de fora de propósito: resolve
-# pelo Observatório de HK, que não é estação METAR.
+# A fonte de cada cidade parte da descrição oficial do mercado no Polymarket.
+# Quando a página apontada entrega outra estação física, prevalece a série que
+# realmente aparece na tabela de resolução. check_resolution_sources() confere
+# os links; o coletor WU também valida o identificador interno da observação.
+# Hong Kong ficou de fora de propósito: resolve diretamente pelo Observatório
+# de HK, não por uma estação METAR.
 STATIONS = {
     "SBGR": Station("SBGR", "Guarulhos", "São Paulo/Guarulhos Intl",
                     "🇧🇷", -23.4356, -46.4731, "America/Sao_Paulo"),
@@ -96,8 +107,17 @@ STATIONS = {
                     "🇹🇼", 25.0694, 121.5519, "Asia/Taipei"),
     "ZGGG": Station("ZGGG", "Guangzhou", "Baiyun Intl",
                     "🇨🇳", 23.3924, 113.2988, "Asia/Shanghai"),
-    "ZGSZ": Station("ZGSZ", "Shenzhen", "Bao'an Intl",
-                    "🇨🇳", 22.6393, 113.8108, "Asia/Shanghai"),
+    # Embora a URL do mercado termine em ZGSZ, a tabela que o Wunderground
+    # efetivamente serve vem de Lau Fau Shan (45035), em Hong Kong. Usamos a
+    # localização e a observação que liquidam o contrato, não o METAR do
+    # aeroporto de Bao'an.
+    "ZGSZ": Station(
+        "ZGSZ", "Shenzhen", "Lau Fau Shan (fonte do mercado)",
+        "🇨🇳", 22.4688889, 113.9836111, "Asia/Shanghai",
+        wu_history_url=(
+            "https://www.wunderground.com/history/daily/cn/shenzhen/ZGSZ"),
+        wu_location_id="ZGSZ:9:CN", wu_observation_id="45035",
+        resolution_proximity_gap_c=1.0),
     "ZUUU": Station("ZUUU", "Chengdu", "Shuangliu Intl",
                     "🇨🇳", 30.5785, 103.9471, "Asia/Shanghai"),
     "FACT": Station("FACT", "Cidade do Cabo", "Cape Town Intl",

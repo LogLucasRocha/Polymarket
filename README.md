@@ -86,8 +86,11 @@ puxa o histórico consolidado e o snapshot intradiário mais recentes.
 
 ## O que o pipeline faz
 
-1. **METAR/SPECI em tempo real** (aviationweather.gov) — a "verdade terrestre"
-   que resolve a aposta. A máxima já observada no dia vira piso da distribuição.
+1. **Observação da fonte de resolução em tempo real** — normalmente o
+   METAR/SPECI do aviationweather.gov. Shenzhen é a exceção conhecida: a URL
+   ZGSZ do Wunderground é alimentada por Lau Fau Shan (45035), e por isso o
+   monitor usa diretamente essa série. A máxima já observada vira piso da
+   distribuição.
 2. **TAF** — extrai o grupo TX (máxima prevista pelo meteorologista da estação)
    e mostra como referência independente.
 3. **Multi-modelo determinístico** (Open-Meteo): ECMWF IFS, GFS, ICON, GEM e
@@ -96,8 +99,9 @@ puxa o histórico consolidado e o snapshot intradiário mais recentes.
    horária completa.
 5. **Correção de viés ("MOS caseiro")**: compara as máximas previstas nos
    últimos 60 dias (API de histórico de previsões do Open-Meteo) com as máximas
-   observadas nos METARs (arquivo da Iowa State) e aprende o erro sistemático
-   de cada modelo no ponto da estação. Recalculado 1x/dia (cache em
+   observadas na mesma fonte que resolve cada mercado (Iowa State para METAR;
+   Wunderground/Lau Fau Shan para Shenzhen) e aprende o erro sistemático de
+   cada modelo no ponto da estação. Recalculado 1x/dia (cache em
    `data/bias_cache_<ICAO>.json`).
 6. **Nowcast intradiário**: mede o desvio entre o observado nas últimas horas e
    o ensemble corrigido, e desloca as horas restantes de hoje por uma fração

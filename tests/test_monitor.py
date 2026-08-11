@@ -357,6 +357,7 @@ class MonitorTest(unittest.TestCase):
             "n_filtrado_nowcast": 7,
             "n_filtrado_plateau": 2,
             "n_filtrado_ensemble_band": 3,
+            "n_filtrado_resolution_proximity": 6,
             "n_filtrado_taf": 5,
         }
 
@@ -364,13 +365,15 @@ class MonitorTest(unittest.TestCase):
 
         self.assertEqual(frame["Filtro"].tolist(), [
             "Livro largo (Sim caro)",
+            "Faixa colada à máxima oficial",
             "Ensemble largo", "Desvio/nowcast quente",
             "Platô observado", "Faixa dentro de P10–P90",
             "Cauda superior perto do teto",
             "TAF convectivo", "Cauda inferior perto do piso",
         ])
         self.assertEqual(
-            frame["Entradas bloqueadas"].tolist(), [4, 11, 7, 2, 3, 0, 5, 0])
+            frame["Entradas bloqueadas"].tolist(),
+            [4, 6, 11, 7, 2, 3, 0, 5, 0])
         plateau = frame[frame["Filtro"] == "Platô observado"].iloc[0]
         self.assertIn("Subconjunto", plateau["Observação"])
         taf = frame[frame["Filtro"] == "TAF convectivo"].iloc[0]

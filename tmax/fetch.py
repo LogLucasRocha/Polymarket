@@ -7,6 +7,7 @@ import datetime as dt
 import io
 import re
 import time
+from functools import lru_cache
 
 import requests
 
@@ -42,9 +43,85 @@ def _get(url: str, params: dict | None = None, timeout: int = 60):
 
 # ---------------------------------------------------------------- METAR / TAF
 
+_WU_API_KEY_RE = re.compile(r'"API_KEY":"([^"]+)"')
+
+
+@lru_cache(maxsize=8)
+def _wunderground_api_key(history_url: str) -> str:
+    """Lê a chave pública usada pela própria página histórica do WU."""
+    match = _WU_API_KEY_RE.search(_get(history_url).text)
+    if not match:
+        raise RuntimeError("Wunderground não expôs a chave da tabela histórica")
+    return match.group(1)
+
+
+def fetch_wunderground_observations(
+        station: Station, start: dt.date, end: dt.date) -> list[dict]:
+    """Observações que alimentam a tabela de resolução do Wunderground.
+
+    A resposta é validada pelo identificador físico da estação. Isso impede
+    que uma troca silenciosa de origem volte a contaminar previsão e backtest.
+    """
+    if not station.wu_history_url or not station.wu_location_id:
+        raise ValueError(f"{station.icao} não possui fonte Wunderground configurada")
+    key = _wunderground_api_key(station.wu_history_url)
+    raw = []
+    cursor = start
+    while cursor <= end:
+        # O endpoint rejeita janelas longas; 30 dias também cobre o histórico
+        # de viés de 60 dias sem depender de um limite não documentado.
+        chunk_end = min(cursor + dt.timedelta(days=29), end)
+        payload = _get(
+            f"https://api.weather.com/v1/location/"
+            f"{station.wu_location_id}/observations/historical.json",
+            params={
+                "apiKey": key,
+                "units": "m",
+                "startDate": cursor.strftime("%Y%m%d"),
+                "endDate": chunk_end.strftime("%Y%m%d"),
+            },
+            timeout=120,
+        ).json()
+        raw.extend(payload.get("observations") or [])
+        cursor = chunk_end + dt.timedelta(days=1)
+    expected = station.wu_observation_id
+    actual = {str(item.get("obs_id")) for item in raw if item.get("obs_id")}
+    if expected and actual and actual != {expected}:
+        raise RuntimeError(
+            f"Fonte Wunderground de {station.icao} mudou: "
+            f"esperado {expected}, recebido {sorted(actual)}")
+
+    out = []
+    for item in raw:
+        timestamp = item.get("valid_time_gmt")
+        temperature = item.get("temp")
+        if timestamp is None or temperature is None:
+            continue
+        when = dt.datetime.fromtimestamp(float(timestamp), tz=UTC)
+        out.append({
+            "time": when.astimezone(station.tz),
+            "temp": float(temperature),
+            "dewp": item.get("dewPt"),
+            "wdir": item.get("wdir"),
+            "wspd": item.get("wspd"),
+            "raw": (f"WU {item.get('obs_id', '')} "
+                    f"{item.get('obs_name', '')}").strip(),
+            "source_id": str(item.get("obs_id") or ""),
+            "source_name": item.get("obs_name"),
+        })
+    out.sort(key=lambda item: item["time"])
+    return out
+
 def fetch_metars(station: Station, hours: int = 48) -> list[dict]:
     """METARs/SPECIs recentes da estação, decodificados, ordenados do mais antigo
     ao mais recente. Cada item: {time (datetime local), temp, dewp, wdir, wspd, raw}."""
+    if station.wu_location_id:
+        now = dt.datetime.now(station.tz)
+        cutoff = now - dt.timedelta(hours=hours)
+        observations = fetch_wunderground_observations(
+            station, cutoff.date(), now.date())
+        return [item for item in observations if item["time"] >= cutoff]
+
     r = _get(
         "https://aviationweather.gov/api/data/metar",
         params={"ids": station.icao, "format": "json", "hours": hours},
@@ -179,6 +256,17 @@ def fetch_metar_history(station: Station, start: dt.date, end: dt.date) -> dict[
     """Máxima observada por dia local a partir do arquivo da Iowa State.
     Retorna {date: {'tmax': float, 'n_obs': int}} apenas para dias com
     cobertura suficiente de observações."""
+    if station.wu_location_id:
+        observations = fetch_wunderground_observations(station, start, end)
+        days: dict[dt.date, list[float]] = {}
+        for item in observations:
+            days.setdefault(item["time"].date(), []).append(item["temp"])
+        return {
+            day: {"tmax": max(temps), "n_obs": len(temps)}
+            for day, temps in days.items()
+            if len(temps) >= config.MIN_OBS_PER_DAY
+        }
+
     r = _get(
         "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py",
         params={

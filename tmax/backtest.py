@@ -12,7 +12,9 @@ Além disso, backtest_data/{ICAO}/bias_daily.json acumula, por dia, a máxima
 observada e as máximas previstas pelos determinísticos — o suficiente para
 recalcular o viés "como era" em qualquer data.
 
-A coleta é INCREMENTAL e append-only: dias já arquivados nunca são refeitos.
+A coleta é incremental. Evento, preços e ensemble permanecem append-only; a
+série observada pode ser migrada quando descobrimos que a fonte efetiva de
+resolução não corresponde ao identificador exibido na URL.
 Como o ensemble arquivado da Open-Meteo só alcança ~92 dias e o histórico do
 Polymarket não tem garantia de retenção, rodar a coleta periodicamente é o
 que estende o arquivo além dessas janelas.
@@ -37,7 +39,7 @@ from pathlib import Path
 
 import requests
 
-from . import calibration, config, distribution, polymarket
+from . import calibration, config, distribution, fetch, polymarket
 
 ARCHIVE = config.ROOT / "backtest_data"
 ENS_PAST_DAYS = 92        # alcance do arquivo de ensemble da Open-Meteo
@@ -106,7 +108,18 @@ def _load_bias_daily(icao: str) -> dict:
 # ---------------------------------------------------------------- coleta
 
 def _fetch_obs_range(station, start: dt.date, end: dt.date) -> dict:
-    """METARs horários da IEM agrupados por dia local: {date: [[iso, t]]}."""
+    """Observações da fonte de resolução por dia local: {date: [[iso, t]]}."""
+    if station.wu_location_id:
+        observations = fetch.fetch_wunderground_observations(
+            station, start, end)
+        out: dict[str, list] = defaultdict(list)
+        for item in observations:
+            when = item["time"]
+            out[when.date().isoformat()].append([
+                when.strftime("%Y-%m-%d %H:%M"), float(item["temp"]),
+            ])
+        return out
+
     r = _get("https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py", {
         "station": station.icao, "data": "tmpc",
         "year1": start.year, "month1": start.month, "day1": start.day,
@@ -212,13 +225,20 @@ def _fetch_prices(station, day: dt.date, event: dict) -> dict:
 
 
 def harvest(log=lambda m: None) -> int:
-    """Arquiva os dias que faltam (append-only). Retorna quantos dias novos."""
+    """Arquiva dias novos e migra observações com fonte de resolução antiga."""
     today = dt.date.today()
     added = 0
     for icao, station in config.STATIONS.items():
         wanted = [today - dt.timedelta(days=k)
                   for k in range(1, ENS_PAST_DAYS)]
         missing = [d for d in wanted if not day_file(icao, d).exists()]
+        source_refresh = []
+        if station.wu_observation_id:
+            for day in wanted:
+                rec = read_day(icao, day)
+                if (rec is not None and rec.get("obs_source_id")
+                        != station.wu_observation_id):
+                    source_refresh.append(day)
 
         # bias_daily: estende para trás o suficiente para o viés dos dias novos
         bias_daily = _load_bias_daily(icao)
@@ -228,11 +248,11 @@ def harvest(log=lambda m: None) -> int:
                         if (bias_start + dt.timedelta(days=i)).isoformat()
                         not in bias_daily]
 
-        if not missing and not bias_missing:
+        if not missing and not bias_missing and not source_refresh:
             log(f"[{icao}] arquivo em dia.")
             continue
 
-        fetch_start = min(missing + bias_missing)
+        fetch_start = min(missing + bias_missing + source_refresh)
         log(f"[{icao}] coletando {len(missing)} dia(s) de evento "
             f"(obs/det desde {fetch_start})...")
         obs_by_day = _fetch_obs_range(station, fetch_start, today)
@@ -250,6 +270,19 @@ def harvest(log=lambda m: None) -> int:
         _bias_daily_path(icao).parent.mkdir(parents=True, exist_ok=True)
         _bias_daily_path(icao).write_text(
             json.dumps(bias_daily, separators=(",", ":")), encoding="utf-8")
+
+        for day in sorted(source_refresh):
+            dstr = day.isoformat()
+            obs = obs_by_day.get(dstr, [])
+            rec = read_day(icao, day)
+            if not obs or rec is None:
+                continue
+            rec["obs"] = obs
+            rec["obs_source_id"] = station.wu_observation_id
+            rec["obs_source_name"] = station.airport
+            write_day(icao, day, rec)
+            log(f"[{icao}] {dstr} atualizado para a fonte de resolução "
+                f"{station.wu_observation_id}.")
 
         for day in sorted(missing):
             dstr = day.isoformat()
@@ -274,6 +307,9 @@ def harvest(log=lambda m: None) -> int:
                         "members": {k: [v[i] for i in idx]
                                     for k, v in ens_members.items()}},
             }
+            if station.wu_observation_id:
+                payload["obs_source_id"] = station.wu_observation_id
+                payload["obs_source_name"] = station.airport
             write_day(icao, day, payload)
             added += 1
             log(f"[{icao}] {dstr} arquivado "

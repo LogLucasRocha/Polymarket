@@ -122,6 +122,22 @@ class WarmTargetRiskTests(unittest.TestCase):
         self.assertFalse(ceifa.is_upper_tail_ceiling_risk(
             "ZUUU", "34°C", 34.0))
 
+    def test_shenzhen_blocks_exact_bucket_one_degree_above_official_max(self):
+        self.assertTrue(ceifa.is_resolution_proximity_risk(
+            "ZGSZ", "35°C", 34.0))
+        self.assertTrue(ceifa.is_resolution_proximity_risk(
+            "ZGSZ", "37°C", 36.0))
+
+    def test_resolution_proximity_is_opt_in_and_ignores_open_tail(self):
+        self.assertFalse(ceifa.is_resolution_proximity_risk(
+            "ZGGG", "35°C", 34.0))
+        self.assertFalse(ceifa.is_resolution_proximity_risk(
+            "ZGSZ", "35°C or higher", 34.0))
+
+    def test_resolution_proximity_allows_more_distant_bucket(self):
+        self.assertFalse(ceifa.is_resolution_proximity_risk(
+            "ZGSZ", "36°C", 34.0))
+
     def test_blocks_lower_tail_when_floor_inside_band(self):
         # EGLC 08/08: NÃO 14°C, piso 14,47 (arredonda p/ 14), P10 14,78.
         # A faixa 14°C = [13,5; 14,5] contém o piso → cauda fria → bloqueia.
