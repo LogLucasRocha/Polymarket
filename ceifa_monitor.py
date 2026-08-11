@@ -148,6 +148,13 @@ def mean_daily_return(stats: dict) -> float | None:
     return sum(returns) / len(returns) if returns else None
 
 
+def mean_daily_parcels(stats: dict, resolved_days: int) -> float | None:
+    """Média de parcelas por dia resolvido, incluindo dias sem entrada."""
+    if not resolved_days:
+        return None
+    return stats.get("n", 0) / resolved_days
+
+
 def num_or_dash(value, suffix: str = "", digits: int = 1) -> str:
     """Formata um número; devolve '—' quando o valor é nulo/NaN.
 
@@ -410,20 +417,6 @@ def hourly_chart(stats: dict,
     return dark_figure(fig)
 
 
-def hourly_average_table(stats: dict,
-                         side_labels: tuple[str, str] | None = None
-                         ) -> pd.DataFrame:
-    """Tabela das médias de parcelas/dia em cada janela horária de Brasília."""
-    piv = hourly_by_category(stats, side_labels)
-    if piv.empty:
-        return pd.DataFrame()
-    table = piv.copy()
-    table.insert(0, "Média total/dia", table.sum(axis=1))
-    table.insert(0, "Janela (Brasília)",
-                 [f"{hour:02d}h–{(hour + 1) % 24:02d}h" for hour in table.index])
-    return table.reset_index(drop=True).round(2)
-
-
 def render_hourly_section(stats: dict,
                           side_labels: tuple[str, str] | None = None) -> None:
     """Renderiza a distribuição horária compartilhada por produção e testes."""
@@ -442,14 +435,6 @@ def render_hourly_section(stats: dict,
         f"Cálculo sobre {days} dia(s) com apostas, incluindo zero nas "
         "horas sem entrada. O acumulado continua disponível ao passar "
         "o mouse — o relógio é o de Brasília.")
-    table = hourly_average_table(stats, side_labels)
-    st.markdown("**Média de parcelas por janela horária**")
-    st.dataframe(
-        table, hide_index=True, width="stretch", height=420,
-        column_config={
-            column: st.column_config.NumberColumn(format="%.2f")
-            for column in table.columns if column != "Janela (Brasília)"
-        })
 
 
 def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
@@ -1067,6 +1052,8 @@ def market_page(market: str) -> None:
         rows.append({
             "Janela": label,
             "Parcelas": stats.get("n", 0),
+            "Média parcelas/dia": num_or_dash(
+                mean_daily_parcels(stats, resolvidos), digits=2),
             "Acerto": f"{stats.get('hit', 0):.2%}",
             "Erros": stats.get("n", 0) - stats.get("wins", 0),
             "Rendimento": pct(stats.get("real_mult", 1) - 1, 2),
@@ -1078,8 +1065,10 @@ def market_page(market: str) -> None:
         })
     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
     st.caption(
-        f"{resolvidos} dia(s) resolvido(s). **Média diária** = média aritmética "
-        "dos retornos dos dias com parcelas naquela janela; **Pior dia** = o "
+        f"{resolvidos} dia(s) resolvido(s). **Média parcelas/dia** = parcelas "
+        "da janela divididas por todos os dias resolvidos, incluindo dias com "
+        "zero entrada; **Média diária** = média aritmética dos retornos dos "
+        "dias com parcelas naquela janela; **Pior dia** = o "
         "retorno do dia mais negativo; **CVaR 1%** = média dos 1% piores dias "
         "(com histórico curto equivale ao pior dia). H-n = só as parcelas nas "
         f"últimas n horas antes do fechamento ({fechamento}); 'Sem janela' "

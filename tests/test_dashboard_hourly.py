@@ -51,13 +51,6 @@ class DashboardHourlyTest(unittest.TestCase):
         self.assertEqual({trace.name for trace in chart.data}, {"Up", "Down"})
         self.assertEqual(chart.layout.barmode, "stack")
 
-        table = dashboard.hourly_average_table(stats, ("Up", "Down"))
-        self.assertEqual(len(table), 24)
-        self.assertEqual(table.iloc[10]["Janela (Brasília)"], "10h–11h")
-        self.assertEqual(table.iloc[10]["Média total/dia"], 1.5)
-        self.assertEqual(table.iloc[10]["Up"], 1.0)
-        self.assertEqual(table.iloc[10]["Down"], 0.5)
-
     def test_mean_daily_return_averages_resolved_days_with_entries(self):
         stats = {"per_day": [
             {"day": "2026-08-08", "ret": 0.01},
@@ -68,6 +61,10 @@ class DashboardHourlyTest(unittest.TestCase):
 
     def test_mean_daily_return_is_empty_without_days(self):
         self.assertIsNone(dashboard.mean_daily_return({"per_day": []}))
+
+    def test_mean_daily_parcels_includes_resolved_days_without_entries(self):
+        self.assertEqual(dashboard.mean_daily_parcels({"n": 14}, 2), 7.0)
+        self.assertIsNone(dashboard.mean_daily_parcels({"n": 14}, 0))
 
     def test_brasilia_time_labels_convert_from_utc(self):
         stamps = pd.Series(["2026-08-11T00:50:00Z"])
