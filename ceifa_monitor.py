@@ -896,10 +896,7 @@ def market_page(market: str) -> None:
         # A partir do segundo, mantém a curva limpa como a do Bitcoin; o
         # hovertemplate abaixo continua exibindo o preço sem bolinhas visíveis.
         price_mode = "lines+markers" if len(prices) == 1 else "lines"
-        hover_price = (
-            "<b>%{fullData.name}</b><br>Preço: %{y:.3f}<br>"
-            "%{x|%d/%m/%Y %H:%M}<extra></extra>"
-            if market == "sol_updown" else None)
+        hover_price = "<b>%{fullData.name}</b>: %{y:.3f}<extra></extra>"
         figp.add_hrect(y0=0.95, y1=0.998, fillcolor=GREEN, opacity=0.12,
                        line_width=0, annotation_text="faixa de compra",
                        annotation_position="top left")
@@ -914,7 +911,8 @@ def market_page(market: str) -> None:
         figp.update_layout(
             height=280, margin=dict(l=15, r=15, t=10, b=10),
             yaxis_title="Preço", xaxis_title=None, yaxis_range=[-0.02, 1.02],
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0))
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+            hovermode="x unified", hoverdistance=-1)
         st.plotly_chart(dark_figure(figp), width="stretch")
         st.caption(
             "Faixa verde = 95–99,8¢, onde a estratégia entra. Sem nenhum lado "
