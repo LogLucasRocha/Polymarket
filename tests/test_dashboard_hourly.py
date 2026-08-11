@@ -36,6 +36,21 @@ class DashboardHourlyTest(unittest.TestCase):
                          {"Máxima", "Mínima"})
         self.assertEqual(chart.layout.barmode, "stack")
 
+    def test_hourly_chart_stacks_hypothesis_by_market_side(self):
+        stats = {"signals": [
+            {"ts": "2026-08-01T13:00:00Z", "pick": "up"},
+            {"ts": "2026-08-01T13:05:00Z", "pick": "down"},
+            {"ts": "2026-08-02T13:00:00Z", "pick": "up"},
+        ]}
+
+        piv = dashboard.hourly_by_category(stats, ("Up", "Down"))
+        self.assertEqual(piv.loc[10, "Up"], 1.0)
+        self.assertEqual(piv.loc[10, "Down"], 0.5)
+
+        chart = dashboard.hourly_chart(stats, ("Up", "Down"))
+        self.assertEqual({trace.name for trace in chart.data}, {"Up", "Down"})
+        self.assertEqual(chart.layout.barmode, "stack")
+
     def test_mean_daily_return_averages_resolved_days_with_entries(self):
         stats = {"per_day": [
             {"day": "2026-08-08", "ret": 0.01},

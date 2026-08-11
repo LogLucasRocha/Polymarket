@@ -338,39 +338,58 @@ def hourly_average(stats: dict) -> pd.Series:
     return counts.astype(float) / days
 
 
-def hourly_by_extreme(stats: dict) -> pd.DataFrame:
-    """Média diária de parcelas por hora (0–23) × extremo (máxima/mínima)."""
-    rows = [(signal.get("ts"), signal.get("extreme"))
-            for signal in stats.get("signals", [])
-            if signal.get("ts") is not None]
+def hourly_by_category(stats: dict,
+                       side_labels: tuple[str, str] | None = None
+                       ) -> pd.DataFrame:
+    """Média diária por hora, agrupada por extremo ou lado do mercado."""
+    rows = []
+    for signal in stats.get("signals", []):
+        if signal.get("ts") is None:
+            continue
+        if side_labels is not None:
+            category = {"up": side_labels[0], "down": side_labels[1]}.get(
+                signal.get("pick"), "Outro")
+        else:
+            category = {"maximum": "Máxima", "minimum": "Mínima"}.get(
+                signal.get("extreme"), "Outra")
+        rows.append((signal.get("ts"), category))
     if not rows:
         return pd.DataFrame()
-    frame = pd.DataFrame(rows, columns=["ts", "extreme"])
+    frame = pd.DataFrame(rows, columns=["ts", "cat"])
     ts = pd.to_datetime(frame["ts"], utc=True).dt.tz_convert(USER_TZ)
     frame["hora"] = ts.dt.hour
-    frame["cat"] = frame["extreme"].map(
-        {"maximum": "Máxima", "minimum": "Mínima"}).fillna("Outra")
     days = int(ts.dt.normalize().nunique()) or 1
     piv = (frame.groupby(["hora", "cat"]).size().unstack(fill_value=0)
            .reindex(range(24), fill_value=0))
     return piv.astype(float) / days
 
 
-def hourly_chart(stats: dict) -> go.Figure:
+def hourly_by_extreme(stats: dict) -> pd.DataFrame:
+    """Compatibilidade: agrupamento de máxima/mínima usado em produção."""
+    return hourly_by_category(stats)
+
+
+def hourly_chart(stats: dict,
+                 side_labels: tuple[str, str] | None = None) -> go.Figure:
     """Média diária das parcelas por horário, empilhada por máxima/mínima.
 
     Cada barra é a média de parcelas/dia naquela hora (fuso de Brasília),
     quebrada por cor: laranja = máxima, azul = mínima. A tracejada é a média
     do total por hora."""
-    piv = hourly_by_extreme(stats)
+    piv = hourly_by_category(stats, side_labels)
     if piv.empty:
         return go.Figure()
     total = piv.sum(axis=1)
     mean = float(total.mean())
     hours = [f"{hour:02d}h" for hour in piv.index]
-    cores = {"Máxima": RED, "Mínima": BLUE, "Outra": GREEN}
+    if side_labels is None:
+        categories = ("Máxima", "Mínima", "Outra")
+        cores = {"Máxima": RED, "Mínima": BLUE, "Outra": GREEN}
+    else:
+        categories = (*side_labels, "Outro")
+        cores = {side_labels[0]: BLUE, side_labels[1]: AMBER, "Outro": GREEN}
     fig = go.Figure()
-    for cat in ("Máxima", "Mínima", "Outra"):
+    for cat in categories:
         if cat not in piv.columns:
             continue
         fig.add_trace(go.Bar(
@@ -389,6 +408,26 @@ def hourly_chart(stats: dict) -> go.Figure:
     )
     fig.update_xaxes(showgrid=False)
     return dark_figure(fig)
+
+
+def render_hourly_section(stats: dict,
+                          side_labels: tuple[str, str] | None = None) -> None:
+    """Renderiza a distribuição horária compartilhada por produção e testes."""
+    counts = hourly_counts(stats)
+    if counts.empty:
+        return
+    averages = hourly_average(stats)
+    days = hourly_day_count(stats)
+    st.subheader("Parcelas por horário do dia (hora de Brasília)")
+    st.plotly_chart(hourly_chart(stats, side_labels), width="stretch")
+    top = averages.sort_values(ascending=False).head(3)
+    picos = " · ".join(f"{hour:02d}h ({value:.2f}/dia)"
+                       for hour, value in top.items())
+    st.caption(
+        f"Média por dia nos horários de pico: {picos}. "
+        f"Cálculo sobre {days} dia(s) com apostas, incluindo zero nas "
+        "horas sem entrada. O acumulado continua disponível ao passar "
+        "o mouse — o relógio é o de Brasília.")
 
 
 def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
@@ -506,20 +545,7 @@ def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
             f"{pct(risk['best_day'], 2)} · pior dia {pct(risk['worst_day'], 2)} "
             "· linha tracejada = retorno médio do período exibido.")
 
-    counts = hourly_counts(stats)
-    if not counts.empty:
-        averages = hourly_average(stats)
-        days = hourly_day_count(stats)
-        st.subheader("Parcelas por horário do dia (hora de Brasília)")
-        st.plotly_chart(hourly_chart(stats), width="stretch")
-        top = averages.sort_values(ascending=False).head(3)
-        picos = " · ".join(f"{hour:02d}h ({value:.2f}/dia)"
-                           for hour, value in top.items())
-        st.caption(
-            f"Média por dia nos horários de pico: {picos}. "
-            f"Cálculo sobre {days} dia(s) com apostas, incluindo zero nas "
-            "horas sem entrada. O acumulado continua disponível ao passar "
-            "o mouse — o relógio é o de Brasília.")
+    render_hourly_section(stats)
 
 
 def errors_page(stats: dict) -> None:
@@ -1047,6 +1073,8 @@ def market_page(market: str) -> None:
         with right:
             st.subheader("Retorno de cada dia")
             st.plotly_chart(daily_chart(base), width="stretch")
+
+    render_hourly_section(base, (lado_a, lado_b))
 
 
 def main() -> None:
