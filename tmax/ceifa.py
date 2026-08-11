@@ -474,19 +474,6 @@ def reconstructed_plateau_temperature(icao: str, day: str, snapshot_ts) -> float
     return plateau_temperature(obs)
 
 
-def reconstructed_observed_max(icao: str, day: str, snapshot_ts) -> float | None:
-    """Máxima disponível na fonte de resolução até o instante do snapshot."""
-    if snapshot_ts is None:
-        return None
-    ts = pd.Timestamp(snapshot_ts)
-    if ts.tzinfo is None:
-        ts = ts.tz_localize("UTC")
-    cutoff = ts.tz_convert(_tz(icao)).to_pydatetime()
-    values = [temp for when, temp in _archived_observations(icao, str(day))
-              if when <= cutoff]
-    return max(values) if values else None
-
-
 def reconstructed_observed_deviation(icao: str, snapshot_ts,
                                      nowcast_shift) -> float | None:
     """Limite inferior conservador do desvio bruto em snapshots antigos.

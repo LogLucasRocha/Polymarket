@@ -11,13 +11,7 @@ REPORTS_DIR = ROOT / "reports"
 
 @dataclass(frozen=True)
 class Station:
-    """Local usado para prever e observar o mercado de temperatura.
-
-    ``icao`` continua sendo a identidade usada no slug do Polymarket. Alguns
-    links do Wunderground, porém, entregam observações de outra estação física;
-    nesses casos os campos ``wu_*`` registram a fonte que realmente liquida o
-    contrato e ``lat``/``lon`` apontam para essa fonte.
-    """
+    """Aeroporto cujo METAR é a verdade terrestre do mercado de temperatura."""
 
     icao: str
     city: str      # nome curto usado em títulos e abas
@@ -27,9 +21,6 @@ class Station:
     lon: float
     timezone: str
     unit: str = "C"   # unidade em que o mercado da cidade resolve (C ou F)
-    wu_history_url: str | None = None
-    wu_location_id: str | None = None
-    wu_observation_id: str | None = None
 
     @property
     def tz(self) -> ZoneInfo:
@@ -44,12 +35,11 @@ class Station:
         return DATA_DIR / f"bias_cache_{self.icao}.json"
 
 
-# A fonte de cada cidade parte da descrição oficial do mercado no Polymarket.
-# Quando a página apontada entrega outra estação física, prevalece a série que
-# realmente aparece na tabela de resolução. check_resolution_sources() confere
-# os links; o coletor WU também valida o identificador interno da observação.
-# Hong Kong ficou de fora de propósito: resolve diretamente pelo Observatório
-# de HK, não por uma estação METAR.
+# A estação de cada cidade vem da DESCRIÇÃO oficial do mercado no Polymarket
+# (todas citam o ICAO na URL de resolução — Wunderground ou NOAA timeseries).
+# check_resolution_sources() no backtest confere periodicamente se o ICAO
+# ainda aparece na descrição. Hong Kong ficou de fora de propósito: resolve
+# pelo Observatório de HK, que não é estação METAR.
 STATIONS = {
     "SBGR": Station("SBGR", "Guarulhos", "São Paulo/Guarulhos Intl",
                     "🇧🇷", -23.4356, -46.4731, "America/Sao_Paulo"),
