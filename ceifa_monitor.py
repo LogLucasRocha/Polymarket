@@ -17,9 +17,7 @@ try:
 except Exception:
     pass
 
-import os
-
-from tmax import config, monitor, polymarket
+from tmax import config, monitor
 from spy import MERCADOS
 from spy import study as spy_study
 
@@ -141,36 +139,6 @@ st.markdown(
 
 def pct(value: float | None, digits: int = 1) -> str:
     return "—" if value is None else f"{value * 100:+.{digits}f}%"
-
-
-def usd(value: float | None) -> str:
-    """Valor em PUSD (dólar da Polymarket), com sinal (ex.: '−$1,234.00')."""
-    if value is None or pd.isna(value):
-        return "—"
-    return f"−${abs(value):,.2f}" if value < 0 else f"${value:,.2f}"
-
-
-def money_pct(frac: float | None, banca: float) -> str:
-    """'$174.40 (+17,4%)' a partir de uma fração e do saldo/banca."""
-    if frac is None or pd.isna(frac):
-        return "—"
-    return f"{usd(banca * frac)} ({pct(frac, 2)})"
-
-
-@st.cache_data(ttl=300, show_spinner=False)
-def load_saldo() -> float | None:
-    """Saldo livre da carteira (PUSD), o mesmo que a produção usa pra parcelar.
-
-    Lê POLYMARKET_WALLET e consulta o saldo on-chain. None se a carteira não
-    está configurada no ambiente ou a consulta falhou (aí cai no input manual).
-    """
-    wallet = os.environ.get("POLYMARKET_WALLET")
-    if not wallet:
-        return None
-    try:
-        return float(polymarket.fetch_pusd_balance(wallet))
-    except Exception:  # noqa: BLE001 — sem saldo → fallback manual
-        return None
 
 
 def num_or_dash(value, suffix: str = "", digits: int = 1) -> str:
@@ -924,19 +892,25 @@ def market_page(market: str) -> None:
         dia = prices["dia"].iloc[0]
         st.subheader(f"Preços do dia {dia}")
         figp = go.Figure()
-        # Um mercado recém-adicionado pode ter só o primeiro snapshot. Plotly
-        # não desenha uma linha com um único ponto, então mostra o marcador até
-        # a série ganhar o segundo registro; depois mantém a curva limpa.
+        # Um único snapshot precisa de marcador porque ainda não forma linha.
+        # A partir do segundo, mantém a curva limpa como a do Bitcoin; o
+        # hovertemplate abaixo continua exibindo o preço sem bolinhas visíveis.
         price_mode = "lines+markers" if len(prices) == 1 else "lines"
+        hover_price = (
+            "<b>%{fullData.name}</b><br>Preço: %{y:.3f}<br>"
+            "%{x|%d/%m/%Y %H:%M}<extra></extra>"
+            if market == "sol_updown" else None)
         figp.add_hrect(y0=0.95, y1=0.998, fillcolor=GREEN, opacity=0.12,
                        line_width=0, annotation_text="faixa de compra",
                        annotation_position="top left")
         figp.add_trace(go.Scatter(
             x=prices["ts"], y=prices["preco_up"], name=lado_a,
-            mode=price_mode, line=dict(color=BLUE, width=2)))
+            mode=price_mode, line=dict(color=BLUE, width=2),
+            marker=dict(size=6), hovertemplate=hover_price))
         figp.add_trace(go.Scatter(
             x=prices["ts"], y=prices["preco_down"], name=lado_b,
-            mode=price_mode, line=dict(color=AMBER, width=2)))
+            mode=price_mode, line=dict(color=AMBER, width=2),
+            marker=dict(size=6), hovertemplate=hover_price))
         figp.update_layout(
             height=280, margin=dict(l=15, r=15, t=10, b=10),
             yaxis_title="Preço", xaxis_title=None, yaxis_range=[-0.02, 1.02],
@@ -991,19 +965,11 @@ def market_page(market: str) -> None:
         return
 
     st.subheader("Resultado por janela de entrada")
-    saldo = load_saldo()
-    if saldo is not None:
-        banca = saldo
-        st.caption(
-            f"Valores em PUSD sobre o **saldo atual da carteira: {usd(saldo)}** "
-            "— o mesmo que a produção usa pra parcelar (1% do caixa livre).")
-    else:
-        banca = st.number_input(
-            "Banca de referência (PUSD)", min_value=10.0, max_value=1_000_000.0,
-            value=1000.0, step=100.0, key=f"banca_{market}",
-            help="Sem POLYMARKET_WALLET no ambiente — usando uma banca manual. "
-                 "A estratégia aposta 1% do caixa livre; os valores escalam "
-                 "com esta banca.")
+    st.caption(
+        "Rendimento percentual composto: cada parcela usa 1% do patrimônio "
+        "ainda livre no dia (1%, depois 0,99%, depois 0,9801% da banca inicial "
+        "do dia, e assim por diante). O saldo liquidado vira a base do dia "
+        "seguinte.")
     rows = []
     for label, stats in variants:
         pick = stats.get("by_pick", {})
@@ -1016,9 +982,9 @@ def market_page(market: str) -> None:
             "Parcelas": stats.get("n", 0),
             "Acerto": f"{stats.get('hit', 0):.2%}",
             "Erros": stats.get("n", 0) - stats.get("wins", 0),
-            "Rendimento": money_pct(stats.get("real_mult", 1) - 1, banca),
-            "Pior dia": money_pct(worst, banca),
-            "CVaR 1%": money_pct(cvar, banca),
+            "Rendimento": pct(stats.get("real_mult", 1) - 1, 2),
+            "Pior dia": pct(worst, 2),
+            "CVaR 1%": pct(cvar, 2),
             "Drawdown": f"{stats.get('real_dd', 0):.2%}",
             f"{lado_a}/{lado_b}": f"{pick.get('up', 0)}/{pick.get('down', 0)}",
         })

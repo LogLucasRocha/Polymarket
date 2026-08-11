@@ -22,12 +22,14 @@ class Mercado:
     slug_prefix: str    # ex.: "spy-up-or-down-on", "bitcoin-above-on"
     close_hour: int = 16              # hora do fechamento/resolução (em ``tz``)
     tz: str = "America/New_York"      # fuso do fechamento
-    # rolling=False: o dia do slug é a data do calendário em ``tz`` (SPY: pregão
-    #   dos EUA, vira à meia-noite ET; resolve às 16:00 ET).
+    # rolling=False: o dia do slug é a data do calendário em ``tz``.
     # rolling=True: o dia do slug vira na própria hora do fechamento (Bitcoin:
     #   o "dia" começa e resolve às 16:00 UTC — a janela do dia N é
     #   [N-1 16:00, N 16:00] e o slug é a data da resolução).
     rolling: bool = False
+    # Mercados da bolsa americana não abrem sábado/domingo. Feriados são
+    # resolvidos pela captura, que procura o próximo slug disponível.
+    weekdays_only: bool = False
     # kind="binary": um mercado por dia, 2 desfechos (SPY: Up/Down).
     # kind="strikes": vários strikes por dia, cada um Yes/No (Bitcoin Above:
     #   "acima de 60k?", "acima de 62k?", ...). Cada strike vira um contrato.
@@ -35,7 +37,8 @@ class Mercado:
 
 
 MERCADOS: dict[str, Mercado] = {
-    "spy": Mercado("spy", "SPY Daily Up or Down", "spy-up-or-down-on"),
+    "spy": Mercado("spy", "SPY Daily Up or Down", "spy-up-or-down-on",
+                   rolling=True, weekdays_only=True),
     "bitcoin": Mercado("bitcoin", "Bitcoin Above", "bitcoin-above-on",
                        close_hour=16, tz="UTC", rolling=True, kind="strikes"),
     # Binário diário do BTC (mesmo esquema do SPY), mas o dia vira/resolve às
@@ -51,9 +54,10 @@ MERCADOS: dict[str, Mercado] = {
                           "solana-up-or-down-on", close_hour=16, tz="UTC",
                           rolling=True, kind="binary"),
     # SPY multi-strike ("fecha acima de X?"), resolve no fechamento do pregão
-    # (16:00 ET) como o SPY Up or Down — não rolling, calendário ET.
+    # (16:00 ET) como o SPY Up or Down; após o fechamento, passa ao próximo
+    # pregão e pula fins de semana.
     "spy_above": Mercado("spy_above", "SPY Closes Above", "spy-closes-above-on",
-                         kind="strikes"),
+                         rolling=True, weekdays_only=True, kind="strikes"),
 }
 
 # Faixa de compra (>95¢ e <99,8¢) e cadência — iguais para todos os mercados.
@@ -75,6 +79,9 @@ def next_close(mercado: Mercado, now_utc: dt.datetime) -> dt.datetime:
                           microsecond=0)
     if local >= close:
         close += dt.timedelta(days=1)
+    if mercado.weekdays_only:
+        while close.weekday() >= 5:
+            close += dt.timedelta(days=1)
     return close
 
 

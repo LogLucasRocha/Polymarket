@@ -58,27 +58,51 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(market_date(btc, antes), dt.date(2026, 8, 8))
         self.assertEqual(market_date(btc, depois), dt.date(2026, 8, 9))
 
-    def test_spy_day_is_et_calendar(self):
+    def test_spy_day_rolls_at_market_close_and_skips_weekend(self):
         from spy import market_date
         spy = MERCADOS["spy"]
-        # 17:00 UTC = 13:00 ET → ainda dia 8 (calendário ET).
-        now = dt.datetime(2026, 8, 8, 17, 0, tzinfo=dt.timezone.utc)
-        self.assertEqual(market_date(spy, now), dt.date(2026, 8, 8))
+        before_close = dt.datetime(2026, 8, 10, 19, 59,
+                                   tzinfo=dt.timezone.utc)
+        after_close = dt.datetime(2026, 8, 10, 20, 1,
+                                  tzinfo=dt.timezone.utc)
+        friday_after_close = dt.datetime(2026, 8, 7, 20, 1,
+                                         tzinfo=dt.timezone.utc)
+        self.assertEqual(market_date(spy, before_close), dt.date(2026, 8, 10))
+        self.assertEqual(market_date(spy, after_close), dt.date(2026, 8, 11))
+        self.assertEqual(market_date(spy, friday_after_close),
+                         dt.date(2026, 8, 10))
 
     def test_spy_above_is_strikes_closing_16_et(self):
         from spy import market_date
         m = MERCADOS["spy_above"]
         self.assertEqual(m.kind, "strikes")
-        self.assertFalse(m.rolling)
+        self.assertTrue(m.rolling)
+        self.assertTrue(m.weekdays_only)
         self.assertEqual(
             capture.market_slug(m.slug_prefix, dt.date(2026, 8, 10)),
             "spy-closes-above-on-august-10-2026")
-        # fecha 16:00 ET = 20:00 UTC (EDT), calendário ET (não rolling)
+        # fecha 16:00 ET = 20:00 UTC (EDT) e então avança ao próximo pregão.
         self.assertEqual(
             study._close_utc("spy_above", "2026-08-10"),
             pd.Timestamp("2026-08-10T20:00:00Z"))
         now = dt.datetime(2026, 8, 10, 17, 0, tzinfo=dt.timezone.utc)
         self.assertEqual(market_date(m, now), dt.date(2026, 8, 10))
+
+    def test_spy_capture_falls_forward_when_first_date_is_a_holiday(self):
+        spy = MERCADOS["spy"]
+        now = dt.datetime(2026, 8, 10, 20, 1, tzinfo=dt.timezone.utc)
+        entry = {"faixa": "—",
+                 "up": {"price": .56, "token_id": "up", "label": "Up"},
+                 "down": {"price": .44, "token_id": "down", "label": "Down"}}
+        with mock.patch("spy.capture.dt.datetime") as mocked_datetime, \
+             mock.patch("spy.capture.fetch_market",
+                        side_effect=[None, [entry]]) as fetch, \
+             mock.patch("spy.capture._attach_asks"):
+            mocked_datetime.now.return_value = now
+            records = capture.coletar(spy)
+        self.assertEqual(records[0]["dia"], "2026-08-12")
+        self.assertIn("august-12-2026", records[0]["slug"])
+        self.assertEqual(fetch.call_count, 2)
 
     def test_btc_updown_is_binary_daily_rolling_at_16_utc(self):
         from spy import market_date
@@ -134,6 +158,15 @@ class SpyStudyTests(unittest.TestCase):
         self.assertEqual(stats["wins"], 48)      # Up venceu
         self.assertEqual(stats["by_pick"], {"up": 48, "down": 0})
         self.assertGreater(stats["real_mult"], 1.0)
+
+    def test_stakes_are_one_percent_of_remaining_daily_cash(self):
+        frame = _day_series({}, last_up=0.999)
+        with mock.patch.object(study, "_load_market", return_value=frame):
+            stats = study.simulate(window_hours=None)
+        stakes = [signal["stake"] for signal in stats["signals"][:3]]
+        self.assertAlmostEqual(stakes[0], 0.01)
+        self.assertAlmostEqual(stakes[1], 0.0099)
+        self.assertAlmostEqual(stakes[2], 0.009801)
 
     def test_h1_window_keeps_only_last_hour(self):
         frame = _day_series({}, last_up=0.999)

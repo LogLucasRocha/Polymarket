@@ -2,6 +2,11 @@ $ErrorActionPreference = "Stop"
 $monitorRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $monitorUrl = "http://localhost:8765"
 $dataUpdated = $false
+$archivePaths = @(
+    "dados", "dados_low", "dados_spy", "dados_bitcoin",
+    "dados_btc_updown", "dados_spy_above", "dados_solana",
+    "dados_sol_updown"
+)
 
 # O lago é consolidado no GitHub depois que o dia UTC fecha. Atualizamos apenas
 # os arquivos de dados; alterações locais no código do painel não bloqueiam nem
@@ -10,10 +15,10 @@ try {
     $gitExe = (Get-Command git -ErrorAction Stop).Source
     & $gitExe -C $monitorRoot fetch origin --quiet 2>$null
     if ($LASTEXITCODE -eq 0) {
-        & $gitExe -C $monitorRoot diff --quiet origin/main -- dados dados_low
+        & $gitExe -C $monitorRoot diff --quiet origin/main -- $archivePaths
         if ($LASTEXITCODE -eq 1) {
             & $gitExe -C $monitorRoot restore --source=origin/main --worktree -- `
-                dados dados_low 2>$null
+                $archivePaths 2>$null
             $dataUpdated = $LASTEXITCODE -eq 0
         }
     }
