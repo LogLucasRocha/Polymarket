@@ -4,7 +4,7 @@ from unittest import mock
 
 import pandas as pd
 
-from spy import BAND, MERCADOS, capture, study
+from spy import BAND, INTERVAL_MINUTES, MERCADOS, capture, study
 
 
 class RegistryTests(unittest.TestCase):
@@ -130,13 +130,13 @@ def _frame(rows: list[dict]) -> pd.DataFrame:
 
 def _day_series(up_prices: dict[str, float], last_up: float,
                 dia: str = "2026-08-07") -> pd.DataFrame:
-    """Snapshots de 10 min entre 12:00 e 20:00 UTC (fechamento 16:00 EDT)."""
+    """Snapshots de 5 min entre 12:00 e 20:00 UTC (fechamento 16:00 EDT)."""
     rows = []
     start = dt.datetime(2026, 8, 7, 12, 0, tzinfo=dt.timezone.utc)
-    for i in range(49):                       # 12:00 .. 20:00 (49 pontos)
-        ts = start + dt.timedelta(minutes=10 * i)
+    for i in range(97):                       # 12:00 .. 20:00 (97 pontos)
+        ts = start + dt.timedelta(minutes=5 * i)
         hhmm = ts.strftime("%H:%M")
-        up = last_up if i == 48 else up_prices.get(hhmm, 0.97)
+        up = last_up if i == 96 else up_prices.get(hhmm, 0.97)
         rows.append({"ts_utc": ts.isoformat(), "dia": dia,
                      "preco_up": up, "preco_down": round(1 - up, 4)})
     return _frame(rows)
@@ -149,14 +149,15 @@ class SpySlugTests(unittest.TestCase):
 
 
 class SpyStudyTests(unittest.TestCase):
-    def test_no_window_counts_every_ten_minutes(self):
+    def test_no_window_counts_every_five_minutes(self):
+        self.assertEqual(INTERVAL_MINUTES, 5)
         frame = _day_series({}, last_up=0.999)   # Up sempre 0,97; resolve Up=1
         with mock.patch.object(study, "_load_market", return_value=frame):
             stats = study.simulate(window_hours=None)
-        # 48 pontos na faixa (12:00..19:50); 20:00 sai da faixa (0,999).
-        self.assertEqual(stats["n"], 48)
-        self.assertEqual(stats["wins"], 48)      # Up venceu
-        self.assertEqual(stats["by_pick"], {"up": 48, "down": 0})
+        # 96 pontos na faixa (12:00..19:55); 20:00 sai da faixa (0,999).
+        self.assertEqual(stats["n"], 96)
+        self.assertEqual(stats["wins"], 96)      # Up venceu
+        self.assertEqual(stats["by_pick"], {"up": 96, "down": 0})
         self.assertGreater(stats["real_mult"], 1.0)
 
     def test_stakes_are_one_percent_of_remaining_daily_cash(self):
@@ -172,8 +173,8 @@ class SpyStudyTests(unittest.TestCase):
         frame = _day_series({}, last_up=0.999)
         with mock.patch.object(study, "_load_market", return_value=frame):
             stats = study.simulate(window_hours=1)
-        # 19:00, 19:10, 19:20, 19:30, 19:40, 19:50 = 6 parcelas.
-        self.assertEqual(stats["n"], 6)
+        # 19:00, 19:05, ..., 19:55 = 12 parcelas.
+        self.assertEqual(stats["n"], 12)
 
     def test_allocates_to_down_when_down_is_in_band(self):
         # Down em 0,97 (na faixa), Up em 0,03; resolve Down=1 (fechou em queda).
@@ -206,8 +207,8 @@ class SpyStudyTests(unittest.TestCase):
             progress = study.today_progress()
         self.assertEqual(progress["day"], "2026-08-07")
         self.assertFalse(progress["resolved"])
-        self.assertEqual(progress["snapshots"], 49)
-        self.assertEqual(progress["parcelas"], 48)   # 12:00..19:50 na faixa
+        self.assertEqual(progress["snapshots"], 97)
+        self.assertEqual(progress["parcelas"], 96)   # 12:00..19:55 na faixa
 
     def test_daily_summary_marks_open_day(self):
         frame = _day_series({}, last_up=0.60)   # não resolveu
@@ -217,7 +218,7 @@ class SpyStudyTests(unittest.TestCase):
         row = daily.iloc[0]
         self.assertFalse(bool(row["resolvido"]))
         self.assertEqual(row["resultado"], "Em aberto")
-        self.assertEqual(int(row["parcelas"]), 48)
+        self.assertEqual(int(row["parcelas"]), 96)
 
     def test_daily_summary_marks_resolved_win(self):
         frame = _day_series({}, last_up=0.999)  # resolveu Up=1
@@ -231,7 +232,7 @@ class SpyStudyTests(unittest.TestCase):
         frame = _day_series({}, last_up=0.999)
         with mock.patch.object(study, "_load_market", return_value=frame):
             prices = study.latest_prices()
-        self.assertEqual(len(prices), 49)
+        self.assertEqual(len(prices), 97)
         self.assertEqual(set(prices.columns),
                          {"ts", "preco_up", "preco_down", "dia"})
         self.assertEqual(prices["dia"].iloc[0], "2026-08-07")
@@ -244,7 +245,7 @@ class SpyStudyTests(unittest.TestCase):
             self.assertEqual(study.price_days(),
                              ["2026-08-06", "2026-08-07"])
             prices = study.prices_for_day(day="2026-08-06")
-        self.assertEqual(len(prices), 49)
+        self.assertEqual(len(prices), 97)
         self.assertEqual(prices["dia"].unique().tolist(), ["2026-08-06"])
 
     def test_prices_for_unknown_day_is_empty(self):

@@ -1,6 +1,6 @@
 """Estudo observacional dos mercados binários diários (SPY, Bitcoin, ...).
 
-Para cada mercado, a cada 10 min aloca no lado (up **ou** down) cujo preço
+Para cada mercado, a cada 5 min aloca no lado (up **ou** down) cujo preço
 estiver na faixa (0,95, 0,998), somando 1% do caixa livre — o modelo de
 parcelas da Ceifa. Como o mercado é binário, no máximo um lado cabe na faixa.
 
@@ -127,7 +127,7 @@ def simulate(window_hours: int | None = None, market: str = "spy") -> dict:
     now_ts = df["ts"].max()                # relógio: último snapshot do lago
     # Cada (dia, faixa) é um contrato: binário tem uma faixa "—"; strikes têm
     # uma por alvo (Bitcoin: "acima de 64k?"). O lado (Yes/No ou Up/Down) na
-    # faixa de preço vira parcela; o intervalo de 10 min é por contrato.
+    # faixa de preço vira parcela; o intervalo de 5 min é por contrato.
     for (dia, faixa), group in df.groupby(["dia", "faixa"]):
         group = group.sort_values("ts")
         close = _close_utc(market, str(dia))

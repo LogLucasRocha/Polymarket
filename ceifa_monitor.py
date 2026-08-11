@@ -860,7 +860,7 @@ def market_page(market: str) -> None:
     st.caption(
         f"Último dia capturado: {latest or '—'} · aloca no lado "
         f"({lado_a} ou {lado_b}) que estiver entre 95¢ e 99,8¢, com 1% do caixa "
-        "livre a cada 10 min. Fase de observação — sem apostas reais.")
+        "livre a cada 5 min. Fase de observação — sem apostas reais.")
 
     daily = spy_study.daily_summary(market)
     prices = spy_study.latest_prices(market)
@@ -1099,7 +1099,7 @@ def main() -> None:
                 "suba de novo) para carregar — recarregar a aba não basta.")
             return
         hero(f"{MERCADOS[market].nome} · hipótese em teste · aloca no lado na "
-             "faixa 95–99,8¢, 1% do caixa livre a cada 10 min.")
+             "faixa 95–99,8¢, 1% do caixa livre a cada 5 min.")
         market_page(market)
         return
 

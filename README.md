@@ -43,7 +43,7 @@ alavancagem. Trata-se apenas de monitoramento; nenhum alerta executa uma aposta.
 
 Monitor observacional de mercados binários da Polymarket, definidos no registro
 `spy.MERCADOS` (hoje **SPY**, **Bitcoin** e **Solana**; novos entram só nesse
-dicionário). A cada 10 min o `spy.capture` (pendurado no `main.yml`)
+dicionário). A cada 5 min o `spy.capture` (pendurado no `main.yml`)
 arquiva, para cada mercado, um snapshot do dia com preço e melhor ask dos dois
 lados em `dados_{key}/` (parquet commitado) e `data_{key}/` (buffer do dia, que
 entra no zip do botão Atualizar). Fim de semana/feriado sem mercado — a rodada
@@ -51,7 +51,7 @@ apenas não grava.
 
 O estudo (`spy.study`, aba de cada mercado em **Em teste**) aloca no lado cujo
 preço estiver na faixa **(0,95, 0,998)**, adicionando 1% do caixa livre a cada
-10 min — o mesmo modelo de parcelas da Ceifa. Reporta parcelas, assertividade,
+5 min — o mesmo modelo de parcelas da Ceifa. Reporta parcelas, assertividade,
 rendimento e drawdown em seis janelas relativas ao fechamento (16:00 ET): sem
 janela, H-1, H-2, H-3, H-6 e H-12. Só observa; não envia alerta nem ordem.
 

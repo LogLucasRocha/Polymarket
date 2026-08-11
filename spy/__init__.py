@@ -2,7 +2,7 @@
 
 Cada mercado (SPY Up or Down, Bitcoin Above, ...) tem o mesmo formato: dois
 lados cujos preços somam ~1, com o dia no slug. A estratégia aloca no lado que
-estiver na faixa de compra, 1% do caixa livre a cada 10 min, em janelas
+estiver na faixa de compra, 1% do caixa livre a cada 5 min, em janelas
 relativas ao fechamento. Só observa — sem alerta e sem ordem.
 
 O pacote se chama ``spy`` por herança (foi o primeiro mercado), mas hoje é
@@ -62,7 +62,7 @@ MERCADOS: dict[str, Mercado] = {
 
 # Faixa de compra (>95¢ e <99,8¢) e cadência — iguais para todos os mercados.
 BAND = (0.95, 0.998)
-INTERVAL_MINUTES = 10
+INTERVAL_MINUTES = 5
 
 
 def close_utc(mercado: Mercado, d: dt.date) -> dt.datetime:
