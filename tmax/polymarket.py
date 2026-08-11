@@ -43,7 +43,7 @@ _MARKET_CITY_TO_ICAO = {
     "milan": "LIMC", "wuhan": "ZHHH", "munich": "EDDM",
     "helsinki": "EFHK", "tel aviv": "LLBG", "manila": "RPLL",
     "kuala lumpur": "WMKK", "taipei": "RCSS", "guangzhou": "ZGGG",
-    "shenzhen": "ZGSZ", "chengdu": "ZUUU", "cape town": "FACT",
+    "chengdu": "ZUUU", "cape town": "FACT",
 }
 
 # ICAO da estação → fatia de cidade usada no slug do evento na Gamma API.
@@ -60,7 +60,7 @@ _ICAO_TO_CITY_SLUG = {
     # Cidades promovidas em 26/07 — slug conferido na descrição oficial.
     "LIMC": "milan", "ZHHH": "wuhan", "EDDM": "munich", "EFHK": "helsinki",
     "LLBG": "tel-aviv", "RPLL": "manila", "WMKK": "kuala-lumpur",
-    "RCSS": "taipei", "ZGGG": "guangzhou", "ZGSZ": "shenzhen",
+    "RCSS": "taipei", "ZGGG": "guangzhou",
     "ZUUU": "chengdu", "FACT": "cape-town",
 }
 

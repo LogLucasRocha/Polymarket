@@ -30,7 +30,6 @@ class Station:
     wu_history_url: str | None = None
     wu_location_id: str | None = None
     wu_observation_id: str | None = None
-    resolution_proximity_gap_c: float | None = None
 
     @property
     def tz(self) -> ZoneInfo:
@@ -107,17 +106,6 @@ STATIONS = {
                     "🇹🇼", 25.0694, 121.5519, "Asia/Taipei"),
     "ZGGG": Station("ZGGG", "Guangzhou", "Baiyun Intl",
                     "🇨🇳", 23.3924, 113.2988, "Asia/Shanghai"),
-    # Embora a URL do mercado termine em ZGSZ, a tabela que o Wunderground
-    # efetivamente serve vem de Lau Fau Shan (45035), em Hong Kong. Usamos a
-    # localização e a observação que liquidam o contrato, não o METAR do
-    # aeroporto de Bao'an.
-    "ZGSZ": Station(
-        "ZGSZ", "Shenzhen", "Lau Fau Shan (fonte do mercado)",
-        "🇨🇳", 22.4688889, 113.9836111, "Asia/Shanghai",
-        wu_history_url=(
-            "https://www.wunderground.com/history/daily/cn/shenzhen/ZGSZ"),
-        wu_location_id="ZGSZ:9:CN", wu_observation_id="45035",
-        resolution_proximity_gap_c=1.0),
     "ZUUU": Station("ZUUU", "Chengdu", "Shuangliu Intl",
                     "🇨🇳", 30.5785, 103.9471, "Asia/Shanghai"),
     "FACT": Station("FACT", "Cidade do Cabo", "Cape Town Intl",

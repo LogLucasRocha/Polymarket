@@ -328,11 +328,6 @@ def main() -> int:
             q = ctx_i["dist_d0"]["quantiles"]
             ceiling = (float(q.get(50)) + float(spr)
                        if q.get(50) is not None and spr is not None else None)
-            if _resolution_proximity_blocked(ctx_i, v["label"]):
-                print(f"[ceifa] {icao}: filtrado — faixa colada à máxima "
-                      f"oficial (faixa={v['label']}, máxima observada="
-                      f"{float(ctx_i['obs_max_today']):.1f}°C).")
-                continue
             if config.CEIFA_ENSEMBLE_BAND_FILTER and \
                     ceifa.is_ensemble_inside_market_band_risk(
                         icao, v["label"], q.get(10), q.get(90)):
@@ -1010,14 +1005,6 @@ def _ens_spread(ctx) -> float | None:
     if not mm_vals:
         return None
     return max(mm_vals) - mediana
-
-
-def _resolution_proximity_blocked(ctx, label) -> bool:
-    """Mesma trava da fonte oficial usada pelo backtest, aplicada ao alerta."""
-    station = ctx.get("station") if ctx else None
-    icao = getattr(station, "icao", None)
-    return bool(icao and ceifa.is_resolution_proximity_risk(
-        icao, label, ctx.get("obs_max_today")))
 
 
 def _report_snapshot(station, ctx) -> dict:

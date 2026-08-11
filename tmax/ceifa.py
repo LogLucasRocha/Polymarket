@@ -310,32 +310,6 @@ def target_temperature_c(icao: str, faixa) -> float | None:
     return (value - 32.0) * 5.0 / 9.0 if _station_unit(icao) == "F" else value
 
 
-def is_resolution_proximity_risk(icao: str, faixa, observed_max) -> bool:
-    """Veta o NÃO exato imediatamente acima da máxima da fonte de resolução.
-
-    A regra é opt-in por estação. Ela cobre fontes cujo identificador público
-    não corresponde à estação física usada para liquidar o contrato, como a
-    página ZGSZ do Wunderground, que entrega Lau Fau Shan (45035).
-    """
-    station = config.STATIONS.get(icao)
-    gap = getattr(station, "resolution_proximity_gap_c", None)
-    if gap is None or observed_max is None or pd.isna(observed_max):
-        return False
-    label = str(faixa or "").lower()
-    if any(marker in label for marker in (
-            "or lower", "or below", "or less", "ou menos", "ou abaixo",
-            "or higher", "or above", "or more", "ou mais", "ou acima")):
-        return False
-    values = re.findall(r"(?<![\d.,])-?\d+(?:[.,]\d+)?", label)
-    if len(values) != 1:
-        return False
-    target = target_temperature_c(icao, faixa)
-    if target is None:
-        return False
-    observed = float(observed_max)
-    return observed <= target <= observed + float(gap)
-
-
 def market_temperature_interval_c(icao: str, faixa) -> tuple[float, float] | None:
     """Converte o bucket discreto do mercado em um intervalo contínuo em °C.
 
@@ -627,7 +601,6 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
     n_filtrado_nowcast = 0
     n_filtrado_plateau = 0
     n_filtrado_ensemble_band = 0
-    n_filtrado_resolution_proximity = 0
     n_filtrado_upper_tail = 0
     n_filtrado_wide_book = 0
     n_filtrado_100c = 0
@@ -668,22 +641,6 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
         ceiling = (forecast.get("teto_ens") if forecast is not None else None)
         p10 = (forecast.get("p10") if forecast is not None else None)
         p90 = (forecast.get("p90") if forecast is not None else None)
-        observed_max = (forecast.get("obs_max")
-                        if forecast is not None else None)
-        station = config.STATIONS.get(icao)
-        if getattr(station, "wu_observation_id", None):
-            source_max = reconstructed_observed_max(icao, dia, e["ts"])
-            if source_max is not None:
-                observed_max = source_max
-        if (warm_target_filter
-                and is_resolution_proximity_risk(icao, faixa, observed_max)):
-            n_filtrado += 1
-            n_filtrado_resolution_proximity += 1
-            if nao_final > 0.5:
-                n_filtrado_100c += 1
-            else:
-                n_filtrado_0c += 1
-            continue
         if (warm_target_filter and config.CEIFA_ENSEMBLE_BAND_FILTER
                 and is_ensemble_inside_market_band_risk(icao, faixa, p10, p90)):
             n_filtrado += 1
@@ -759,7 +716,6 @@ def simulate(log=lambda m: None, icaos=None, archive=ARCHIVE,
     st["n_filtrado_nowcast"] = n_filtrado_nowcast
     st["n_filtrado_plateau"] = n_filtrado_plateau
     st["n_filtrado_ensemble_band"] = n_filtrado_ensemble_band
-    st["n_filtrado_resolution_proximity"] = n_filtrado_resolution_proximity
     st["n_filtrado_upper_tail"] = n_filtrado_upper_tail
     st["n_filtrado_wide_book"] = n_filtrado_wide_book
     st["n_filtrado_100c"] = n_filtrado_100c
@@ -817,7 +773,6 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
     signals = []
     filtered = filtered_spread = filtered_nowcast = filtered_plateau = 0
     filtered_ensemble_band = 0
-    filtered_resolution_proximity = 0
     filtered_upper_tail = 0
     filtered_lower_tail = 0
     filtered_taf = 0
@@ -865,28 +820,6 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                 filtered += 1
                 filtered_spread += 1
                 filtered_records.append({"dia": day_br, "motivo": "Ensemble largo"})
-                if final_no > 0.5:
-                    filtered_100c += 1
-                else:
-                    filtered_0c += 1
-                continue
-
-            observed_max = fget("obs_max")
-            station = config.STATIONS.get(icao)
-            if getattr(station, "wu_observation_id", None):
-                source_max = reconstructed_observed_max(
-                    icao, day, fget("ts"))
-                if source_max is not None:
-                    observed_max = source_max
-            if (warm_target_filter
-                    and is_resolution_proximity_risk(
-                        icao, faixa, observed_max)):
-                filtered += 1
-                filtered_resolution_proximity += 1
-                filtered_records.append({
-                    "dia": day_br,
-                    "motivo": "Faixa colada à máxima da fonte oficial",
-                })
                 if final_no > 0.5:
                     filtered_100c += 1
                 else:
@@ -999,7 +932,6 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
         "n_filtrado_nowcast": filtered_nowcast,
         "n_filtrado_plateau": filtered_plateau,
         "n_filtrado_ensemble_band": filtered_ensemble_band,
-        "n_filtrado_resolution_proximity": filtered_resolution_proximity,
         "n_filtrado_upper_tail": filtered_upper_tail,
         "n_filtrado_lower_tail": filtered_lower_tail,
         "n_filtrado_taf": filtered_taf,

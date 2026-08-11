@@ -354,8 +354,6 @@ def combine_active_strategies(maximum: dict, minimum: dict) -> dict:
         "n_filtrado_plateau": maximum.get("n_filtrado_plateau", 0),
         "n_filtrado_ensemble_band": maximum.get(
             "n_filtrado_ensemble_band", 0),
-        "n_filtrado_resolution_proximity": maximum.get(
-            "n_filtrado_resolution_proximity", 0),
         "n_filtrado_upper_tail": maximum.get(
             "n_filtrado_upper_tail", 0),
         "n_filtrado_lower_tail": minimum.get(
@@ -395,7 +393,6 @@ def single_band_scenario(maximum: dict, minimum: dict) -> dict:
         for key in (
             "n_filtrado", "n_filtrado_spread", "n_filtrado_nowcast",
             "n_filtrado_plateau", "n_filtrado_ensemble_band",
-            "n_filtrado_resolution_proximity",
             "n_filtrado_upper_tail", "n_filtrado_wide_book",
             "n_filtrado_taf", "n_filtrado_100c",
             "n_filtrado_0c",
@@ -437,7 +434,6 @@ def slice_strategy(stats: dict, lookback_days: int | None) -> dict:
     for key in (
         "n_filtrado", "n_filtrado_spread", "n_filtrado_nowcast",
         "n_filtrado_plateau", "n_filtrado_ensemble_band",
-        "n_filtrado_resolution_proximity",
         "n_filtrado_upper_tail", "n_filtrado_wide_book",
         "n_filtrado_taf", "n_filtrado_100c",
         "n_filtrado_0c", "n_filtrado_faixa_unica",
@@ -485,19 +481,6 @@ def filter_frame(stats: dict) -> pd.DataFrame:
     })
     if kind in {"maximum", "consolidated"}:
         rows.extend([
-            {
-                "Estratégia": "Máxima",
-                "Filtro": "Faixa colada à máxima oficial",
-                "Quando bloqueia": (
-                    "Em fontes explicitamente calibradas, a faixa exata fica "
-                    "até 1 °C acima da máxima já observada na própria fonte "
-                    "que liquidará o mercado."),
-                "Entradas bloqueadas": stats.get(
-                    "n_filtrado_resolution_proximity", 0),
-                "Observação": (
-                    "Ativo em Shenzhen, cuja página ZGSZ usa Lau Fau Shan "
-                    "(45035) como estação efetiva."),
-            },
             {
                 "Estratégia": "Máxima",
                 "Filtro": "Ensemble largo",
