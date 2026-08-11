@@ -1,5 +1,7 @@
 import unittest
 
+import pandas as pd
+
 import ceifa_monitor as dashboard
 
 
@@ -44,6 +46,11 @@ class DashboardHourlyTest(unittest.TestCase):
 
     def test_mean_daily_return_is_empty_without_days(self):
         self.assertIsNone(dashboard.mean_daily_return({"per_day": []}))
+
+    def test_brasilia_time_labels_convert_from_utc(self):
+        stamps = pd.Series(["2026-08-11T00:50:00Z"])
+        labels = dashboard.brasilia_time_labels(stamps)
+        self.assertEqual(labels.tolist(), ["10/08/2026 21:50"])
 
 
 if __name__ == "__main__":

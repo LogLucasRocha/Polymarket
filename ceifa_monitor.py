@@ -302,6 +302,12 @@ def _local_timestamps(stats: dict) -> pd.Series:
     return stamps.dt.tz_convert(USER_TZ)
 
 
+def brasilia_time_labels(stamps: pd.Series) -> pd.Series:
+    """Rótulos locais para tooltips cujos eixos permanecem em UTC."""
+    converted = pd.to_datetime(stamps, utc=True).dt.tz_convert(USER_TZ)
+    return converted.dt.strftime("%d/%m/%Y %H:%M")
+
+
 def _local_hours(stats: dict) -> pd.Series:
     """Hora do dia (fuso do usuário) de cada parcela executada no histórico."""
     return _local_timestamps(stats).dt.hour
@@ -920,23 +926,29 @@ def market_page(market: str) -> None:
         # A partir do segundo, mantém a curva limpa como a do Bitcoin; o
         # hovertemplate abaixo continua exibindo o preço sem bolinhas visíveis.
         price_mode = "lines+markers" if len(prices) == 1 else "lines"
-        hover_price = "<b>%{fullData.name}</b>: %{y:.3f}<extra></extra>"
+        brasilia_times = brasilia_time_labels(prices["ts"]).to_frame()
+        hover_price = (
+            "<b>%{fullData.name}</b>: %{y:.3f}"
+            "<br>Brasília: %{customdata[0]}<extra></extra>")
         figp.add_hrect(y0=0.95, y1=0.998, fillcolor=GREEN, opacity=0.12,
                        line_width=0, annotation_text="faixa de compra",
                        annotation_position="top left")
         figp.add_trace(go.Scatter(
             x=prices["ts"], y=prices["preco_up"], name=lado_a,
             mode=price_mode, line=dict(color=BLUE, width=2),
-            marker=dict(size=6), hovertemplate=hover_price))
+            marker=dict(size=6), customdata=brasilia_times,
+            hovertemplate=hover_price))
         figp.add_trace(go.Scatter(
             x=prices["ts"], y=prices["preco_down"], name=lado_b,
             mode=price_mode, line=dict(color=AMBER, width=2),
-            marker=dict(size=6), hovertemplate=hover_price))
+            marker=dict(size=6), customdata=brasilia_times,
+            hovertemplate=hover_price))
         figp.update_layout(
             height=280, margin=dict(l=15, r=15, t=10, b=10),
             yaxis_title="Preço", xaxis_title=None, yaxis_range=[-0.02, 1.02],
             legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
-            hovermode="x unified", hoverdistance=-1)
+            hovermode="x unified", hoverdistance=-1,
+            xaxis_hoverformat="%d/%m/%Y %H:%M UTC")
         st.plotly_chart(dark_figure(figp), width="stretch")
         st.caption(
             "Faixa verde = 95–99,8¢, onde a estratégia entra. Sem nenhum lado "
