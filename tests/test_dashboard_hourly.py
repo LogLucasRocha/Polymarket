@@ -51,6 +51,13 @@ class DashboardHourlyTest(unittest.TestCase):
         self.assertEqual({trace.name for trace in chart.data}, {"Up", "Down"})
         self.assertEqual(chart.layout.barmode, "stack")
 
+        table = dashboard.hourly_average_table(stats, ("Up", "Down"))
+        self.assertEqual(len(table), 24)
+        self.assertEqual(table.iloc[10]["Janela (Brasília)"], "10h–11h")
+        self.assertEqual(table.iloc[10]["Média total/dia"], 1.5)
+        self.assertEqual(table.iloc[10]["Up"], 1.0)
+        self.assertEqual(table.iloc[10]["Down"], 0.5)
+
     def test_mean_daily_return_averages_resolved_days_with_entries(self):
         stats = {"per_day": [
             {"day": "2026-08-08", "ret": 0.01},

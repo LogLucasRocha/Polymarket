@@ -410,6 +410,20 @@ def hourly_chart(stats: dict,
     return dark_figure(fig)
 
 
+def hourly_average_table(stats: dict,
+                         side_labels: tuple[str, str] | None = None
+                         ) -> pd.DataFrame:
+    """Tabela das médias de parcelas/dia em cada janela horária de Brasília."""
+    piv = hourly_by_category(stats, side_labels)
+    if piv.empty:
+        return pd.DataFrame()
+    table = piv.copy()
+    table.insert(0, "Média total/dia", table.sum(axis=1))
+    table.insert(0, "Janela (Brasília)",
+                 [f"{hour:02d}h–{(hour + 1) % 24:02d}h" for hour in table.index])
+    return table.reset_index(drop=True).round(2)
+
+
 def render_hourly_section(stats: dict,
                           side_labels: tuple[str, str] | None = None) -> None:
     """Renderiza a distribuição horária compartilhada por produção e testes."""
@@ -428,6 +442,14 @@ def render_hourly_section(stats: dict,
         f"Cálculo sobre {days} dia(s) com apostas, incluindo zero nas "
         "horas sem entrada. O acumulado continua disponível ao passar "
         "o mouse — o relógio é o de Brasília.")
+    table = hourly_average_table(stats, side_labels)
+    st.markdown("**Média de parcelas por janela horária**")
+    st.dataframe(
+        table, hide_index=True, width="stretch", height=420,
+        column_config={
+            column: st.column_config.NumberColumn(format="%.2f")
+            for column in table.columns if column != "Janela (Brasília)"
+        })
 
 
 def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
