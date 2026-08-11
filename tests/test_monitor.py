@@ -47,7 +47,7 @@ class MonitorTest(unittest.TestCase):
         self.assertIn(["fetch", "origin", "--quiet"], commands)
         self.assertIn(
             ["restore", "--source=origin/main", "--worktree", "--",
-             "dados", "dados_low"],
+             *monitor._committed_archive_names()],
             commands)
         self.assertFalse(any(command[0] == "merge" for command in commands))
 
@@ -57,10 +57,14 @@ class MonitorTest(unittest.TestCase):
             SimpleNamespace(returncode=0, stdout="abc123\n", stderr=""),
         ]
         with TemporaryDirectory() as temporary:
-            marker = Path(temporary) / "archive.json"
+            root = Path(temporary)
+            marker = root / "archive.json"
             marker.write_text('{"version": "abc123"}', encoding="utf-8")
+            for name in monitor._committed_archive_names():
+                (root / name).mkdir()
             with (mock.patch.object(monitor.subprocess, "run",
                                     side_effect=replies) as invoked,
+                  mock.patch.object(monitor.config, "ROOT", root),
                   mock.patch.object(monitor, "_archive_version_file",
                                     return_value=marker),
                   mock.patch.object(monitor, "_sync_live_snapshot",
@@ -73,6 +77,36 @@ class MonitorTest(unittest.TestCase):
         commands = [call.args[0][1:] for call in invoked.call_args_list]
         self.assertFalse(any(command[0] in ("merge", "restore")
                              for command in commands))
+
+    def test_dashboard_refresh_restores_missing_market_archive(self):
+        replies = [
+            SimpleNamespace(returncode=0, stdout="", stderr=""),
+            SimpleNamespace(returncode=0, stdout="abc123\n", stderr=""),
+            SimpleNamespace(returncode=0, stdout="", stderr=""),
+        ]
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            marker = root / "archive.json"
+            marker.write_text('{"version": "abc123"}', encoding="utf-8")
+            for name in monitor._committed_archive_names():
+                if name != "dados_spy":
+                    (root / name).mkdir()
+            with (mock.patch.object(monitor.subprocess, "run",
+                                    side_effect=replies) as invoked,
+                  mock.patch.object(monitor.config, "ROOT", root),
+                  mock.patch.object(monitor, "_archive_version_file",
+                                    return_value=marker),
+                  mock.patch.object(monitor, "_sync_live_snapshot",
+                                    return_value={"ok": True, "updated": False,
+                                                  "message": "live"})):
+                result = monitor.sync_dashboard_data()
+
+        self.assertTrue(result["updated"])
+        commands = [call.args[0][1:] for call in invoked.call_args_list]
+        self.assertIn(
+            ["restore", "--source=origin/main", "--worktree", "--",
+             *monitor._committed_archive_names()],
+            commands)
 
     def test_dashboard_refresh_reports_archive_restore_failure(self):
         replies = [

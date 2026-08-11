@@ -38,6 +38,12 @@ def _archive_version_file() -> Path:
     return config.DATA_DIR / "dashboard_archive_version.json"
 
 
+def _committed_archive_names() -> tuple[str, ...]:
+    """Pastas consolidadas restauradas da branch principal pelo dashboard."""
+    return ("dados", "dados_low",
+            *(f"dados_{key}" for key in MERCADOS))
+
+
 def _merge_historical_minimum_taf(group: pd.DataFrame, day: str,
                                   cache: dict[str, pd.DataFrame]) -> pd.DataFrame:
     """Preserva o TAF retroativo ao reconstruir o pacote intradiario."""
@@ -91,12 +97,11 @@ def _sync_committed_archives() -> dict:
         saved = json.loads(version_file.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         saved = {}
+    archives = _committed_archive_names()
     if (saved.get("version") == version
-            and all((config.ROOT / name).exists()
-                    for name in ("dados", "dados_low"))):
+            and all((config.ROOT / name).exists() for name in archives)):
         return {"ok": True, "updated": False,
                 "message": "Histórico diário já atualizado."}
-    archives = ("dados", "dados_low")
     restored = run(
         "restore", "--source=origin/main", "--worktree", "--", *archives)
     if restored.returncode:
@@ -249,8 +254,9 @@ def sync_dashboard_data() -> dict:
     """Sincroniza o histórico consolidado e o pacote intradiário.
 
     O dashboard local contém código e atalhos próprios que podem estar
-    modificados. Atualizar apenas ``dados/`` e ``dados_low/`` evita que essas
-    alterações bloqueiem a chegada dos snapshots publicados pelo workflow.
+    modificados. Atualizar apenas os arquivos consolidados (meteorologia e
+    mercados observacionais) evita que essas alterações bloqueiem a chegada
+    dos snapshots publicados pelo workflow.
     """
     try:
         committed = _sync_committed_archives()
