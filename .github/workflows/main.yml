@@ -46,6 +46,8 @@ jobs:
             data_spy_above
             data_solana
             data_sol_updown
+            data_ethereum
+            data_eth_updown
           key: tmax-data-${{ github.run_id }}
           restore-keys: |
             tmax-data-
@@ -97,10 +99,10 @@ jobs:
         continue-on-error: true
         run: python -m lowtemp.capture
 
-      # Captura dos mercados binários diários (SPY, Bitcoin, Solana, ...)
+      # Captura dos mercados binários diários (SPY, Bitcoin, Solana, Ethereum)
       # para estudo/observação. Fim de semana/feriado sem mercado — a
       # rodada apenas não grava. Só arquiva; não envia alerta nem ordem.
-      - name: Capturar mercados binários (SPY, Bitcoin, Solana)
+      - name: Capturar mercados binários (SPY e criptos)
         continue-on-error: true
         run: python -m spy.capture
 
@@ -120,7 +122,8 @@ jobs:
           roots = (Path("data/capture/buffer"), Path("data_low"),
                    Path("data_spy"), Path("data_bitcoin"),
                    Path("data_btc_updown"), Path("data_spy_above"),
-                   Path("data_solana"), Path("data_sol_updown"))
+                   Path("data_solana"), Path("data_sol_updown"),
+                   Path("data_ethereum"), Path("data_eth_updown"))
           with ZipFile("ceifa-live.zip", "w", ZIP_DEFLATED) as archive:
               for root in roots:
                   if not root.exists():
@@ -163,6 +166,8 @@ jobs:
           [ -d dados_spy_above ] && git add dados_spy_above || true
           [ -d dados_solana ] && git add dados_solana || true
           [ -d dados_sol_updown ] && git add dados_sol_updown || true
+          [ -d dados_ethereum ] && git add dados_ethereum || true
+          [ -d dados_eth_updown ] && git add dados_eth_updown || true
           if git diff --cached --quiet; then
             echo "sem dados novos para commitar"; exit 0
           fi

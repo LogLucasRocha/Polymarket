@@ -38,6 +38,24 @@ class RegistryTests(unittest.TestCase):
                 study._close_utc(market.key, "2026-08-10"),
                 pd.Timestamp("2026-08-10T16:00:00Z"))
 
+    def test_ethereum_markets_match_urls_and_crypto_schedule(self):
+        above = MERCADOS["ethereum"]
+        updown = MERCADOS["eth_updown"]
+        self.assertEqual(above.kind, "strikes")
+        self.assertEqual(updown.kind, "binary")
+        for market, expected in (
+                (above, "ethereum-above-on-august-12-2026"),
+                (updown, "ethereum-up-or-down-on-august-12-2026")):
+            self.assertTrue(market.rolling)
+            self.assertEqual(market.close_hour, 16)
+            self.assertEqual(market.tz, "UTC")
+            self.assertEqual(
+                capture.market_slug(market.slug_prefix, dt.date(2026, 8, 12)),
+                expected)
+            self.assertEqual(
+                study._close_utc(market.key, "2026-08-12"),
+                pd.Timestamp("2026-08-12T16:00:00Z"))
+
     def test_spy_closes_at_16_et(self):
         # SPY: 16:00 ET (EDT em agosto) = 20:00 UTC.
         self.assertEqual(

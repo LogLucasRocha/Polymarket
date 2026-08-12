@@ -53,6 +53,14 @@ MERCADOS: dict[str, Mercado] = {
     "sol_updown": Mercado("sol_updown", "Solana Up or Down",
                           "solana-up-or-down-on", close_hour=16, tz="UTC",
                           rolling=True, kind="binary"),
+    # Ethereum usa a mesma janela diária das outras criptos: resolve às 16:00
+    # UTC e, nesse instante, o slug passa para a data do dia seguinte.
+    "ethereum": Mercado("ethereum", "Ethereum Above", "ethereum-above-on",
+                         close_hour=16, tz="UTC", rolling=True,
+                         kind="strikes"),
+    "eth_updown": Mercado("eth_updown", "Ethereum Up or Down",
+                           "ethereum-up-or-down-on", close_hour=16, tz="UTC",
+                           rolling=True, kind="binary"),
     # SPY multi-strike ("fecha acima de X?"), resolve no fechamento do pregão
     # (16:00 ET) como o SPY Up or Down; após o fechamento, passa ao próximo
     # pregão e pula fins de semana.

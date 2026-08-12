@@ -1121,7 +1121,8 @@ def main() -> None:
             choice = pick_col.radio(
                 "Hipótese em teste",
                 ["◇ SPY", "↕ BTC Up/Down", "↕ SOL Up/Down",
-                 "▲ SPY Above", "₿ Bitcoin Above", "◎ Solana Above"],
+                 "↕ ETH Up/Down", "▲ SPY Above", "₿ Bitcoin Above",
+                 "◎ Solana Above", "Ξ Ethereum Above"],
                 horizontal=True, key="test_navigation")
         period_label = period_col.selectbox(
             "Período",
@@ -1144,16 +1145,18 @@ def main() -> None:
         "Últimos 14 dias": 14, "Últimos 7 dias": 7,
     }[period_label]
 
-    # Área "Em teste": mercados binários diários (SPY, Bitcoin, Solana).
+    # Área "Em teste": mercados binários diários (SPY e criptos).
     # sem lado NÃO/SIM nem filtros meteorológicos.
     if not producao:
         market = {
             "◇ SPY": "spy",
             "↕ BTC Up/Down": "btc_updown",
             "↕ SOL Up/Down": "sol_updown",
+            "↕ ETH Up/Down": "eth_updown",
             "▲ SPY Above": "spy_above",
             "₿ Bitcoin Above": "bitcoin",
             "◎ Solana Above": "solana",
+            "Ξ Ethereum Above": "ethereum",
         }[choice]
         if market not in MERCADOS:
             # O Streamlit recarrega este arquivo mas mantém o pacote spy antigo
