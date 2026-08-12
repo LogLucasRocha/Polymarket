@@ -9,15 +9,13 @@ from spy import (BAND, INTERVAL_MINUTES, MERCADOS, PAIR_ASK_CEILING, capture,
 
 
 class RegistryTests(unittest.TestCase):
-    def test_band_is_95_to_998(self):
-        self.assertEqual(BAND, (0.95, 0.998))
+    def test_band_is_95_to_995(self):
+        self.assertEqual(BAND, (0.95, 0.995))
         self.assertEqual(PAIR_ASK_CEILING, 1.05)
 
-    def test_spy_updown_has_lower_ceiling_than_other_markets(self):
-        self.assertEqual(study.price_band("spy"), (0.95, 0.995))
-        for market in ("spy_above", "bitcoin", "btc_updown", "solana",
-                       "sol_updown", "ethereum", "eth_updown"):
-            self.assertEqual(study.price_band(market), (0.95, 0.998))
+    def test_all_markets_use_995_ceiling(self):
+        for market in MERCADOS:
+            self.assertEqual(study.price_band(market), (0.95, 0.995))
 
     def test_bitcoin_market_registered(self):
         self.assertIn("bitcoin", MERCADOS)
@@ -175,10 +173,10 @@ class SpySlugTests(unittest.TestCase):
 
 
 class SpyStudyTests(unittest.TestCase):
-    def test_spy_rejects_995_while_other_markets_keep_it(self):
+    def test_all_markets_reject_995_boundary(self):
         row = {"preco_up": 0.995, "preco_down": 0.005}
-        self.assertIsNone(study._side_in_band(row, "spy"))
-        self.assertEqual(study._side_in_band(row, "btc_updown"), "up")
+        for market in MERCADOS:
+            self.assertIsNone(study._side_in_band(row, market))
 
     def test_pair_asks_must_sum_to_less_than_105_cents(self):
         base = {"preco_up": 0.97, "preco_down": 0.03}
@@ -379,7 +377,7 @@ class StrikesTests(unittest.TestCase):
         for i in range(6):                     # 10:00..10:50, longe do 16:00 UTC
             iso = (start + dt.timedelta(minutes=10 * i)).isoformat()
             rows.append({"ts_utc": iso, "dia": "2026-08-09", "faixa": "62000",
-                         "preco_up": 0.9975, "preco_down": 0.0025})  # na faixa
+                         "preco_up": 0.994, "preco_down": 0.006})  # na faixa
         frame = _frame(rows)
         with mock.patch.object(study, "_load_market", return_value=frame):
             stats = study.simulate(None, "bitcoin")

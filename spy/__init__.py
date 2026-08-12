@@ -35,12 +35,12 @@ class Mercado:
     #   "acima de 60k?", "acima de 62k?", ...). Cada strike vira um contrato.
     kind: str = "binary"
     # Teto exclusivo da faixa de compra. O piso de 95¢ continua global.
-    band_high: float = 0.998
+    band_high: float = 0.995
 
 
 MERCADOS: dict[str, Mercado] = {
     "spy": Mercado("spy", "SPY Daily Up or Down", "spy-up-or-down-on",
-                   rolling=True, weekdays_only=True, band_high=0.995),
+                   rolling=True, weekdays_only=True),
     "bitcoin": Mercado("bitcoin", "Bitcoin Above", "bitcoin-above-on",
                        close_hour=16, tz="UTC", rolling=True, kind="strikes"),
     # Binário diário do BTC (mesmo esquema do SPY), mas o dia vira/resolve às
@@ -70,8 +70,8 @@ MERCADOS: dict[str, Mercado] = {
                          rolling=True, weekdays_only=True, kind="strikes"),
 }
 
-# Faixa padrão (>95¢ e <99,8¢). SPY Up/Down usa teto próprio de 99,5¢.
-BAND = (0.95, 0.998)
+# Faixa padrão de todos os mercados em teste: >95¢ e <99,5¢.
+BAND = (0.95, 0.995)
 # Veto de custo do par: as melhores ofertas dos dois lados precisam somar
 # menos de 105¢. Em 105¢ exatos ou acima, o snapshot não gera parcela.
 PAIR_ASK_CEILING = 1.05
