@@ -183,7 +183,9 @@ def coletar(mercado: Mercado) -> list[dict]:
             "livro_consultado": True,
         })
     resumo = ", ".join(
-        f"{r['faixa']}={r['preco_up']}/{r['preco_down']}" for r in recs[:4])
+        f"{r['faixa']}={r['ask_up'] if r['ask_up'] is not None else r['preco_up']}"
+        f"/{r['ask_down'] if r['ask_down'] is not None else r['preco_down']}"
+        for r in recs[:4])
     print(f"{mercado.key} {d0}: {len(recs)} contrato(s) · {resumo}")
     return recs
 

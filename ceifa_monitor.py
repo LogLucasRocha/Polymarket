@@ -932,14 +932,15 @@ def market_page(market: str) -> None:
     if not strikes.empty:
         st.subheader("Strikes do último snapshot")
         view = strikes.rename(columns={
-            "faixa": "Strike", "preco_up": f"{lado_a} (¢)",
-            "preco_down": f"{lado_b} (¢)", "na_faixa": "Na faixa"})
-        for col in (f"{lado_a} (¢)", f"{lado_b} (¢)"):
+            "faixa": "Strike", "preco_up": f"Comprar {lado_a} (¢)",
+            "preco_down": f"Comprar {lado_b} (¢)", "na_faixa": "Na faixa"})
+        for col in (f"Comprar {lado_a} (¢)", f"Comprar {lado_b} (¢)"):
             view[col] = (view[col].astype(float) * 100).round(1)
         st.dataframe(view, hide_index=True, width="stretch",
                      column_config={"Na faixa": st.column_config.CheckboxColumn()})
         st.caption(
-            f"Cada strike é um contrato. Qualquer lado (Yes/No) na faixa "
+            f"Os valores são os melhores asks executáveis, iguais aos botões "
+            f"Buy da Polymarket. Qualquer lado (Yes/No) na faixa "
             f"{band_label} vira parcela somente se Yes + No nos asks somarem menos de "
             "105¢ — a coluna 'Na faixa' marca quais entrariam.")
 
@@ -994,6 +995,8 @@ def market_page(market: str) -> None:
             xaxis_hoverformat="%d/%m/%Y %H:%M UTC")
         st.plotly_chart(dark_figure(figp), width="stretch")
         st.caption(
+            f"As linhas usam o melhor ask executável; snapshots históricos sem "
+            "livro usam o preço indicativo. "
             f"Faixa verde = {band_label}, onde a estratégia entra. Sem nenhum lado "
             "dentro dela, ou com a soma dos asks em 105¢ ou mais, não há "
             "parcela naquele instante.")
