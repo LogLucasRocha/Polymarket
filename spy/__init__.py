@@ -70,6 +70,9 @@ MERCADOS: dict[str, Mercado] = {
 
 # Faixa de compra (>95¢ e <99,8¢) e cadência — iguais para todos os mercados.
 BAND = (0.95, 0.998)
+# Veto de custo do par: as melhores ofertas dos dois lados precisam somar
+# menos de 105¢. Em 105¢ exatos ou acima, o snapshot não gera parcela.
+PAIR_ASK_CEILING = 1.05
 INTERVAL_MINUTES = 5
 
 

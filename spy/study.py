@@ -18,7 +18,7 @@ import pandas as pd
 
 from tmax import ceifa, config
 
-from . import BAND, INTERVAL_MINUTES, MERCADOS, Mercado
+from . import BAND, INTERVAL_MINUTES, MERCADOS, PAIR_ASK_CEILING, Mercado
 
 STAKE_FRAC = config.CEIFA_STAKE_FRAC       # 1% do caixa livre por parcela
 
@@ -109,6 +109,19 @@ def _resolved(group: pd.DataFrame, column: str, close: pd.Timestamp,
 
 
 def _side_in_band(row) -> str | None:
+    # O par de asks é o custo executável simultâneo de ambos os lados. Um livro
+    # largo ou inconsistente (Yes + No >= 105¢) veta a parcela inteira. Dados
+    # antigos sem os dois asks caem para os preços indicativos; se nem o par de
+    # preços estiver completo, não inventamos um veto sem informação.
+    for up_col, down_col in (("ask_up", "ask_down"),
+                             ("preco_up", "preco_down")):
+        up = row.get(up_col)
+        down = row.get(down_col)
+        if up is None or down is None or pd.isna(up) or pd.isna(down):
+            continue
+        if float(up) + float(down) >= PAIR_ASK_CEILING:
+            return None
+        break
     for name in ("up", "down"):
         price = row.get(f"preco_{name}")
         if price is not None and not pd.isna(price) \

@@ -4,12 +4,14 @@ from unittest import mock
 
 import pandas as pd
 
-from spy import BAND, INTERVAL_MINUTES, MERCADOS, capture, study
+from spy import (BAND, INTERVAL_MINUTES, MERCADOS, PAIR_ASK_CEILING, capture,
+                 study)
 
 
 class RegistryTests(unittest.TestCase):
     def test_band_is_95_to_998(self):
         self.assertEqual(BAND, (0.95, 0.998))
+        self.assertEqual(PAIR_ASK_CEILING, 1.05)
 
     def test_bitcoin_market_registered(self):
         self.assertIn("bitcoin", MERCADOS)
@@ -167,6 +169,22 @@ class SpySlugTests(unittest.TestCase):
 
 
 class SpyStudyTests(unittest.TestCase):
+    def test_pair_asks_must_sum_to_less_than_105_cents(self):
+        base = {"preco_up": 0.97, "preco_down": 0.03}
+        self.assertEqual(
+            study._side_in_band(dict(base, ask_up=0.99, ask_down=0.059)),
+            "up")
+        self.assertIsNone(
+            study._side_in_band(dict(base, ask_up=0.99, ask_down=0.06)))
+        self.assertIsNone(
+            study._side_in_band(dict(base, ask_up=1.00, ask_down=0.06)))
+
+    def test_pair_filter_falls_back_to_prices_without_complete_asks(self):
+        self.assertIsNone(study._side_in_band({
+            "preco_up": 0.97, "preco_down": 0.08,
+            "ask_up": 0.98, "ask_down": None,
+        }))
+
     def test_no_window_counts_every_five_minutes(self):
         self.assertEqual(INTERVAL_MINUTES, 5)
         frame = _day_series({}, last_up=0.999)   # Up sempre 0,97; resolve Up=1

@@ -51,7 +51,9 @@ apenas não grava.
 
 O estudo (`spy.study`, aba de cada mercado em **Em teste**) aloca no lado cujo
 preço estiver na faixa **(0,95, 0,998)**, adicionando 1% do caixa livre a cada
-5 min — o mesmo modelo de parcelas da Ceifa. Reporta parcelas, assertividade,
+5 min — o mesmo modelo de parcelas da Ceifa. Uma parcela só é aceita quando as
+melhores ofertas dos dois lados somam menos de **105¢**; em 105¢ ou mais, o
+snapshot é vetado. Reporta parcelas, assertividade,
 rendimento e drawdown em seis janelas relativas ao fechamento (16:00 ET): sem
 janela, H-1, H-2, H-3, H-6 e H-12. Só observa; não envia alerta nem ordem.
 

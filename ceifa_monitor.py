@@ -911,7 +911,8 @@ def market_page(market: str) -> None:
     st.caption(
         f"Último dia capturado: {latest or '—'} · aloca no lado "
         f"({lado_a} ou {lado_b}) que estiver entre 95¢ e 99,8¢, com 1% do caixa "
-        "livre a cada 5 min. Fase de observação — sem apostas reais.")
+        "livre a cada 5 min, somente quando os asks dos dois lados somarem "
+        "menos de 105¢. Fase de observação — sem apostas reais.")
 
     daily = spy_study.daily_summary(market)
     prices = spy_study.latest_prices(market)
@@ -936,7 +937,8 @@ def market_page(market: str) -> None:
                      column_config={"Na faixa": st.column_config.CheckboxColumn()})
         st.caption(
             "Cada strike é um contrato. Qualquer lado (Yes/No) entre 95¢ e "
-            "99,8¢ vira parcela — a coluna 'Na faixa' marca quais entrariam.")
+            "99,8¢ vira parcela somente se Yes + No nos asks somarem menos de "
+            "105¢ — a coluna 'Na faixa' marca quais entrariam.")
 
     # Preços do dia com a faixa marcada (mercados binários, tipo SPY).
     if not prices.empty:
@@ -990,7 +992,8 @@ def market_page(market: str) -> None:
         st.plotly_chart(dark_figure(figp), width="stretch")
         st.caption(
             "Faixa verde = 95–99,8¢, onde a estratégia entra. Sem nenhum lado "
-            "dentro dela, não há parcela naquele instante.")
+            "dentro dela, ou com a soma dos asks em 105¢ ou mais, não há "
+            "parcela naquele instante.")
 
     if daily.empty or daily["parcelas"].sum() == 0:
         resolvidos = daily["resolvido"].sum() if not daily.empty else 0
@@ -1168,7 +1171,8 @@ def main() -> None:
                 "suba de novo) para carregar — recarregar a aba não basta.")
             return
         hero(f"{MERCADOS[market].nome} · hipótese em teste · aloca no lado na "
-             "faixa 95–99,8¢, 1% do caixa livre a cada 5 min.")
+             "faixa 95–99,8¢, 1% do caixa livre a cada 5 min · Yes + No nos "
+             "asks abaixo de 105¢.")
         market_page(market)
         return
 
