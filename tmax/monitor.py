@@ -100,12 +100,23 @@ def _sync_committed_archives() -> dict:
     except (OSError, ValueError):
         saved = {}
     archives = _committed_archive_names()
+    listed = run("ls-tree", "-d", "--name-only", "origin/main", "--",
+                 *archives)
+    if listed.returncode:
+        return {"ok": False, "updated": False,
+                "message": "Não consegui identificar os arquivos remotos."}
+    tracked = set(listed.stdout.splitlines())
+    remote_archives = tuple(name for name in archives if name in tracked)
+    if not remote_archives:
+        return {"ok": False, "updated": False,
+                "message": "O histórico remoto ainda não está disponível."}
     if (saved.get("version") == version
-            and all((config.ROOT / name).exists() for name in archives)):
+            and all((config.ROOT / name).exists() for name in remote_archives)):
         return {"ok": True, "updated": False,
                 "message": "Histórico diário já atualizado."}
     restored = run(
-        "restore", "--source=origin/main", "--worktree", "--", *archives)
+        "restore", "--source=origin/main", "--worktree", "--",
+        *remote_archives)
     if restored.returncode:
         return {"ok": False, "updated": False,
                 "message": "Não consegui atualizar os arquivos de dados."}

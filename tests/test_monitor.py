@@ -14,6 +14,10 @@ from tmax import monitor
 
 
 class MonitorTest(unittest.TestCase):
+    @staticmethod
+    def _tracked_archives() -> str:
+        return "\n".join(monitor._committed_archive_names()) + "\n"
+
     def test_city_frame_is_empty_without_raising_when_strategy_has_no_entries(self):
         frame = monitor.city_frame({"by_city": {}})
 
@@ -28,6 +32,8 @@ class MonitorTest(unittest.TestCase):
         replies = [
             SimpleNamespace(returncode=0, stdout="", stderr=""),
             SimpleNamespace(returncode=0, stdout="abc123\n", stderr=""),
+            SimpleNamespace(returncode=0, stdout=self._tracked_archives(),
+                            stderr=""),
             SimpleNamespace(returncode=0, stdout="", stderr=""),
         ]
         with TemporaryDirectory() as temporary:
@@ -55,6 +61,8 @@ class MonitorTest(unittest.TestCase):
         replies = [
             SimpleNamespace(returncode=0, stdout="", stderr=""),
             SimpleNamespace(returncode=0, stdout="abc123\n", stderr=""),
+            SimpleNamespace(returncode=0, stdout=self._tracked_archives(),
+                            stderr=""),
         ]
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -82,6 +90,8 @@ class MonitorTest(unittest.TestCase):
         replies = [
             SimpleNamespace(returncode=0, stdout="", stderr=""),
             SimpleNamespace(returncode=0, stdout="abc123\n", stderr=""),
+            SimpleNamespace(returncode=0, stdout=self._tracked_archives(),
+                            stderr=""),
             SimpleNamespace(returncode=0, stdout="", stderr=""),
         ]
         with TemporaryDirectory() as temporary:
@@ -112,6 +122,8 @@ class MonitorTest(unittest.TestCase):
         replies = [
             SimpleNamespace(returncode=0, stdout="", stderr=""),
             SimpleNamespace(returncode=0, stdout="abc123\n", stderr=""),
+            SimpleNamespace(returncode=0, stdout=self._tracked_archives(),
+                            stderr=""),
             SimpleNamespace(returncode=1, stdout="", stderr="failure"),
         ]
         with TemporaryDirectory() as temporary:
@@ -127,6 +139,35 @@ class MonitorTest(unittest.TestCase):
 
         self.assertFalse(result["ok"])
         self.assertIn("arquivos de dados", result["message"])
+
+    def test_dashboard_refresh_skips_markets_not_yet_archived_remotely(self):
+        remote = ("dados", "dados_low", "dados_bitcoin")
+        replies = [
+            SimpleNamespace(returncode=0, stdout="", stderr=""),
+            SimpleNamespace(returncode=0, stdout="abc123\n", stderr=""),
+            SimpleNamespace(returncode=0, stdout="\n".join(remote) + "\n",
+                            stderr=""),
+            SimpleNamespace(returncode=0, stdout="", stderr=""),
+        ]
+        with TemporaryDirectory() as temporary:
+            marker = Path(temporary) / "archive.json"
+            with (mock.patch.object(monitor.subprocess, "run",
+                                    side_effect=replies) as invoked,
+                  mock.patch.object(monitor, "_archive_version_file",
+                                    return_value=marker),
+                  mock.patch.object(monitor, "_sync_live_snapshot",
+                                    return_value={"ok": True, "updated": False,
+                                                  "message": "live"})):
+                result = monitor.sync_dashboard_data()
+
+        self.assertTrue(result["updated"])
+        commands = [call.args[0][1:] for call in invoked.call_args_list]
+        self.assertIn(
+            ["restore", "--source=origin/main", "--worktree", "--", *remote],
+            commands)
+        restore = next(command for command in commands
+                       if command[0] == "restore")
+        self.assertNotIn("dados_ethereum", restore)
 
     def test_materializes_maximum_and_minimum_intraday_rows(self):
         rows = {
