@@ -108,7 +108,18 @@ def _resolved(group: pd.DataFrame, column: str, close: pd.Timestamp,
     return value                           # rolling: último preço pré-fechamento
 
 
-def _side_in_band(row) -> str | None:
+def _side_in_price_band(row) -> str | None:
+    """Lado elegível apenas pela faixa de preço, antes do veto do par."""
+    for name in ("up", "down"):
+        price = row.get(f"preco_{name}")
+        if price is not None and not pd.isna(price) \
+                and BAND[0] < float(price) < BAND[1]:
+            return name
+    return None
+
+
+def _pair_asks_allowed(row) -> bool:
+    """Se houver um par completo, exige soma estritamente abaixo de 105¢."""
     # O par de asks é o custo executável simultâneo de ambos os lados. Um livro
     # largo ou inconsistente (Yes + No >= 105¢) veta a parcela inteira. Dados
     # antigos sem os dois asks caem para os preços indicativos; se nem o par de
@@ -120,23 +131,27 @@ def _side_in_band(row) -> str | None:
         if up is None or down is None or pd.isna(up) or pd.isna(down):
             continue
         if float(up) + float(down) >= PAIR_ASK_CEILING:
-            return None
-        break
-    for name in ("up", "down"):
-        price = row.get(f"preco_{name}")
-        if price is not None and not pd.isna(price) \
-                and BAND[0] < float(price) < BAND[1]:
-            return name
-    return None
+            return False
+        return True
+    return True
+
+
+def _side_in_band(row) -> str | None:
+    if not _pair_asks_allowed(row):
+        return None
+    return _side_in_price_band(row)
 
 
 def simulate(window_hours: int | None = None, market: str = "spy") -> dict:
     """Backtest de uma variante de janela; devolve stats no formato da Ceifa."""
     df = _load_market(market)
     if df.empty:
-        return ceifa._stats_relative_available_stake([], 0, STAKE_FRAC)
+        stats = ceifa._stats_relative_available_stake([], 0, STAKE_FRAC)
+        stats["pair_filter_blocked"] = 0
+        return stats
 
     signals: list[dict] = []
+    baseline_n = 0
     now_ts = df["ts"].max()                # relógio: último snapshot do lago
     # Cada (dia, faixa) é um contrato: binário tem uma faixa "—"; strikes têm
     # uma por alvo (Bitcoin: "acima de 64k?"). O lado (Yes/No ou Up/Down) na
@@ -151,11 +166,21 @@ def simulate(window_hours: int | None = None, market: str = "spy") -> dict:
         cutoff = (None if window_hours is None
                   else close - pd.Timedelta(hours=window_hours))
         last_ts = None
+        baseline_last_ts = None
         for _, row in group.iterrows():
+            baseline_side = _side_in_price_band(row)
             side = _side_in_band(row)
-            if side is None:
+            if baseline_side is None and side is None:
                 continue
             if cutoff is not None and (row["ts"] < cutoff or row["ts"] > close):
+                continue
+            if baseline_side is not None and final[baseline_side] is not None \
+                    and (baseline_last_ts is None or
+                         (row["ts"] - baseline_last_ts) >=
+                         pd.Timedelta(minutes=INTERVAL_MINUTES)):
+                baseline_n += 1
+                baseline_last_ts = row["ts"]
+            if side is None:
                 continue
             if last_ts is not None and \
                     (row["ts"] - last_ts) < pd.Timedelta(minutes=INTERVAL_MINUTES):
@@ -177,6 +202,9 @@ def simulate(window_hours: int | None = None, market: str = "spy") -> dict:
     stats["side"] = market.upper()
     stats["repeat_minutes"] = INTERVAL_MINUTES
     stats["window_hours"] = window_hours
+    # Diferença líquida, já depois da mesma janela e cadência de cinco minutos.
+    # Não é contagem de linhas brutas rejeitadas.
+    stats["pair_filter_blocked"] = max(baseline_n - len(signals), 0)
     stats["by_pick"] = {
         "up": sum(1 for s in signals if s.get("pick") == "up"),
         "down": sum(1 for s in signals if s.get("pick") == "down"),

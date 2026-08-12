@@ -185,6 +185,15 @@ class SpyStudyTests(unittest.TestCase):
             "ask_up": 0.98, "ask_down": None,
         }))
 
+    def test_stats_report_net_parcels_blocked_by_pair_filter(self):
+        frame = _day_series({}, last_up=0.999)
+        frame["ask_up"] = 0.99
+        frame["ask_down"] = 0.06
+        with mock.patch.object(study, "_load_market", return_value=frame):
+            stats = study.simulate(window_hours=None)
+        self.assertEqual(stats["n"], 0)
+        self.assertEqual(stats["pair_filter_blocked"], 96)
+
     def test_no_window_counts_every_five_minutes(self):
         self.assertEqual(INTERVAL_MINUTES, 5)
         frame = _day_series({}, last_up=0.999)   # Up sempre 0,97; resolve Up=1

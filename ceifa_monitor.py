@@ -1055,6 +1055,7 @@ def market_page(market: str) -> None:
         rows.append({
             "Janela": label,
             "Parcelas": stats.get("n", 0),
+            "Vetadas ≥105¢": stats.get("pair_filter_blocked", 0),
             "Média parcelas/dia": num_or_dash(
                 mean_daily_parcels(stats, resolvidos), digits=2),
             "Acerto": f"{stats.get('hit', 0):.2%}",
@@ -1070,7 +1071,9 @@ def market_page(market: str) -> None:
     st.caption(
         f"{resolvidos} dia(s) resolvido(s). **Média parcelas/dia** = parcelas "
         "da janela divididas por todos os dias resolvidos, incluindo dias com "
-        "zero entrada; **Média diária** = média aritmética dos retornos dos "
+        "zero entrada; **Vetadas ≥105¢** = diferença líquida de parcelas que "
+        "existiriam sem o veto da soma dos asks, após aplicar a mesma janela e "
+        "cadência de 5 minutos; **Média diária** = média aritmética dos retornos dos "
         "dias com parcelas naquela janela; **Pior dia** = o "
         "retorno do dia mais negativo; **CVaR 1%** = média dos 1% piores dias "
         "(com histórico curto equivale ao pior dia). H-n = só as parcelas nas "
