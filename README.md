@@ -10,7 +10,7 @@ autópsia visual de cada erro. A navegação (fixada no rodapé) separa duas ár
   mínimas. Cada uma reúne, em abas, a **Visão geral**, os **Erros** e as
   **Cidades e filtros**.
 - **🧪 Em teste (hipóteses)** — mercados binários diários em observação:
-  **SPY**, **Bitcoin** e **Solana**, nas modalidades **Up or Down** e
+  **SPY**, **Bitcoin**, **Solana** e **Ethereum**, nas modalidades **Up or Down** e
   **Above** disponíveis para cada ativo.
 
 No Windows, abra `Monitor Ceifa.cmd` ou use o atalho de mesmo nome criado na
@@ -39,11 +39,11 @@ O backtest das mínimas usa parcelas de 1% do caixa livre a cada cinco minutos
 enquanto preço, oferta e H-1 continuarem elegíveis, sem teto por contrato e sem
 alavancagem. Trata-se apenas de monitoramento; nenhum alerta executa uma aposta.
 
-### Estudo de mercados binários diários (SPY, Bitcoin, Solana, ...)
+### Estudo de mercados binários diários (SPY, Bitcoin, Solana, Ethereum, ...)
 
 Monitor observacional de mercados binários da Polymarket, definidos no registro
-`spy.MERCADOS` (hoje **SPY**, **Bitcoin** e **Solana**; novos entram só nesse
-dicionário). A cada 10 min o `spy.capture` (pendurado no `main.yml`)
+`spy.MERCADOS` (hoje **SPY**, **Bitcoin**, **Solana** e **Ethereum**; novos entram só nesse
+dicionário). A cada 5 min o `spy.capture` (pendurado no `main.yml`)
 arquiva, para cada mercado, um snapshot do dia com preço e melhor ask dos dois
 lados em `dados_{key}/` (parquet commitado) e `data_{key}/` (buffer do dia, que
 entra no zip do botão Atualizar). Fim de semana/feriado sem mercado — a rodada
@@ -51,9 +51,13 @@ apenas não grava.
 
 O estudo (`spy.study`, aba de cada mercado em **Em teste**) aloca no lado cujo
 preço estiver na faixa **(0,95, 0,998)**, adicionando 1% do caixa livre a cada
-10 min — o mesmo modelo de parcelas da Ceifa. Reporta parcelas, assertividade,
+5 min — o mesmo modelo de parcelas da Ceifa. Uma parcela só é aceita quando as
+melhores ofertas dos dois lados somam menos de **105¢**; em 105¢ ou mais, o
+snapshot é vetado. Reporta parcelas, assertividade,
 rendimento e drawdown em seis janelas relativas ao fechamento (16:00 ET): sem
 janela, H-1, H-2, H-3, H-6 e H-12. Só observa; não envia alerta nem ordem.
+
+Todos os mercados em teste usam a faixa conservadora **(95¢, 99,5¢)**.
 
 Previsão de TMax para Guarulhos, Buenos Aires e Moscou, D0 e D+1.
 
@@ -86,8 +90,10 @@ puxa o histórico consolidado e o snapshot intradiário mais recentes.
 
 ## O que o pipeline faz
 
-1. **METAR/SPECI em tempo real** (aviationweather.gov) — a "verdade terrestre"
-   que resolve a aposta. A máxima já observada no dia vira piso da distribuição.
+1. **Observação da fonte de resolução em tempo real** — usa o METAR/SPECI do
+   aviationweather.gov. A máxima já observada vira piso da distribuição.
+   Shenzhen está excluída do universo operacional porque a página indicada
+   pelo mercado como ZGSZ entrega observações de Lau Fau Shan, em Hong Kong.
 2. **TAF** — extrai o grupo TX (máxima prevista pelo meteorologista da estação)
    e mostra como referência independente.
 3. **Multi-modelo determinístico** (Open-Meteo): ECMWF IFS, GFS, ICON, GEM e
@@ -96,8 +102,9 @@ puxa o histórico consolidado e o snapshot intradiário mais recentes.
    horária completa.
 5. **Correção de viés ("MOS caseiro")**: compara as máximas previstas nos
    últimos 60 dias (API de histórico de previsões do Open-Meteo) com as máximas
-   observadas nos METARs (arquivo da Iowa State) e aprende o erro sistemático
-   de cada modelo no ponto da estação. Recalculado 1x/dia (cache em
+   observadas na mesma fonte que resolve cada mercado (Iowa State para METAR)
+   e aprende o erro sistemático de cada modelo no ponto da estação.
+   Recalculado 1x/dia (cache em
    `data/bias_cache_<ICAO>.json`).
 6. **Nowcast intradiário**: mede o desvio entre o observado nas últimas horas e
    o ensemble corrigido, e desloca as horas restantes de hoje por uma fração

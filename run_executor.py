@@ -16,7 +16,7 @@ Uso:
     python run_executor.py sinais.json     # arquivo de sinais alternativo
 
 Formato do JSON: lista de objetos
-    {"ref": "ZGSZ:2026-08-07:36°C:1105", "day": "2026-08-07",
+    {"ref": "ZGGG:2026-08-07:36°C:1105", "day": "2026-08-07",
      "token_id": "0x...", "price": 0.969, "size_usd": 8.45}
 """
 from __future__ import annotations

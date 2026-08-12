@@ -141,6 +141,20 @@ def pct(value: float | None, digits: int = 1) -> str:
     return "—" if value is None else f"{value * 100:+.{digits}f}%"
 
 
+def mean_daily_return(stats: dict) -> float | None:
+    """Média aritmética do retorno nos dias com parcelas da variante."""
+    returns = [day.get("ret") for day in stats.get("per_day", [])
+               if day.get("ret") is not None]
+    return sum(returns) / len(returns) if returns else None
+
+
+def mean_daily_parcels(stats: dict, resolved_days: int) -> float | None:
+    """Média de parcelas por dia resolvido, incluindo dias sem entrada."""
+    if not resolved_days:
+        return None
+    return stats.get("n", 0) / resolved_days
+
+
 def num_or_dash(value, suffix: str = "", digits: int = 1) -> str:
     """Formata um número; devolve '—' quando o valor é nulo/NaN.
 
@@ -295,6 +309,12 @@ def _local_timestamps(stats: dict) -> pd.Series:
     return stamps.dt.tz_convert(USER_TZ)
 
 
+def brasilia_time_labels(stamps: pd.Series) -> pd.Series:
+    """Rótulos locais para tooltips cujos eixos permanecem em UTC."""
+    converted = pd.to_datetime(stamps, utc=True).dt.tz_convert(USER_TZ)
+    return converted.dt.strftime("%d/%m/%Y %H:%M")
+
+
 def _local_hours(stats: dict) -> pd.Series:
     """Hora do dia (fuso do usuário) de cada parcela executada no histórico."""
     return _local_timestamps(stats).dt.hour
@@ -325,39 +345,58 @@ def hourly_average(stats: dict) -> pd.Series:
     return counts.astype(float) / days
 
 
-def hourly_by_extreme(stats: dict) -> pd.DataFrame:
-    """Média diária de parcelas por hora (0–23) × extremo (máxima/mínima)."""
-    rows = [(signal.get("ts"), signal.get("extreme"))
-            for signal in stats.get("signals", [])
-            if signal.get("ts") is not None]
+def hourly_by_category(stats: dict,
+                       side_labels: tuple[str, str] | None = None
+                       ) -> pd.DataFrame:
+    """Média diária por hora, agrupada por extremo ou lado do mercado."""
+    rows = []
+    for signal in stats.get("signals", []):
+        if signal.get("ts") is None:
+            continue
+        if side_labels is not None:
+            category = {"up": side_labels[0], "down": side_labels[1]}.get(
+                signal.get("pick"), "Outro")
+        else:
+            category = {"maximum": "Máxima", "minimum": "Mínima"}.get(
+                signal.get("extreme"), "Outra")
+        rows.append((signal.get("ts"), category))
     if not rows:
         return pd.DataFrame()
-    frame = pd.DataFrame(rows, columns=["ts", "extreme"])
+    frame = pd.DataFrame(rows, columns=["ts", "cat"])
     ts = pd.to_datetime(frame["ts"], utc=True).dt.tz_convert(USER_TZ)
     frame["hora"] = ts.dt.hour
-    frame["cat"] = frame["extreme"].map(
-        {"maximum": "Máxima", "minimum": "Mínima"}).fillna("Outra")
     days = int(ts.dt.normalize().nunique()) or 1
     piv = (frame.groupby(["hora", "cat"]).size().unstack(fill_value=0)
            .reindex(range(24), fill_value=0))
     return piv.astype(float) / days
 
 
-def hourly_chart(stats: dict) -> go.Figure:
+def hourly_by_extreme(stats: dict) -> pd.DataFrame:
+    """Compatibilidade: agrupamento de máxima/mínima usado em produção."""
+    return hourly_by_category(stats)
+
+
+def hourly_chart(stats: dict,
+                 side_labels: tuple[str, str] | None = None) -> go.Figure:
     """Média diária das parcelas por horário, empilhada por máxima/mínima.
 
     Cada barra é a média de parcelas/dia naquela hora (fuso de Brasília),
     quebrada por cor: laranja = máxima, azul = mínima. A tracejada é a média
     do total por hora."""
-    piv = hourly_by_extreme(stats)
+    piv = hourly_by_category(stats, side_labels)
     if piv.empty:
         return go.Figure()
     total = piv.sum(axis=1)
     mean = float(total.mean())
     hours = [f"{hour:02d}h" for hour in piv.index]
-    cores = {"Máxima": RED, "Mínima": BLUE, "Outra": GREEN}
+    if side_labels is None:
+        categories = ("Máxima", "Mínima", "Outra")
+        cores = {"Máxima": RED, "Mínima": BLUE, "Outra": GREEN}
+    else:
+        categories = (*side_labels, "Outro")
+        cores = {side_labels[0]: BLUE, side_labels[1]: AMBER, "Outro": GREEN}
     fig = go.Figure()
-    for cat in ("Máxima", "Mínima", "Outra"):
+    for cat in categories:
         if cat not in piv.columns:
             continue
         fig.add_trace(go.Bar(
@@ -378,9 +417,30 @@ def hourly_chart(stats: dict) -> go.Figure:
     return dark_figure(fig)
 
 
+def render_hourly_section(stats: dict,
+                          side_labels: tuple[str, str] | None = None) -> None:
+    """Renderiza a distribuição horária compartilhada por produção e testes."""
+    counts = hourly_counts(stats)
+    if counts.empty:
+        return
+    averages = hourly_average(stats)
+    days = hourly_day_count(stats)
+    st.subheader("Parcelas por horário do dia (hora de Brasília)")
+    st.plotly_chart(hourly_chart(stats, side_labels), width="stretch")
+    top = averages.sort_values(ascending=False).head(3)
+    picos = " · ".join(f"{hour:02d}h ({value:.2f}/dia)"
+                       for hour, value in top.items())
+    st.caption(
+        f"Média por dia nos horários de pico: {picos}. "
+        f"Cálculo sobre {days} dia(s) com apostas, incluindo zero nas "
+        "horas sem entrada. O acumulado continua disponível ao passar "
+        "o mouse — o relógio é o de Brasília.")
+
+
 def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
              consolidated: bool = False,
-             experimental_stats: dict | None = None) -> None:
+             experimental_stats: dict | None = None,
+             proximity_stats: dict | None = None) -> None:
     risk = monitor.risk_metrics(stats)
     unique_n, unique_losses = monitor.unique_contracts(stats)
     errors = stats.get("n", 0) - stats.get("wins", 0)
@@ -396,11 +456,13 @@ def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
     c4.metric("Erros", str(errors), f"em {unique_n} contratos")
     c5.metric("Drawdown máximo", f"{stats.get('real_dd', 0):.2%}")
 
-    if experimental_stats is not None:
+    if experimental_stats is not None and proximity_stats is not None:
         comparison = []
         for label, result in (("Regra ativa", stats),
                               ("Faixa única (experimental)",
-                               experimental_stats)):
+                               experimental_stats),
+                              ("Proximidade (experimental)",
+                               proximity_stats)):
             total = result.get("n", 0)
             wins = result.get("wins", 0)
             comparison.append({
@@ -411,12 +473,14 @@ def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
                 "Assertividade": f"{result.get('hit', 0):.2%}",
                 "Retorno": pct(result.get("real_mult", 1) - 1, 2),
             })
-        st.subheader("Regra ativa versus faixa única")
+        st.subheader("Regra ativa versus cenários experimentais")
         st.dataframe(pd.DataFrame(comparison), hide_index=True,
                      width="stretch")
         st.caption(
-            "Faixa única é somente um cenário de backtest. Ela não altera "
-            "os alertas, as stakes nem os indicadores da estratégia ativa.")
+            "Faixa única e proximidade são somente cenários de backtest. "
+            "Nenhum deles altera os alertas, as stakes ou os indicadores da "
+            "estratégia ativa. Proximidade usa um grau na unidade do contrato, "
+            "acima da máxima ou abaixo da mínima já observada.")
 
     left, right = st.columns([1.65, 1])
     with left:
@@ -488,20 +552,7 @@ def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
             f"{pct(risk['best_day'], 2)} · pior dia {pct(risk['worst_day'], 2)} "
             "· linha tracejada = retorno médio do período exibido.")
 
-    counts = hourly_counts(stats)
-    if not counts.empty:
-        averages = hourly_average(stats)
-        days = hourly_day_count(stats)
-        st.subheader("Parcelas por horário do dia (hora de Brasília)")
-        st.plotly_chart(hourly_chart(stats), width="stretch")
-        top = averages.sort_values(ascending=False).head(3)
-        picos = " · ".join(f"{hour:02d}h ({value:.2f}/dia)"
-                           for hour, value in top.items())
-        st.caption(
-            f"Média por dia nos horários de pico: {picos}. "
-            f"Cálculo sobre {days} dia(s) com apostas, incluindo zero nas "
-            "horas sem entrada. O acumulado continua disponível ao passar "
-            "o mouse — o relógio é o de Brasília.")
+    render_hourly_section(stats)
 
 
 def errors_page(stats: dict) -> None:
@@ -854,13 +905,17 @@ def cities_page(stats: dict, full_stats: dict,
 def market_page(market: str) -> None:
     """Estudo observacional de um mercado binário diário (SPY, Bitcoin, ...)."""
     variants = load_market(market)
+    band_low, band_high = spy_study.price_band(market)
+    band_label = (f"{band_low * 100:.0f}–{band_high * 100:.1f}¢"
+                  .replace(".", ","))
     latest = spy_study.latest_day(market)
     lado_a, lado_b = spy_study.side_labels(market)
     fechamento = spy_study.close_label(market)
     st.caption(
         f"Último dia capturado: {latest or '—'} · aloca no lado "
-        f"({lado_a} ou {lado_b}) que estiver entre 95¢ e 99,8¢, com 1% do caixa "
-        "livre a cada 10 min. Fase de observação — sem apostas reais.")
+        f"({lado_a} ou {lado_b}) que estiver na faixa {band_label}, com 1% do caixa "
+        "livre a cada 5 min, somente quando os asks dos dois lados somarem "
+        "menos de 105¢. Fase de observação — sem apostas reais.")
 
     daily = spy_study.daily_summary(market)
     prices = spy_study.latest_prices(market)
@@ -884,53 +939,76 @@ def market_page(market: str) -> None:
         st.dataframe(view, hide_index=True, width="stretch",
                      column_config={"Na faixa": st.column_config.CheckboxColumn()})
         st.caption(
-            "Cada strike é um contrato. Qualquer lado (Yes/No) entre 95¢ e "
-            "99,8¢ vira parcela — a coluna 'Na faixa' marca quais entrariam.")
+            f"Cada strike é um contrato. Qualquer lado (Yes/No) na faixa "
+            f"{band_label} vira parcela somente se Yes + No nos asks somarem menos de "
+            "105¢ — a coluna 'Na faixa' marca quais entrariam.")
 
     # Preços do dia com a faixa marcada (mercados binários, tipo SPY).
     if not prices.empty:
-        dia = prices["dia"].iloc[0]
-        st.subheader(f"Preços do dia {dia}")
+        days = spy_study.price_days(market)
+        day_key = f"market_price_day_{market}"
+        if st.session_state.get(day_key) not in days:
+            st.session_state[day_key] = days[-1]
+        day_index = days.index(st.session_state[day_key])
+        previous_col, title_col, next_col = st.columns([1, 8, 1])
+        if previous_col.button(
+                "◀", key=f"price_previous_{market}",
+                disabled=day_index == 0, help="Ver dia anterior"):
+            st.session_state[day_key] = days[day_index - 1]
+            st.rerun()
+        dia = st.session_state[day_key]
+        title_col.subheader(f"Preços do dia {dia}")
+        if next_col.button(
+                "▶", key=f"price_next_{market}",
+                disabled=day_index == len(days) - 1, help="Ver próximo dia"):
+            st.session_state[day_key] = days[day_index + 1]
+            st.rerun()
+        prices = spy_study.prices_for_day(market, dia)
         figp = go.Figure()
         # Um único snapshot precisa de marcador porque ainda não forma linha.
         # A partir do segundo, mantém a curva limpa como a do Bitcoin; o
         # hovertemplate abaixo continua exibindo o preço sem bolinhas visíveis.
         price_mode = "lines+markers" if len(prices) == 1 else "lines"
+        brasilia_times = brasilia_time_labels(prices["ts"]).to_frame()
         hover_price = (
-            "<b>%{fullData.name}</b><br>Preço: %{y:.3f}<br>"
-            "%{x|%d/%m/%Y %H:%M}<extra></extra>"
-            if market == "sol_updown" else None)
-        figp.add_hrect(y0=0.95, y1=0.998, fillcolor=GREEN, opacity=0.12,
+            "<b>%{fullData.name}</b>: %{y:.3f}"
+            "<br>Brasília: %{customdata[0]}<extra></extra>")
+        figp.add_hrect(y0=band_low, y1=band_high, fillcolor=GREEN, opacity=0.12,
                        line_width=0, annotation_text="faixa de compra",
                        annotation_position="top left")
         figp.add_trace(go.Scatter(
             x=prices["ts"], y=prices["preco_up"], name=lado_a,
             mode=price_mode, line=dict(color=BLUE, width=2),
-            marker=dict(size=6), hovertemplate=hover_price))
+            marker=dict(size=6), customdata=brasilia_times,
+            hovertemplate=hover_price))
         figp.add_trace(go.Scatter(
             x=prices["ts"], y=prices["preco_down"], name=lado_b,
             mode=price_mode, line=dict(color=AMBER, width=2),
-            marker=dict(size=6), hovertemplate=hover_price))
+            marker=dict(size=6), customdata=brasilia_times,
+            hovertemplate=hover_price))
         figp.update_layout(
             height=280, margin=dict(l=15, r=15, t=10, b=10),
             yaxis_title="Preço", xaxis_title=None, yaxis_range=[-0.02, 1.02],
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0))
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+            hovermode="x unified", hoverdistance=-1,
+            xaxis_hoverformat="%d/%m/%Y %H:%M UTC")
         st.plotly_chart(dark_figure(figp), width="stretch")
         st.caption(
-            "Faixa verde = 95–99,8¢, onde a estratégia entra. Sem nenhum lado "
-            "dentro dela, não há parcela naquele instante.")
+            f"Faixa verde = {band_label}, onde a estratégia entra. Sem nenhum lado "
+            "dentro dela, ou com a soma dos asks em 105¢ ou mais, não há "
+            "parcela naquele instante.")
 
     if daily.empty or daily["parcelas"].sum() == 0:
         resolvidos = daily["resolvido"].sum() if not daily.empty else 0
         if resolvidos:
             st.info(
                 "O mercado do dia **resolveu**, mas nenhum snapshot capturado "
-                "caiu na faixa (95–99,8¢) — então **0 parcelas**. Costuma "
+                f"caiu na faixa ({band_label}) — então **0 parcelas**. Costuma "
                 "acontecer quando o mercado já estava resolvido (preço em 0 ou "
                 "1) durante as capturas.")
         else:
             st.info(
-                "Capturando — ainda sem nenhum lado na faixa (95–99,8¢). "
+                f"Capturando — ainda sem nenhum lado na faixa ({band_label}). "
                 "As parcelas aparecem quando um dos lados entrar na faixa.")
         return
 
@@ -959,7 +1037,7 @@ def market_page(market: str) -> None:
     if not any(stats.get("n", 0) for _, stats in variants):
         abertas = int(daily.loc[~daily["resolvido"], "parcelas"].sum())
         st.info(
-            f"**{abertas} parcela(s) em aberto** hoje (lado na faixa 95–99,8¢). "
+            f"**{abertas} parcela(s) em aberto** hoje (lado na faixa {band_label}). "
             "O resultado financeiro por janela aparece depois do fechamento do "
             f"mercado ({fechamento}), quando o dia resolve.")
         return
@@ -980,9 +1058,13 @@ def market_page(market: str) -> None:
         rows.append({
             "Janela": label,
             "Parcelas": stats.get("n", 0),
+            "Vetadas ≥105¢": stats.get("pair_filter_blocked", 0),
+            "Média parcelas/dia": num_or_dash(
+                mean_daily_parcels(stats, resolvidos), digits=2),
             "Acerto": f"{stats.get('hit', 0):.2%}",
             "Erros": stats.get("n", 0) - stats.get("wins", 0),
             "Rendimento": pct(stats.get("real_mult", 1) - 1, 2),
+            "Média diária": pct(mean_daily_return(stats), 2),
             "Pior dia": pct(worst, 2),
             "CVaR 1%": pct(cvar, 2),
             "Drawdown": f"{stats.get('real_dd', 0):.2%}",
@@ -990,10 +1072,16 @@ def market_page(market: str) -> None:
         })
     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
     st.caption(
-        f"{resolvidos} dia(s) resolvido(s). **Pior dia** = o retorno do dia mais "
-        "negativo; **CVaR 1%** = média dos 1% piores dias (com histórico curto "
-        "equivale ao pior dia). H-n = só as parcelas nas últimas n horas antes "
-        f"do fechamento ({fechamento}); 'Sem janela' entra o dia todo. "
+        f"{resolvidos} dia(s) resolvido(s). **Média parcelas/dia** = parcelas "
+        "da janela divididas por todos os dias resolvidos, incluindo dias com "
+        "zero entrada; **Vetadas ≥105¢** = diferença líquida de parcelas que "
+        "existiriam sem o veto da soma dos asks, após aplicar a mesma janela e "
+        "cadência de 5 minutos; **Média diária** = média aritmética dos retornos dos "
+        "dias com parcelas naquela janela; **Pior dia** = o "
+        "retorno do dia mais negativo; **CVaR 1%** = média dos 1% piores dias "
+        "(com histórico curto equivale ao pior dia). H-n = só as parcelas nas "
+        f"últimas n horas antes do fechamento ({fechamento}); 'Sem janela' "
+        "entra o dia todo. "
         f"{lado_a}/{lado_b} = parcelas em cada lado.")
 
     base = variants[0][1]
@@ -1005,6 +1093,8 @@ def market_page(market: str) -> None:
         with right:
             st.subheader("Retorno de cada dia")
             st.plotly_chart(daily_chart(base), width="stretch")
+
+    render_hourly_section(base, (lado_a, lado_b))
 
 
 def main() -> None:
@@ -1040,7 +1130,8 @@ def main() -> None:
             choice = pick_col.radio(
                 "Hipótese em teste",
                 ["◇ SPY", "↕ BTC Up/Down", "↕ SOL Up/Down",
-                 "▲ SPY Above", "₿ Bitcoin Above", "◎ Solana Above"],
+                 "↕ ETH Up/Down", "▲ SPY Above", "₿ Bitcoin Above",
+                 "◎ Solana Above", "Ξ Ethereum Above"],
                 horizontal=True, key="test_navigation")
         period_label = period_col.selectbox(
             "Período",
@@ -1063,16 +1154,18 @@ def main() -> None:
         "Últimos 14 dias": 14, "Últimos 7 dias": 7,
     }[period_label]
 
-    # Área "Em teste": mercados binários diários (SPY, Bitcoin, Solana).
+    # Área "Em teste": mercados binários diários (SPY e criptos).
     # sem lado NÃO/SIM nem filtros meteorológicos.
     if not producao:
         market = {
             "◇ SPY": "spy",
             "↕ BTC Up/Down": "btc_updown",
             "↕ SOL Up/Down": "sol_updown",
+            "↕ ETH Up/Down": "eth_updown",
             "▲ SPY Above": "spy_above",
             "₿ Bitcoin Above": "bitcoin",
             "◎ Solana Above": "solana",
+            "Ξ Ethereum Above": "ethereum",
         }[choice]
         if market not in MERCADOS:
             # O Streamlit recarrega este arquivo mas mantém o pacote spy antigo
@@ -1083,8 +1176,12 @@ def main() -> None:
                 "memória. **Reinicie o processo** (feche o `streamlit run` e "
                 "suba de novo) para carregar — recarregar a aba não basta.")
             return
+        band_low, band_high = spy_study.price_band(market)
+        band_label = (f"{band_low * 100:.0f}–{band_high * 100:.1f}¢"
+                      .replace(".", ","))
         hero(f"{MERCADOS[market].nome} · hipótese em teste · aloca no lado na "
-             "faixa 95–99,8¢, 1% do caixa livre a cada 10 min.")
+             f"faixa {band_label}, 1% do caixa livre a cada 5 min · Yes + No nos "
+             "asks abaixo de 105¢.")
         market_page(market)
         return
 
@@ -1108,6 +1205,7 @@ def main() -> None:
         "indicadores calculados exclusivamente a partir dos nossos snapshots.")
 
     experimental_stats = None
+    proximity_stats = None
     if consolidated:
         maximum_stats = load_strategy("maximum", "NÃO")
         minimum_stats = load_strategy("minimum", "NÃO")
@@ -1117,6 +1215,10 @@ def main() -> None:
             maximum_stats, minimum_stats)
         experimental_stats = monitor.slice_strategy(
             experimental_full, lookback)
+        proximity_full = monitor.proximity_scenario(
+            maximum_stats, minimum_stats)
+        proximity_stats = monitor.slice_strategy(
+            proximity_full, lookback)
     else:
         full_stats = load_strategy(kind, side)
     stats = monitor.slice_strategy(full_stats, lookback)
@@ -1126,7 +1228,7 @@ def main() -> None:
         ["▦ Visão geral", "◎ Erros", "⌁ Cidades e filtros"])
     with tab_overview:
         overview(stats, full_stats, minimum, side, consolidated,
-                 experimental_stats)
+                 experimental_stats, proximity_stats)
     with tab_errors:
         errors_page(stats)
     with tab_cities:

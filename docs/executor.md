@@ -145,7 +145,7 @@ O `run_executor.py` lê uma lista de parcelas de um JSON
 (`data/executor_signals.json`):
 
 ```json
-[{"ref": "ZGSZ:2026-08-07:36°C:1105", "day": "2026-08-07",
+[{"ref": "ZGGG:2026-08-07:36°C:1105", "day": "2026-08-07",
   "token_id": "0x...", "price": 0.969, "size_usd": 8.45}]
 ```
 

@@ -14,6 +14,10 @@ from tmax import monitor
 
 
 class MonitorTest(unittest.TestCase):
+    @staticmethod
+    def _tracked_archives() -> str:
+        return "\n".join(monitor._committed_archive_names()) + "\n"
+
     def test_city_frame_is_empty_without_raising_when_strategy_has_no_entries(self):
         frame = monitor.city_frame({"by_city": {}})
 
@@ -28,6 +32,8 @@ class MonitorTest(unittest.TestCase):
         replies = [
             SimpleNamespace(returncode=0, stdout="", stderr=""),
             SimpleNamespace(returncode=0, stdout="abc123\n", stderr=""),
+            SimpleNamespace(returncode=0, stdout=self._tracked_archives(),
+                            stderr=""),
             SimpleNamespace(returncode=0, stdout="", stderr=""),
         ]
         with TemporaryDirectory() as temporary:
@@ -55,6 +61,8 @@ class MonitorTest(unittest.TestCase):
         replies = [
             SimpleNamespace(returncode=0, stdout="", stderr=""),
             SimpleNamespace(returncode=0, stdout="abc123\n", stderr=""),
+            SimpleNamespace(returncode=0, stdout=self._tracked_archives(),
+                            stderr=""),
         ]
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -82,6 +90,8 @@ class MonitorTest(unittest.TestCase):
         replies = [
             SimpleNamespace(returncode=0, stdout="", stderr=""),
             SimpleNamespace(returncode=0, stdout="abc123\n", stderr=""),
+            SimpleNamespace(returncode=0, stdout=self._tracked_archives(),
+                            stderr=""),
             SimpleNamespace(returncode=0, stdout="", stderr=""),
         ]
         with TemporaryDirectory() as temporary:
@@ -112,6 +122,8 @@ class MonitorTest(unittest.TestCase):
         replies = [
             SimpleNamespace(returncode=0, stdout="", stderr=""),
             SimpleNamespace(returncode=0, stdout="abc123\n", stderr=""),
+            SimpleNamespace(returncode=0, stdout=self._tracked_archives(),
+                            stderr=""),
             SimpleNamespace(returncode=1, stdout="", stderr="failure"),
         ]
         with TemporaryDirectory() as temporary:
@@ -127,6 +139,35 @@ class MonitorTest(unittest.TestCase):
 
         self.assertFalse(result["ok"])
         self.assertIn("arquivos de dados", result["message"])
+
+    def test_dashboard_refresh_skips_markets_not_yet_archived_remotely(self):
+        remote = ("dados", "dados_low", "dados_bitcoin")
+        replies = [
+            SimpleNamespace(returncode=0, stdout="", stderr=""),
+            SimpleNamespace(returncode=0, stdout="abc123\n", stderr=""),
+            SimpleNamespace(returncode=0, stdout="\n".join(remote) + "\n",
+                            stderr=""),
+            SimpleNamespace(returncode=0, stdout="", stderr=""),
+        ]
+        with TemporaryDirectory() as temporary:
+            marker = Path(temporary) / "archive.json"
+            with (mock.patch.object(monitor.subprocess, "run",
+                                    side_effect=replies) as invoked,
+                  mock.patch.object(monitor, "_archive_version_file",
+                                    return_value=marker),
+                  mock.patch.object(monitor, "_sync_live_snapshot",
+                                    return_value={"ok": True, "updated": False,
+                                                  "message": "live"})):
+                result = monitor.sync_dashboard_data()
+
+        self.assertTrue(result["updated"])
+        commands = [call.args[0][1:] for call in invoked.call_args_list]
+        self.assertIn(
+            ["restore", "--source=origin/main", "--worktree", "--", *remote],
+            commands)
+        restore = next(command for command in commands
+                       if command[0] == "restore")
+        self.assertNotIn("dados_ethereum", restore)
 
     def test_materializes_maximum_and_minimum_intraday_rows(self):
         rows = {
@@ -370,7 +411,8 @@ class MonitorTest(unittest.TestCase):
             "TAF convectivo", "Cauda inferior perto do piso",
         ])
         self.assertEqual(
-            frame["Entradas bloqueadas"].tolist(), [4, 11, 7, 2, 3, 0, 5, 0])
+            frame["Entradas bloqueadas"].tolist(),
+            [4, 11, 7, 2, 3, 0, 5, 0])
         plateau = frame[frame["Filtro"] == "Platô observado"].iloc[0]
         self.assertIn("Subconjunto", plateau["Observação"])
         taf = frame[frame["Filtro"] == "TAF convectivo"].iloc[0]
@@ -410,6 +452,56 @@ class MonitorTest(unittest.TestCase):
         self.assertEqual(scenario["n"], 1)
         self.assertEqual(scenario["signals"][0]["faixa"], "31°C")
         self.assertEqual(scenario["n_filtrado_faixa_unica"], 1)
+
+    def test_proximity_comparison_is_symmetric_and_ignores_open_tails(self):
+        self.assertTrue(monitor.is_proximity_comparison_risk(
+            "EGLC", "35°C", 34.0, "maximum"))
+        self.assertFalse(monitor.is_proximity_comparison_risk(
+            "EGLC", "36°C", 34.0, "maximum"))
+        self.assertTrue(monitor.is_proximity_comparison_risk(
+            "EGLC", "14°C", 15.0, "minimum"))
+        self.assertFalse(monitor.is_proximity_comparison_risk(
+            "EGLC", "13°C", 15.0, "minimum"))
+        self.assertFalse(monitor.is_proximity_comparison_risk(
+            "EGLC", "35°C or higher", 34.0, "maximum"))
+
+    def test_proximity_dashboard_scenario_does_not_change_active_stats(self):
+        timestamp = pd.Timestamp("2026-08-01T13:00:00Z")
+        maximum = {
+            "days": 1, "repeat_minutes": 5, "archive_kind": "maximum",
+            "signals": [
+                {"icao": "EGLC", "day": "2026-08-01", "faixa": "35°C",
+                 "ts": timestamp, "price": 0.97, "won": True},
+                {"icao": "EGLC", "day": "2026-08-01", "faixa": "36°C",
+                 "ts": timestamp, "price": 0.98, "won": True},
+            ],
+        }
+        minimum = {
+            "days": 1, "repeat_minutes": 5, "archive_kind": "minimum",
+            "signals": [
+                {"icao": "EGLC", "day": "2026-08-01", "faixa": "14°C",
+                 "ts": timestamp, "price": 0.97, "won": True},
+                {"icao": "EGLC", "day": "2026-08-01", "faixa": "13°C",
+                 "ts": timestamp, "price": 0.98, "won": True},
+            ],
+        }
+
+        def observed(_signal, _lookup, extreme):
+            return 34.0 if extreme == "maximum" else 15.0
+
+        with (mock.patch.object(monitor, "_forecast_extreme_lookup",
+                                return_value={}),
+              mock.patch.object(monitor, "_observed_extreme_at_entry",
+                                side_effect=observed)):
+            scenario = monitor.proximity_scenario(maximum, minimum)
+
+        self.assertEqual(len(maximum["signals"]), 2)
+        self.assertEqual(len(minimum["signals"]), 2)
+        self.assertEqual(scenario["n"], 2)
+        self.assertEqual(scenario["n_filtrado_proximidade"], 2)
+        self.assertEqual(
+            {signal["faixa"] for signal in scenario["signals"]},
+            {"36°C", "13°C"})
 
     def test_loss_date_filter_orders_days_and_selects_only_requested_day(self):
         losses = pd.DataFrame([

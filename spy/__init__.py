@@ -2,7 +2,7 @@
 
 Cada mercado (SPY Up or Down, Bitcoin Above, ...) tem o mesmo formato: dois
 lados cujos preços somam ~1, com o dia no slug. A estratégia aloca no lado que
-estiver na faixa de compra, 1% do caixa livre a cada 10 min, em janelas
+estiver na faixa de compra, 1% do caixa livre a cada 5 min, em janelas
 relativas ao fechamento. Só observa — sem alerta e sem ordem.
 
 O pacote se chama ``spy`` por herança (foi o primeiro mercado), mas hoje é
@@ -34,6 +34,8 @@ class Mercado:
     # kind="strikes": vários strikes por dia, cada um Yes/No (Bitcoin Above:
     #   "acima de 60k?", "acima de 62k?", ...). Cada strike vira um contrato.
     kind: str = "binary"
+    # Teto exclusivo da faixa de compra. O piso de 95¢ continua global.
+    band_high: float = 0.995
 
 
 MERCADOS: dict[str, Mercado] = {
@@ -53,6 +55,14 @@ MERCADOS: dict[str, Mercado] = {
     "sol_updown": Mercado("sol_updown", "Solana Up or Down",
                           "solana-up-or-down-on", close_hour=16, tz="UTC",
                           rolling=True, kind="binary"),
+    # Ethereum usa a mesma janela diária das outras criptos: resolve às 16:00
+    # UTC e, nesse instante, o slug passa para a data do dia seguinte.
+    "ethereum": Mercado("ethereum", "Ethereum Above", "ethereum-above-on",
+                         close_hour=16, tz="UTC", rolling=True,
+                         kind="strikes"),
+    "eth_updown": Mercado("eth_updown", "Ethereum Up or Down",
+                           "ethereum-up-or-down-on", close_hour=16, tz="UTC",
+                           rolling=True, kind="binary"),
     # SPY multi-strike ("fecha acima de X?"), resolve no fechamento do pregão
     # (16:00 ET) como o SPY Up or Down; após o fechamento, passa ao próximo
     # pregão e pula fins de semana.
@@ -60,9 +70,12 @@ MERCADOS: dict[str, Mercado] = {
                          rolling=True, weekdays_only=True, kind="strikes"),
 }
 
-# Faixa de compra (>95¢ e <99,8¢) e cadência — iguais para todos os mercados.
-BAND = (0.95, 0.998)
-INTERVAL_MINUTES = 10
+# Faixa padrão de todos os mercados em teste: >95¢ e <99,5¢.
+BAND = (0.95, 0.995)
+# Veto de custo do par: as melhores ofertas dos dois lados precisam somar
+# menos de 105¢. Em 105¢ exatos ou acima, o snapshot não gera parcela.
+PAIR_ASK_CEILING = 1.05
+INTERVAL_MINUTES = 5
 
 
 def close_utc(mercado: Mercado, d: dt.date) -> dt.datetime:

@@ -1,6 +1,7 @@
 """Captura ao vivo dos mercados binários/multi-strike diários (observação).
 
-A cada rodada (10 min no main.yml), para cada mercado do registro ``MERCADOS``,
+A cada rodada (5 min pelo disparo externo; cron nativo de 10 min como reserva),
+para cada mercado do registro ``MERCADOS``,
 tira um snapshot do dia (D0, no fuso do mercado):
 
 - kind="binary" (SPY): um mercado, dois lados (Up/Down) — um contrato por dia.

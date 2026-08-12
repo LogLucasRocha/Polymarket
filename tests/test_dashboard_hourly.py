@@ -1,5 +1,7 @@
 import unittest
 
+import pandas as pd
+
 import ceifa_monitor as dashboard
 
 
@@ -33,6 +35,41 @@ class DashboardHourlyTest(unittest.TestCase):
         self.assertEqual({trace.name for trace in chart.data},
                          {"Máxima", "Mínima"})
         self.assertEqual(chart.layout.barmode, "stack")
+
+    def test_hourly_chart_stacks_hypothesis_by_market_side(self):
+        stats = {"signals": [
+            {"ts": "2026-08-01T13:00:00Z", "pick": "up"},
+            {"ts": "2026-08-01T13:05:00Z", "pick": "down"},
+            {"ts": "2026-08-02T13:00:00Z", "pick": "up"},
+        ]}
+
+        piv = dashboard.hourly_by_category(stats, ("Up", "Down"))
+        self.assertEqual(piv.loc[10, "Up"], 1.0)
+        self.assertEqual(piv.loc[10, "Down"], 0.5)
+
+        chart = dashboard.hourly_chart(stats, ("Up", "Down"))
+        self.assertEqual({trace.name for trace in chart.data}, {"Up", "Down"})
+        self.assertEqual(chart.layout.barmode, "stack")
+
+    def test_mean_daily_return_averages_resolved_days_with_entries(self):
+        stats = {"per_day": [
+            {"day": "2026-08-08", "ret": 0.01},
+            {"day": "2026-08-09", "ret": -0.004},
+            {"day": "2026-08-10", "ret": 0.006},
+        ]}
+        self.assertAlmostEqual(dashboard.mean_daily_return(stats), 0.004)
+
+    def test_mean_daily_return_is_empty_without_days(self):
+        self.assertIsNone(dashboard.mean_daily_return({"per_day": []}))
+
+    def test_mean_daily_parcels_includes_resolved_days_without_entries(self):
+        self.assertEqual(dashboard.mean_daily_parcels({"n": 14}, 2), 7.0)
+        self.assertIsNone(dashboard.mean_daily_parcels({"n": 14}, 0))
+
+    def test_brasilia_time_labels_convert_from_utc(self):
+        stamps = pd.Series(["2026-08-11T00:50:00Z"])
+        labels = dashboard.brasilia_time_labels(stamps)
+        self.assertEqual(labels.tolist(), ["10/08/2026 21:50"])
 
 
 if __name__ == "__main__":

@@ -7,12 +7,12 @@ class StationPromotionTests(unittest.TestCase):
     def test_former_observation_cities_are_active(self):
         promoted = {
             "LIMC", "ZHHH", "EDDM", "EFHK", "LLBG", "RPLL",
-            "WMKK", "RCSS", "ZGGG", "ZGSZ", "ZUUU", "FACT",
+            "WMKK", "RCSS", "ZGGG", "ZUUU", "FACT",
         }
 
         self.assertTrue(promoted.issubset(config.STATIONS))
         self.assertEqual(config.STATIONS_OBSERVE, {})
-        self.assertEqual(len(config.STATIONS), 39)
+        self.assertEqual(len(config.STATIONS), 38)
 
     def test_fahrenheit_cities_are_active_and_keep_their_unit(self):
         self.assertTrue(set(config.STATIONS_FAHRENHEIT).issubset(config.STATIONS))
@@ -40,7 +40,6 @@ class StationPromotionTests(unittest.TestCase):
             "WMKK": "Will the highest temperature in Kuala Lumpur be 32°C on July 27?",
             "RCSS": "Will the highest temperature in Taipei be 34°C on July 27?",
             "ZGGG": "Will the highest temperature in Guangzhou be 35°C on July 27?",
-            "ZGSZ": "Will the highest temperature in Shenzhen be 34°C on July 27?",
             "ZUUU": "Will the highest temperature in Chengdu be 35°C on July 27?",
             "FACT": "Will the highest temperature in Cape Town be 20°C on July 27?",
         }
@@ -50,6 +49,12 @@ class StationPromotionTests(unittest.TestCase):
                 parsed = polymarket.parse_temp_market(title)
                 self.assertIsNotNone(parsed)
                 self.assertEqual(parsed["icao"], expected_icao)
+
+    def test_shenzhen_is_explicitly_excluded(self):
+        title = "Will the highest temperature in Shenzhen be 34°C on July 27?"
+
+        self.assertNotIn("ZGSZ", config.STATIONS)
+        self.assertIsNone(polymarket.parse_temp_market(title))
 
 
 if __name__ == "__main__":

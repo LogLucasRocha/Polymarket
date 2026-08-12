@@ -4,12 +4,18 @@ from unittest import mock
 
 import pandas as pd
 
-from spy import BAND, MERCADOS, capture, study
+from spy import (BAND, INTERVAL_MINUTES, MERCADOS, PAIR_ASK_CEILING, capture,
+                 study)
 
 
 class RegistryTests(unittest.TestCase):
-    def test_band_is_95_to_998(self):
-        self.assertEqual(BAND, (0.95, 0.998))
+    def test_band_is_95_to_995(self):
+        self.assertEqual(BAND, (0.95, 0.995))
+        self.assertEqual(PAIR_ASK_CEILING, 1.05)
+
+    def test_all_markets_use_995_ceiling(self):
+        for market in MERCADOS:
+            self.assertEqual(study.price_band(market), (0.95, 0.995))
 
     def test_bitcoin_market_registered(self):
         self.assertIn("bitcoin", MERCADOS)
@@ -37,6 +43,24 @@ class RegistryTests(unittest.TestCase):
             self.assertEqual(
                 study._close_utc(market.key, "2026-08-10"),
                 pd.Timestamp("2026-08-10T16:00:00Z"))
+
+    def test_ethereum_markets_match_urls_and_crypto_schedule(self):
+        above = MERCADOS["ethereum"]
+        updown = MERCADOS["eth_updown"]
+        self.assertEqual(above.kind, "strikes")
+        self.assertEqual(updown.kind, "binary")
+        for market, expected in (
+                (above, "ethereum-above-on-august-12-2026"),
+                (updown, "ethereum-up-or-down-on-august-12-2026")):
+            self.assertTrue(market.rolling)
+            self.assertEqual(market.close_hour, 16)
+            self.assertEqual(market.tz, "UTC")
+            self.assertEqual(
+                capture.market_slug(market.slug_prefix, dt.date(2026, 8, 12)),
+                expected)
+            self.assertEqual(
+                study._close_utc(market.key, "2026-08-12"),
+                pd.Timestamp("2026-08-12T16:00:00Z"))
 
     def test_spy_closes_at_16_et(self):
         # SPY: 16:00 ET (EDT em agosto) = 20:00 UTC.
@@ -130,13 +154,13 @@ def _frame(rows: list[dict]) -> pd.DataFrame:
 
 def _day_series(up_prices: dict[str, float], last_up: float,
                 dia: str = "2026-08-07") -> pd.DataFrame:
-    """Snapshots de 10 min entre 12:00 e 20:00 UTC (fechamento 16:00 EDT)."""
+    """Snapshots de 5 min entre 12:00 e 20:00 UTC (fechamento 16:00 EDT)."""
     rows = []
     start = dt.datetime(2026, 8, 7, 12, 0, tzinfo=dt.timezone.utc)
-    for i in range(49):                       # 12:00 .. 20:00 (49 pontos)
-        ts = start + dt.timedelta(minutes=10 * i)
+    for i in range(97):                       # 12:00 .. 20:00 (97 pontos)
+        ts = start + dt.timedelta(minutes=5 * i)
         hhmm = ts.strftime("%H:%M")
-        up = last_up if i == 48 else up_prices.get(hhmm, 0.97)
+        up = last_up if i == 96 else up_prices.get(hhmm, 0.97)
         rows.append({"ts_utc": ts.isoformat(), "dia": dia,
                      "preco_up": up, "preco_down": round(1 - up, 4)})
     return _frame(rows)
@@ -149,14 +173,45 @@ class SpySlugTests(unittest.TestCase):
 
 
 class SpyStudyTests(unittest.TestCase):
-    def test_no_window_counts_every_ten_minutes(self):
+    def test_all_markets_reject_995_boundary(self):
+        row = {"preco_up": 0.995, "preco_down": 0.005}
+        for market in MERCADOS:
+            self.assertIsNone(study._side_in_band(row, market))
+
+    def test_pair_asks_must_sum_to_less_than_105_cents(self):
+        base = {"preco_up": 0.97, "preco_down": 0.03}
+        self.assertEqual(
+            study._side_in_band(dict(base, ask_up=0.99, ask_down=0.059)),
+            "up")
+        self.assertIsNone(
+            study._side_in_band(dict(base, ask_up=0.99, ask_down=0.06)))
+        self.assertIsNone(
+            study._side_in_band(dict(base, ask_up=1.00, ask_down=0.06)))
+
+    def test_pair_filter_falls_back_to_prices_without_complete_asks(self):
+        self.assertIsNone(study._side_in_band({
+            "preco_up": 0.97, "preco_down": 0.08,
+            "ask_up": 0.98, "ask_down": None,
+        }))
+
+    def test_stats_report_net_parcels_blocked_by_pair_filter(self):
+        frame = _day_series({}, last_up=0.999)
+        frame["ask_up"] = 0.99
+        frame["ask_down"] = 0.06
+        with mock.patch.object(study, "_load_market", return_value=frame):
+            stats = study.simulate(window_hours=None)
+        self.assertEqual(stats["n"], 0)
+        self.assertEqual(stats["pair_filter_blocked"], 96)
+
+    def test_no_window_counts_every_five_minutes(self):
+        self.assertEqual(INTERVAL_MINUTES, 5)
         frame = _day_series({}, last_up=0.999)   # Up sempre 0,97; resolve Up=1
         with mock.patch.object(study, "_load_market", return_value=frame):
             stats = study.simulate(window_hours=None)
-        # 48 pontos na faixa (12:00..19:50); 20:00 sai da faixa (0,999).
-        self.assertEqual(stats["n"], 48)
-        self.assertEqual(stats["wins"], 48)      # Up venceu
-        self.assertEqual(stats["by_pick"], {"up": 48, "down": 0})
+        # 96 pontos na faixa (12:00..19:55); 20:00 sai da faixa (0,999).
+        self.assertEqual(stats["n"], 96)
+        self.assertEqual(stats["wins"], 96)      # Up venceu
+        self.assertEqual(stats["by_pick"], {"up": 96, "down": 0})
         self.assertGreater(stats["real_mult"], 1.0)
 
     def test_stakes_are_one_percent_of_remaining_daily_cash(self):
@@ -172,8 +227,8 @@ class SpyStudyTests(unittest.TestCase):
         frame = _day_series({}, last_up=0.999)
         with mock.patch.object(study, "_load_market", return_value=frame):
             stats = study.simulate(window_hours=1)
-        # 19:00, 19:10, 19:20, 19:30, 19:40, 19:50 = 6 parcelas.
-        self.assertEqual(stats["n"], 6)
+        # 19:00, 19:05, ..., 19:55 = 12 parcelas.
+        self.assertEqual(stats["n"], 12)
 
     def test_allocates_to_down_when_down_is_in_band(self):
         # Down em 0,97 (na faixa), Up em 0,03; resolve Down=1 (fechou em queda).
@@ -206,8 +261,8 @@ class SpyStudyTests(unittest.TestCase):
             progress = study.today_progress()
         self.assertEqual(progress["day"], "2026-08-07")
         self.assertFalse(progress["resolved"])
-        self.assertEqual(progress["snapshots"], 49)
-        self.assertEqual(progress["parcelas"], 48)   # 12:00..19:50 na faixa
+        self.assertEqual(progress["snapshots"], 97)
+        self.assertEqual(progress["parcelas"], 96)   # 12:00..19:55 na faixa
 
     def test_daily_summary_marks_open_day(self):
         frame = _day_series({}, last_up=0.60)   # não resolveu
@@ -217,7 +272,7 @@ class SpyStudyTests(unittest.TestCase):
         row = daily.iloc[0]
         self.assertFalse(bool(row["resolvido"]))
         self.assertEqual(row["resultado"], "Em aberto")
-        self.assertEqual(int(row["parcelas"]), 48)
+        self.assertEqual(int(row["parcelas"]), 96)
 
     def test_daily_summary_marks_resolved_win(self):
         frame = _day_series({}, last_up=0.999)  # resolveu Up=1
@@ -231,10 +286,27 @@ class SpyStudyTests(unittest.TestCase):
         frame = _day_series({}, last_up=0.999)
         with mock.patch.object(study, "_load_market", return_value=frame):
             prices = study.latest_prices()
-        self.assertEqual(len(prices), 49)
+        self.assertEqual(len(prices), 97)
         self.assertEqual(set(prices.columns),
                          {"ts", "preco_up", "preco_down", "dia"})
         self.assertEqual(prices["dia"].iloc[0], "2026-08-07")
+
+    def test_price_days_and_prices_for_previous_day(self):
+        older = _day_series({}, last_up=0.999, dia="2026-08-06")
+        latest = _day_series({}, last_up=0.60, dia="2026-08-07")
+        frame = pd.concat([latest, older], ignore_index=True)
+        with mock.patch.object(study, "_load_market", return_value=frame):
+            self.assertEqual(study.price_days(),
+                             ["2026-08-06", "2026-08-07"])
+            prices = study.prices_for_day(day="2026-08-06")
+        self.assertEqual(len(prices), 97)
+        self.assertEqual(prices["dia"].unique().tolist(), ["2026-08-06"])
+
+    def test_prices_for_unknown_day_is_empty(self):
+        frame = _day_series({}, last_up=0.999)
+        with mock.patch.object(study, "_load_market", return_value=frame):
+            prices = study.prices_for_day(day="2026-08-05")
+        self.assertTrue(prices.empty)
 
     def test_resolved_day_without_band_entry_has_zero_parcelas(self):
         # Mercado já resolvido (Up=1.0 o tempo todo): fora da faixa → 0 parcelas.
@@ -305,7 +377,7 @@ class StrikesTests(unittest.TestCase):
         for i in range(6):                     # 10:00..10:50, longe do 16:00 UTC
             iso = (start + dt.timedelta(minutes=10 * i)).isoformat()
             rows.append({"ts_utc": iso, "dia": "2026-08-09", "faixa": "62000",
-                         "preco_up": 0.9975, "preco_down": 0.0025})  # na faixa
+                         "preco_up": 0.994, "preco_down": 0.006})  # na faixa
         frame = _frame(rows)
         with mock.patch.object(study, "_load_market", return_value=frame):
             stats = study.simulate(None, "bitcoin")

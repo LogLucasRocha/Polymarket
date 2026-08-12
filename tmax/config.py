@@ -96,8 +96,6 @@ STATIONS = {
                     "🇹🇼", 25.0694, 121.5519, "Asia/Taipei"),
     "ZGGG": Station("ZGGG", "Guangzhou", "Baiyun Intl",
                     "🇨🇳", 23.3924, 113.2988, "Asia/Shanghai"),
-    "ZGSZ": Station("ZGSZ", "Shenzhen", "Bao'an Intl",
-                    "🇨🇳", 22.6393, 113.8108, "Asia/Shanghai"),
     "ZUUU": Station("ZUUU", "Chengdu", "Shuangliu Intl",
                     "🇨🇳", 30.5785, 103.9471, "Asia/Shanghai"),
     "FACT": Station("FACT", "Cidade do Cabo", "Cape Town Intl",
