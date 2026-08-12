@@ -188,6 +188,16 @@ class SpyStudyTests(unittest.TestCase):
         self.assertIsNone(
             study._side_in_band(dict(base, ask_up=1.00, ask_down=0.06)))
 
+    def test_entry_band_prefers_executable_asks_over_reference_prices(self):
+        self.assertIsNone(study._side_in_band({
+            "preco_up": 0.96, "preco_down": 0.04,
+            "ask_up": 0.999, "ask_down": 0.05,
+        }))
+        self.assertEqual(study._side_in_band({
+            "preco_up": 0.90, "preco_down": 0.10,
+            "ask_up": 0.99, "ask_down": 0.059,
+        }), "up")
+
     def test_pair_filter_falls_back_to_prices_without_complete_asks(self):
         self.assertIsNone(study._side_in_band({
             "preco_up": 0.97, "preco_down": 0.08,
@@ -198,6 +208,7 @@ class SpyStudyTests(unittest.TestCase):
         frame = _day_series({}, last_up=0.999)
         frame["ask_up"] = 0.99
         frame["ask_down"] = 0.06
+        frame.loc[frame.index[-1], "ask_up"] = 0.999
         with mock.patch.object(study, "_load_market", return_value=frame):
             stats = study.simulate(window_hours=None)
         self.assertEqual(stats["n"], 0)
@@ -213,6 +224,20 @@ class SpyStudyTests(unittest.TestCase):
         self.assertEqual(stats["wins"], 96)      # Up venceu
         self.assertEqual(stats["by_pick"], {"up": 96, "down": 0})
         self.assertGreater(stats["real_mult"], 1.0)
+
+    def test_simulation_charges_the_executable_ask(self):
+        frame = _day_series({}, last_up=0.999)
+        frame["ask_up"] = 0.98
+        frame["ask_down"] = 0.06
+        frame.loc[frame.index[-1], ["ask_up", "ask_down"]] = [0.999, 0.05]
+        with mock.patch.object(
+                study.ceifa, "_stats_relative_available_stake",
+                return_value={"n": 96, "wins": 96}) as scorer, \
+             mock.patch.object(study, "_load_market", return_value=frame):
+            study.simulate(window_hours=None)
+        signals = scorer.call_args.args[0]
+        self.assertEqual(len(signals), 96)
+        self.assertTrue(all(signal["price"] == 0.98 for signal in signals))
 
     def test_stakes_are_one_percent_of_remaining_daily_cash(self):
         frame = _day_series({}, last_up=0.999)
@@ -290,6 +315,27 @@ class SpyStudyTests(unittest.TestCase):
         self.assertEqual(set(prices.columns),
                          {"ts", "preco_up", "preco_down", "dia"})
         self.assertEqual(prices["dia"].iloc[0], "2026-08-07")
+
+    def test_latest_prices_prefers_executable_asks(self):
+        frame = _day_series({}, last_up=0.999)
+        frame["ask_up"] = 0.981
+        frame["ask_down"] = 0.061
+        with mock.patch.object(study, "_load_market", return_value=frame):
+            prices = study.latest_prices()
+        self.assertEqual(float(prices.iloc[0]["preco_up"]), 0.981)
+        self.assertEqual(float(prices.iloc[0]["preco_down"]), 0.061)
+
+    def test_latest_strikes_displays_buy_prices_and_marks_from_asks(self):
+        frame = _frame([{
+            "ts_utc": "2026-08-12T23:46:41+00:00", "dia": "2026-08-13",
+            "faixa": "$800", "preco_up": 0.02, "preco_down": 0.98,
+            "ask_up": 0.039, "ask_down": 0.999,
+        }])
+        with mock.patch.object(study, "_load_market", return_value=frame):
+            strikes = study.latest_strikes("spy_above")
+        self.assertEqual(float(strikes.iloc[0]["preco_up"]), 0.039)
+        self.assertEqual(float(strikes.iloc[0]["preco_down"]), 0.999)
+        self.assertFalse(bool(strikes.iloc[0]["na_faixa"]))
 
     def test_price_days_and_prices_for_previous_day(self):
         older = _day_series({}, last_up=0.999, dia="2026-08-06")

@@ -1,8 +1,9 @@
 """Estudo observacional dos mercados binários diários (SPY, Bitcoin, ...).
 
-Para cada mercado, a cada 5 min aloca no lado (up **ou** down) cujo preço
-estiver na faixa (0,95, 0,998), somando 1% do caixa livre — o modelo de
-parcelas da Ceifa. Como o mercado é binário, no máximo um lado cabe na faixa.
+Para cada mercado, a cada 5 min aloca no lado (up **ou** down) cujo melhor ask
+executável estiver na faixa (0,95, 0,995), somando 1% do caixa livre — o
+modelo de parcelas da Ceifa. Como o mercado é binário, no máximo um lado cabe
+na faixa.
 
 Roda seis variantes de janela em relação ao fechamento (padrão 16:00 ET): sem
 janela, H-1, H-2, H-3, H-6 e H-12. Só lê os snapshots capturados (dados_{key}/
@@ -113,13 +114,21 @@ def _resolved(group: pd.DataFrame, column: str, close: pd.Timestamp,
     return value                           # rolling: último preço pré-fechamento
 
 
+def _entry_price(row, name: str) -> float | None:
+    """Preço comprável; usa o indicativo só quando não há livro histórico."""
+    for column in (f"ask_{name}", f"preco_{name}"):
+        value = row.get(column)
+        if value is not None and not pd.isna(value):
+            return float(value)
+    return None
+
+
 def _side_in_price_band(row, market: str | Mercado = "spy") -> str | None:
-    """Lado elegível apenas pela faixa de preço, antes do veto do par."""
+    """Lado elegível pelo ask executável, antes do veto do par."""
     low, high = price_band(market)
     for name in ("up", "down"):
-        price = row.get(f"preco_{name}")
-        if price is not None and not pd.isna(price) \
-                and low < float(price) < high:
+        price = _entry_price(row, name)
+        if price is not None and low < price < high:
             return name
     return None
 
@@ -196,7 +205,7 @@ def simulate(window_hours: int | None = None, market: str = "spy") -> dict:
             signals.append({
                 "icao": market.upper(), "day": str(dia),
                 "faixa": f"{faixa}·{side}", "pick": side,
-                "ts": row["ts"], "price": float(row[f"preco_{side}"]),
+                "ts": row["ts"], "price": _entry_price(row, side),
                 "won": final[side] > 0.5, "stopped": False,
                 "loss_frac": None, "spread": None,
             })
@@ -254,6 +263,9 @@ def prices_for_day(market: str = "spy", day: str | None = None) -> pd.DataFrame:
         return pd.DataFrame(columns=columns)
     group = df[df["dia"].astype(str) == selected].sort_values("ts")
     out = group[["ts", "preco_up", "preco_down"]].copy()
+    out["preco_up"] = group.apply(lambda row: _entry_price(row, "up"), axis=1)
+    out["preco_down"] = group.apply(
+        lambda row: _entry_price(row, "down"), axis=1)
     out["dia"] = selected
     return out
 
@@ -275,6 +287,11 @@ def latest_strikes(market: str = "spy") -> pd.DataFrame:
     snap = day_group[day_group["ts"] == day_group["ts"].max()].copy()
     snap["na_faixa"] = snap.apply(
         lambda row: _side_in_band(row, market) is not None, axis=1)
+    # A tabela deve bater com os botões Buy Yes/Buy No da Polymarket. O
+    # outcomePrice é apenas indicativo e pode ficar vários cents longe do ask.
+    snap["preco_up"] = snap.apply(lambda row: _entry_price(row, "up"), axis=1)
+    snap["preco_down"] = snap.apply(
+        lambda row: _entry_price(row, "down"), axis=1)
     return snap.sort_values("faixa")[
         ["faixa", "preco_up", "preco_down", "na_faixa"]].reset_index(drop=True)
 
