@@ -13,6 +13,12 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(BAND, (0.95, 0.998))
         self.assertEqual(PAIR_ASK_CEILING, 1.05)
 
+    def test_spy_updown_has_lower_ceiling_than_other_markets(self):
+        self.assertEqual(study.price_band("spy"), (0.95, 0.995))
+        for market in ("spy_above", "bitcoin", "btc_updown", "solana",
+                       "sol_updown", "ethereum", "eth_updown"):
+            self.assertEqual(study.price_band(market), (0.95, 0.998))
+
     def test_bitcoin_market_registered(self):
         self.assertIn("bitcoin", MERCADOS)
         self.assertEqual(MERCADOS["bitcoin"].slug_prefix, "bitcoin-above-on")
@@ -169,6 +175,11 @@ class SpySlugTests(unittest.TestCase):
 
 
 class SpyStudyTests(unittest.TestCase):
+    def test_spy_rejects_995_while_other_markets_keep_it(self):
+        row = {"preco_up": 0.995, "preco_down": 0.005}
+        self.assertIsNone(study._side_in_band(row, "spy"))
+        self.assertEqual(study._side_in_band(row, "btc_updown"), "up")
+
     def test_pair_asks_must_sum_to_less_than_105_cents(self):
         base = {"preco_up": 0.97, "preco_down": 0.03}
         self.assertEqual(

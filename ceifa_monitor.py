@@ -905,12 +905,15 @@ def cities_page(stats: dict, full_stats: dict,
 def market_page(market: str) -> None:
     """Estudo observacional de um mercado binário diário (SPY, Bitcoin, ...)."""
     variants = load_market(market)
+    band_low, band_high = spy_study.price_band(market)
+    band_label = (f"{band_low * 100:.0f}–{band_high * 100:.1f}¢"
+                  .replace(".", ","))
     latest = spy_study.latest_day(market)
     lado_a, lado_b = spy_study.side_labels(market)
     fechamento = spy_study.close_label(market)
     st.caption(
         f"Último dia capturado: {latest or '—'} · aloca no lado "
-        f"({lado_a} ou {lado_b}) que estiver entre 95¢ e 99,8¢, com 1% do caixa "
+        f"({lado_a} ou {lado_b}) que estiver na faixa {band_label}, com 1% do caixa "
         "livre a cada 5 min, somente quando os asks dos dois lados somarem "
         "menos de 105¢. Fase de observação — sem apostas reais.")
 
@@ -936,8 +939,8 @@ def market_page(market: str) -> None:
         st.dataframe(view, hide_index=True, width="stretch",
                      column_config={"Na faixa": st.column_config.CheckboxColumn()})
         st.caption(
-            "Cada strike é um contrato. Qualquer lado (Yes/No) entre 95¢ e "
-            "99,8¢ vira parcela somente se Yes + No nos asks somarem menos de "
+            f"Cada strike é um contrato. Qualquer lado (Yes/No) na faixa "
+            f"{band_label} vira parcela somente se Yes + No nos asks somarem menos de "
             "105¢ — a coluna 'Na faixa' marca quais entrariam.")
 
     # Preços do dia com a faixa marcada (mercados binários, tipo SPY).
@@ -970,7 +973,7 @@ def market_page(market: str) -> None:
         hover_price = (
             "<b>%{fullData.name}</b>: %{y:.3f}"
             "<br>Brasília: %{customdata[0]}<extra></extra>")
-        figp.add_hrect(y0=0.95, y1=0.998, fillcolor=GREEN, opacity=0.12,
+        figp.add_hrect(y0=band_low, y1=band_high, fillcolor=GREEN, opacity=0.12,
                        line_width=0, annotation_text="faixa de compra",
                        annotation_position="top left")
         figp.add_trace(go.Scatter(
@@ -991,7 +994,7 @@ def market_page(market: str) -> None:
             xaxis_hoverformat="%d/%m/%Y %H:%M UTC")
         st.plotly_chart(dark_figure(figp), width="stretch")
         st.caption(
-            "Faixa verde = 95–99,8¢, onde a estratégia entra. Sem nenhum lado "
+            f"Faixa verde = {band_label}, onde a estratégia entra. Sem nenhum lado "
             "dentro dela, ou com a soma dos asks em 105¢ ou mais, não há "
             "parcela naquele instante.")
 
@@ -1000,12 +1003,12 @@ def market_page(market: str) -> None:
         if resolvidos:
             st.info(
                 "O mercado do dia **resolveu**, mas nenhum snapshot capturado "
-                "caiu na faixa (95–99,8¢) — então **0 parcelas**. Costuma "
+                f"caiu na faixa ({band_label}) — então **0 parcelas**. Costuma "
                 "acontecer quando o mercado já estava resolvido (preço em 0 ou "
                 "1) durante as capturas.")
         else:
             st.info(
-                "Capturando — ainda sem nenhum lado na faixa (95–99,8¢). "
+                f"Capturando — ainda sem nenhum lado na faixa ({band_label}). "
                 "As parcelas aparecem quando um dos lados entrar na faixa.")
         return
 
@@ -1034,7 +1037,7 @@ def market_page(market: str) -> None:
     if not any(stats.get("n", 0) for _, stats in variants):
         abertas = int(daily.loc[~daily["resolvido"], "parcelas"].sum())
         st.info(
-            f"**{abertas} parcela(s) em aberto** hoje (lado na faixa 95–99,8¢). "
+            f"**{abertas} parcela(s) em aberto** hoje (lado na faixa {band_label}). "
             "O resultado financeiro por janela aparece depois do fechamento do "
             f"mercado ({fechamento}), quando o dia resolve.")
         return
@@ -1173,8 +1176,11 @@ def main() -> None:
                 "memória. **Reinicie o processo** (feche o `streamlit run` e "
                 "suba de novo) para carregar — recarregar a aba não basta.")
             return
+        band_low, band_high = spy_study.price_band(market)
+        band_label = (f"{band_low * 100:.0f}–{band_high * 100:.1f}¢"
+                      .replace(".", ","))
         hero(f"{MERCADOS[market].nome} · hipótese em teste · aloca no lado na "
-             "faixa 95–99,8¢, 1% do caixa livre a cada 5 min · Yes + No nos "
+             f"faixa {band_label}, 1% do caixa livre a cada 5 min · Yes + No nos "
              "asks abaixo de 105¢.")
         market_page(market)
         return

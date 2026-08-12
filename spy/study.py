@@ -33,6 +33,11 @@ def _mercado(market: str | Mercado) -> Mercado:
     return market if isinstance(market, Mercado) else MERCADOS[market]
 
 
+def price_band(market: str | Mercado = "spy") -> tuple[float, float]:
+    """Faixa de compra do mercado, com piso global e teto individual."""
+    return BAND[0], _mercado(market).band_high
+
+
 _TZ_LABELS = {"America/New_York": "ET", "UTC": "UTC"}
 
 
@@ -108,12 +113,13 @@ def _resolved(group: pd.DataFrame, column: str, close: pd.Timestamp,
     return value                           # rolling: último preço pré-fechamento
 
 
-def _side_in_price_band(row) -> str | None:
+def _side_in_price_band(row, market: str | Mercado = "spy") -> str | None:
     """Lado elegível apenas pela faixa de preço, antes do veto do par."""
+    low, high = price_band(market)
     for name in ("up", "down"):
         price = row.get(f"preco_{name}")
         if price is not None and not pd.isna(price) \
-                and BAND[0] < float(price) < BAND[1]:
+                and low < float(price) < high:
             return name
     return None
 
@@ -136,10 +142,10 @@ def _pair_asks_allowed(row) -> bool:
     return True
 
 
-def _side_in_band(row) -> str | None:
+def _side_in_band(row, market: str | Mercado = "spy") -> str | None:
     if not _pair_asks_allowed(row):
         return None
-    return _side_in_price_band(row)
+    return _side_in_price_band(row, market)
 
 
 def simulate(window_hours: int | None = None, market: str = "spy") -> dict:
@@ -168,8 +174,8 @@ def simulate(window_hours: int | None = None, market: str = "spy") -> dict:
         last_ts = None
         baseline_last_ts = None
         for _, row in group.iterrows():
-            baseline_side = _side_in_price_band(row)
-            side = _side_in_band(row)
+            baseline_side = _side_in_price_band(row, market)
+            side = _side_in_band(row, market)
             if baseline_side is None and side is None:
                 continue
             if cutoff is not None and (row["ts"] < cutoff or row["ts"] > close):
@@ -268,13 +274,14 @@ def latest_strikes(market: str = "spy") -> pd.DataFrame:
     day_group = df[df["dia"] == day]
     snap = day_group[day_group["ts"] == day_group["ts"].max()].copy()
     snap["na_faixa"] = snap.apply(
-        lambda row: _side_in_band(row) is not None, axis=1)
+        lambda row: _side_in_band(row, market) is not None, axis=1)
     return snap.sort_values("faixa")[
         ["faixa", "preco_up", "preco_down", "na_faixa"]].reset_index(drop=True)
 
 
 def _count_parcelas(group: pd.DataFrame, close: pd.Timestamp,
-                    now_ts: pd.Timestamp) -> tuple[int, int, bool]:
+                    now_ts: pd.Timestamp,
+                    market: str = "spy") -> tuple[int, int, bool]:
     """Parcelas, acertos e se resolveu, para um contrato (dia, faixa)."""
     group = group.sort_values("ts")
     final = {"up": _resolved(group, "preco_up", close, now_ts),
@@ -283,7 +290,7 @@ def _count_parcelas(group: pd.DataFrame, close: pd.Timestamp,
     parcelas = acertos = 0
     last_ts = None
     for _, row in group.iterrows():
-        side = _side_in_band(row)
+        side = _side_in_band(row, market)
         if side is None:
             continue
         if last_ts is not None and \
@@ -320,7 +327,7 @@ def daily_summary(market: str = "spy") -> pd.DataFrame:
         parcelas = acertos = 0
         resolved = False
         for _, group in day_group.groupby("faixa"):
-            p, a, r = _count_parcelas(group, close, now_ts)
+            p, a, r = _count_parcelas(group, close, now_ts, market)
             parcelas += p
             acertos += a
             resolved = resolved or r
@@ -352,7 +359,7 @@ def today_progress(market: str = "spy") -> dict:
     parcelas = 0
     resolved = False
     for _, group in day_group.groupby("faixa"):
-        p, _a, r = _count_parcelas(group, close, now_ts)
+        p, _a, r = _count_parcelas(group, close, now_ts, market)
         parcelas += p
         resolved = resolved or r
     return {"day": day, "snapshots": int(day_group["ts"].nunique()),

@@ -57,6 +57,9 @@ snapshot é vetado. Reporta parcelas, assertividade,
 rendimento e drawdown em seis janelas relativas ao fechamento (16:00 ET): sem
 janela, H-1, H-2, H-3, H-6 e H-12. Só observa; não envia alerta nem ordem.
 
+O **SPY Up/Down** usa uma faixa mais conservadora, **(95¢, 99,5¢)**. Os demais
+mercados em teste continuam em **(95¢, 99,8¢)**.
+
 Previsão de TMax para Guarulhos, Buenos Aires e Moscou, D0 e D+1.
 
 Pipeline que combina múltiplos modelos numéricos, ensembles, correção de viés
