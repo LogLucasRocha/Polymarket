@@ -167,10 +167,8 @@ def num_or_dash(value, suffix: str = "", digits: int = 1) -> str:
 
 
 def hero(subtitle: str) -> None:
-    st.markdown(
-        f"<div class='hero'><h1>🌾 Ceifa Monitor</h1><p>{subtitle}</p></div>",
-        unsafe_allow_html=True,
-    )
+    """Mantém apenas o contexto da página, sem o antigo banner verde."""
+    st.caption(subtitle)
 
 
 @st.cache_data(show_spinner="Recalculando a Ceifa nos nossos snapshots…")
@@ -361,6 +359,8 @@ def hourly_by_category(stats: dict,
         else:
             category = {"maximum": "Máxima", "minimum": "Mínima"}.get(
                 signal.get("extreme"), "Outra")
+            if signal.get("extreme") == "spy":
+                category = "SPY Up or Down"
         rows.append((signal.get("ts"), category))
     if not rows:
         return pd.DataFrame()
@@ -392,8 +392,9 @@ def hourly_chart(stats: dict,
     mean = float(total.mean())
     hours = [f"{hour:02d}h" for hour in piv.index]
     if side_labels is None:
-        categories = ("Máxima", "Mínima", "Outra")
-        cores = {"Máxima": RED, "Mínima": BLUE, "Outra": GREEN}
+        categories = ("Máxima", "Mínima", "SPY Up or Down", "Outra")
+        cores = {"Máxima": RED, "Mínima": BLUE,
+                 "SPY Up or Down": GREEN, "Outra": MUTED}
     else:
         categories = (*side_labels, "Outro")
         cores = {side_labels[0]: BLUE, side_labels[1]: AMBER, "Outro": GREEN}
@@ -1154,7 +1155,7 @@ def main() -> None:
         if producao:
             choice = pick_col.radio(
                 "Produção",
-                ["📊 Tudo consolidado", "🌦️ Climatologia", "◇ SPY H-1"],
+                ["📊 Estratégias Consolidadas", "🌦️ Climatologia", "◇ SPY H-1"],
                 horizontal=True, key="production_navigation")
         else:
             choice = pick_col.radio(
@@ -1223,7 +1224,7 @@ def main() -> None:
         return
 
     # Climatologia isolada ou todas as estratégias numa única banca.
-    all_consolidated = choice == "📊 Tudo consolidado"
+    all_consolidated = choice == "📊 Estratégias Consolidadas"
     consolidated = True
     side = "MISTO" if all_consolidated else "NÃO"
     kind = "consolidated" if all_consolidated else "climatology"
