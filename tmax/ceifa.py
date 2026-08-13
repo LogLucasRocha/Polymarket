@@ -770,8 +770,6 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
             ["icao", "dia", "faixa"], observed=True):
         group = group.sort_values("ts")
         final_no = resolutions.get((icao, day, faixa))
-        if final_no is None:
-            continue
         last_entry_ts = None
         for _, entry_row in group.iterrows():
             fget = lambda name, default=None: entry_row.get(  # noqa: E731
@@ -793,9 +791,9 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                 filtered += 1
                 filtered_taf += 1
                 filtered_records.append({"dia": day_br, "motivo": "TAF convectivo"})
-                if final_no > 0.5:
+                if final_no is not None and final_no > 0.5:
                     filtered_100c += 1
-                else:
+                elif final_no is not None:
                     filtered_0c += 1
                 continue
 
@@ -807,9 +805,9 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                 filtered += 1
                 filtered_spread += 1
                 filtered_records.append({"dia": day_br, "motivo": "Ensemble largo"})
-                if final_no > 0.5:
+                if final_no is not None and final_no > 0.5:
                     filtered_100c += 1
-                else:
+                elif final_no is not None:
                     filtered_0c += 1
                 continue
 
@@ -821,9 +819,9 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                 filtered_ensemble_band += 1
                 filtered_records.append(
                     {"dia": day_br, "motivo": "Faixa dentro de P10–P90"})
-                if final_no > 0.5:
+                if final_no is not None and final_no > 0.5:
                     filtered_100c += 1
-                else:
+                elif final_no is not None:
                     filtered_0c += 1
                 continue
 
@@ -833,9 +831,9 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                 filtered_upper_tail += 1
                 filtered_records.append(
                     {"dia": day_br, "motivo": "Cauda superior perto do teto"})
-                if final_no > 0.5:
+                if final_no is not None and final_no > 0.5:
                     filtered_100c += 1
-                else:
+                elif final_no is not None:
                     filtered_0c += 1
                 continue
 
@@ -846,9 +844,9 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                 filtered_lower_tail += 1
                 filtered_records.append(
                     {"dia": day_br, "motivo": "Cauda inferior perto do piso"})
-                if final_no > 0.5:
+                if final_no is not None and final_no > 0.5:
                     filtered_100c += 1
-                else:
+                elif final_no is not None:
                     filtered_0c += 1
                 continue
 
@@ -878,9 +876,9 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                     {"dia": day_br, "motivo": "Desvio/nowcast quente"})
                 if not warm_without_plateau:
                     filtered_plateau += 1
-                if final_no > 0.5:
+                if final_no is not None and final_no > 0.5:
                     filtered_100c += 1
-                else:
+                elif final_no is not None:
                     filtered_0c += 1
                 continue
 
@@ -892,9 +890,9 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                 filtered_wide_book += 1
                 filtered_records.append(
                     {"dia": day_br, "motivo": "Livro largo (Sim caro)"})
-                if final_no > 0.5:
+                if final_no is not None and final_no > 0.5:
                     filtered_100c += 1
-                else:
+                elif final_no is not None:
                     filtered_0c += 1
                 continue
 
@@ -902,7 +900,8 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                 "icao": icao, "day": day, "faixa": faixa,
                 "day_br": _brasilia_day(entry_row["ts"]),
                 "ts": entry_row["ts"], "price": price,
-                "won": final_no > 0.5, "stopped": False,
+                "won": (final_no > 0.5 if final_no is not None else None),
+                "resolved": final_no is not None, "stopped": False,
                 "loss_frac": None, "spread": spread,
             })
             last_entry_ts = entry_row["ts"]
@@ -1067,8 +1066,12 @@ def _stats_relative_available_stake(signals: list, days: int,
     # Bucket do dia: para a Ceifa, o dia em que o Lucas operou (fuso de
     # Brasília, ``day_br``); para SPY/Bitcoin, que não têm ``day_br``, a
     # data-alvo do próprio mercado (``day``), definida pelo fechamento dele.
+    pending_candidates = [signal for signal in signals
+                          if signal.get("resolved", True) is False]
+    resolved_candidates = [signal for signal in signals
+                            if signal.get("resolved", True) is not False]
     by_day: dict = defaultdict(list)
-    for signal in signals:
+    for signal in resolved_candidates:
         by_day[_day_bucket(signal)].append(signal)
     capital, peak, max_drawdown = 1.0, 1.0, 0.0
     executed, per_day = [], []
@@ -1122,6 +1125,8 @@ def _stats_relative_available_stake(signals: list, days: int,
     for signal in executed:
         by_city[signal["icao"]][0] += 1
         by_city[signal["icao"]][1] += int(signal["won"])
+    pending_stats = _pending_position_cap_stats(
+        pending_candidates, stake_frac, position_cap_frac)
     return {
         "n": n, "days": days, "wins": wins,
         "hit": wins / n if n else 0.0,
@@ -1129,7 +1134,11 @@ def _stats_relative_available_stake(signals: list, days: int,
                       if n else 0.0),
         "real_mult": capital, "real_dd": max_drawdown,
         "per_day": per_day, "by_city": dict(by_city), "signals": executed,
-        "candidate_signals": list(signals),
+        "candidate_signals": list(resolved_candidates),
+        "pending_candidate_signals": list(pending_candidates),
+        "pending_signals": pending_stats["signals"],
+        "pending_by_day": pending_stats["by_day"],
+        "pending_n": len(pending_stats["signals"]),
         "stake_frac": stake_frac,
         "position_cap_frac": position_cap_frac,
         "n_position_cap_blocked": position_cap_blocked,
@@ -1137,6 +1146,35 @@ def _stats_relative_available_stake(signals: list, days: int,
         "n_capital_limited": position_cap_blocked,
         "n_stopped": 0,
     }
+
+
+def _pending_position_cap_stats(signals: list, stake_frac: float,
+                                position_cap_frac: float) -> dict:
+    """Conta posições abertas com a mesma sequência de stake, sem liquidá-las."""
+    by_day: dict = defaultdict(list)
+    for signal in signals:
+        by_day[_day_bucket(signal)].append(signal)
+    placed, counts = [], defaultdict(int)
+    for day in sorted(by_day):
+        available = 1.0
+        allocated_by_contract: dict[tuple, float] = defaultdict(float)
+        for signal in sorted(by_day[day], key=lambda item: item["ts"]):
+            contract = (
+                signal.get("extreme") or signal.get("archive_kind"),
+                signal.get("icao"), str(signal.get("day")),
+                signal.get("faixa"), signal.get("pick") or signal.get("side"),
+            )
+            room = max(position_cap_frac - allocated_by_contract[contract], 0.0)
+            if room <= 1e-12:
+                continue
+            stake = min(stake_frac * available, room)
+            if stake <= 1e-12:
+                continue
+            allocated_by_contract[contract] += stake
+            available -= stake
+            placed.append(dict(signal, stake=stake))
+            counts[day] += 1
+    return {"signals": placed, "by_day": dict(counts)}
 
 
 def _stats(signals: list, days: int) -> dict:
