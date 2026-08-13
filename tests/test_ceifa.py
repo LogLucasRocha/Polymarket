@@ -553,6 +553,22 @@ class BrasiliaDayBucketTests(unittest.TestCase):
         stats = ceifa._stats_relative_available_stake(signals, 1, 0.01)
         self.assertEqual([d["day"] for d in stats["per_day"]], ["2026-08-09"])
 
+    def test_position_cap_trims_fourth_parcel_and_blocks_the_rest(self):
+        signals = [{
+            "icao": "SPY", "day": "2026-08-09", "faixa": "—·up",
+            "pick": "up", "ts": pd.Timestamp(f"2026-08-09T19:{minute:02d}:00Z"),
+            "price": 0.97, "won": True,
+        } for minute in (0, 5, 10, 15, 20)]
+
+        stats = ceifa._stats_relative_available_stake(signals, 1, 0.01)
+
+        self.assertEqual(stats["n"], 4)
+        self.assertAlmostEqual(sum(s["stake"] for s in stats["signals"]), 0.03)
+        self.assertAlmostEqual(stats["signals"][-1]["stake"], 0.000299)
+        self.assertEqual(stats["n_position_cap_trimmed"], 1)
+        self.assertEqual(stats["n_position_cap_blocked"], 1)
+        self.assertEqual(len(stats["candidate_signals"]), 5)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -388,6 +388,23 @@ class MonitorTest(unittest.TestCase):
         self.assertEqual(stats["pair_filter_blocked"], 4)
         self.assertEqual(stats["side"], "MISTO")
 
+    def test_consolidated_recalculates_position_cap_from_candidates(self):
+        candidates = [{
+            "icao": "EGLC", "day": "2026-07-31", "faixa": "36°C",
+            "ts": dt.datetime(2026, 7, 31, 13, minute), "price": 0.98,
+            "won": True, "stopped": False, "loss_frac": None,
+        } for minute in (0, 5, 10, 15, 20)]
+        maximum = {"n": 4, "signals": candidates[:4],
+                   "candidate_signals": candidates}
+        minimum = {"n": 0, "signals": [], "candidate_signals": []}
+
+        stats = monitor.combine_active_strategies(maximum, minimum)
+
+        self.assertEqual(stats["n"], 4)
+        self.assertEqual(stats["n_position_cap_blocked"], 1)
+        self.assertAlmostEqual(sum(s["stake"] for s in stats["signals"]), 0.03)
+        self.assertEqual(stats["active_components"]["maximum"], 4)
+
     def test_observed_cvar_is_mean_of_worst_days(self):
         # 4 dias bons + 1 dia com perda: o CVaR 1% cai no pior dia real.
         per_day = [{"ret": 0.02}, {"ret": 0.01}, {"ret": 0.015},

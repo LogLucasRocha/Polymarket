@@ -720,8 +720,9 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
     """Ceifa parcelada: uma stake relativa a cada rodada elegível da H-1.
 
     A stake de cada parcela é ``stake_frac`` do caixa ainda livre naquele
-    instante. Não há teto por contrato nem alavancagem; como a parcela diminui
-    junto com o saldo disponível, o caixa nunca é esgotado matematicamente.
+    instante, limitada ao espaço restante até 3% do patrimônio inicial do dia
+    naquele contrato. Não há alavancagem; como a parcela diminui junto com o
+    saldo disponível, o caixa nunca é esgotado matematicamente.
     Cada snapshot respeita novamente preço e livro. ``warm_target_filter`` e
     ``uncertainty_filter`` permitem manter os vetos meteorológicos das máximas
     desligados no estudo de mínimas. ``minimum_taf_filter`` reproduz o veto
@@ -1059,8 +1060,10 @@ def simulate_yes_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
 
 
 def _stats_relative_available_stake(signals: list, days: int,
-                                    stake_frac: float) -> dict:
-    """Parcela cada entrada com uma fração do caixa ainda disponível."""
+                                    stake_frac: float,
+                                    position_cap_frac: float =
+                                    config.CEIFA_POSITION_CAP_FRAC) -> dict:
+    """Parcela o caixa livre e limita cada contrato a uma fração do capital."""
     # Bucket do dia: para a Ceifa, o dia em que o Lucas operou (fuso de
     # Brasília, ``day_br``); para SPY/Bitcoin, que não têm ``day_br``, a
     # data-alvo do próprio mercado (``day``), definida pelo fechamento dele.
@@ -1069,12 +1072,31 @@ def _stats_relative_available_stake(signals: list, days: int,
         by_day[_day_bucket(signal)].append(signal)
     capital, peak, max_drawdown = 1.0, 1.0, 0.0
     executed, per_day = [], []
+    position_cap_blocked = position_cap_trimmed = 0
     for day in sorted(by_day):
         start = capital
         available, settled = start, 0.0
         day_executed = []
+        allocated_by_contract: dict[tuple, float] = defaultdict(float)
         for signal in sorted(by_day[day], key=lambda item: item["ts"]):
             stake = stake_frac * available
+            contract = (
+                signal.get("extreme") or signal.get("archive_kind"),
+                signal.get("icao"), str(signal.get("day")),
+                signal.get("faixa"), signal.get("pick") or signal.get("side"),
+            )
+            position_cap = position_cap_frac * start
+            room = max(position_cap - allocated_by_contract[contract], 0.0)
+            if room <= 1e-12:
+                position_cap_blocked += 1
+                continue
+            if stake > room:
+                stake = room
+                position_cap_trimmed += 1
+            if stake <= 1e-12:
+                position_cap_blocked += 1
+                continue
+            allocated_by_contract[contract] += stake
             available -= stake
             settled += stake / signal["price"] if signal["won"] else 0.0
             placed = dict(signal, stake=stake)
@@ -1107,7 +1129,12 @@ def _stats_relative_available_stake(signals: list, days: int,
                       if n else 0.0),
         "real_mult": capital, "real_dd": max_drawdown,
         "per_day": per_day, "by_city": dict(by_city), "signals": executed,
-        "stake_frac": stake_frac, "n_capital_limited": 0,
+        "candidate_signals": list(signals),
+        "stake_frac": stake_frac,
+        "position_cap_frac": position_cap_frac,
+        "n_position_cap_blocked": position_cap_blocked,
+        "n_position_cap_trimmed": position_cap_trimmed,
+        "n_capital_limited": position_cap_blocked,
         "n_stopped": 0,
     }
 

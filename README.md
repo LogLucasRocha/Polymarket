@@ -36,8 +36,9 @@ promove as mínimas para apostas nem reutiliza automaticamente o filtro de
 incerteza das máximas: o limite da cauda fria será calibrado separadamente.
 
 O backtest das mínimas usa parcelas de 1% do caixa livre a cada cinco minutos
-enquanto preço, oferta e H-1 continuarem elegíveis, sem teto por contrato e sem
-alavancagem. Trata-se apenas de monitoramento; nenhum alerta executa uma aposta.
+enquanto preço, oferta e H-1 continuarem elegíveis, com teto de 3% do patrimônio
+por posição e sem alavancagem. Trata-se apenas de monitoramento; nenhum alerta
+executa uma aposta.
 
 ### Estudo de mercados binários diários (SPY, Bitcoin, Solana, Ethereum, ...)
 
@@ -51,7 +52,8 @@ apenas não grava.
 
 O estudo (`spy.study`, aba de cada mercado em **Em teste**) aloca no lado cujo
 preço estiver na faixa **(0,95, 0,995)**, adicionando 1% do caixa livre a cada
-5 min — o mesmo modelo de parcelas da Ceifa. Uma parcela só é aceita quando as
+5 min, até 3% do patrimônio por posição — o mesmo modelo de parcelas da Ceifa.
+Uma parcela só é aceita quando as
 melhores ofertas dos dois lados somam menos de **105¢**; em 105¢ ou mais, o
 snapshot é vetado. Reporta parcelas, assertividade,
 rendimento e drawdown em seis janelas relativas ao fechamento (16:00 ET): sem
@@ -157,7 +159,7 @@ rodada com uma oportunidade, o bot consulta o pUSD livre e mostra dentro da
 recomendação a stake de 1% desse saldo naquele momento. O alerta repete com
 intervalo mínimo de cinco minutos enquanto elegível, mesmo se já houver
 posição; cada contrato indicado autoriza uma nova parcela relativa, sem teto
-por contrato e sem alavancagem. A 1ª
+por ordem e sem alavancagem, até a posição somar 3% do patrimônio. A 1ª
 aparição vem com um **bloco enxuto**: gráfico da
 distribuição (ensemble + TAF + mediana) e texto com o **pico previsto** e a
 **mediana (P10/P90)** — sem tabela de probabilidades e sem hora a hora; as
