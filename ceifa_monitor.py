@@ -293,8 +293,8 @@ def daily_chart(stats: dict, days: int | None = None) -> go.Figure:
     fig.update_layout(
         height=330, margin=dict(l=15, r=15, t=10, b=10),
         xaxis_title=None, yaxis_title="Retorno do dia (%)",
-        yaxis2=dict(title="Parcelas aguardando", overlaying="y", side="right",
-                    rangemode="tozero", gridcolor="rgba(0,0,0,0)"),
+        yaxis2=dict(overlaying="y", side="right", rangemode="tozero",
+                    visible=False, gridcolor="rgba(0,0,0,0)"),
         barmode="group", showlegend=not pending_rows.empty,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
     )
