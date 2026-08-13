@@ -1192,24 +1192,14 @@ def _ceifa_repeat_text(station, ctx, contratos, extreme="maximum",
 def _send_ceifa_block(token, chat_id, station, ctx, contratos,
                       extreme="maximum", forecast=None,
                       member_values=None) -> None:
-    """Bloco enxuto da Ceifa: divisor, texto (compra + pico + mediana) e o
-    gráfico da distribuição (ensemble + TAF + mediana). Sem tabela de
-    probabilidades e sem hora a hora."""
+    """Bloco enxuto da Ceifa: envia somente o alerta textual.
+
+    Os gráficos meteorológicos deixaram de ser enviados ao Telegram; os dados
+    continuam disponíveis no monitor e os alertas de compra permanecem iguais.
+    """
     notify.send_message(
         token, chat_id,
         _ceifa_text(station, ctx, contratos, extreme, forecast))
-    if extreme == "minimum":
-        chart = notify.ceifa_minimum_chart_png(ctx, member_values or [])
-        caption = (f"📉 <b>{html.escape(station.city)}</b> — trajetória hora "
-                   "a hora + distribuição da MÍNIMA de hoje (ensemble · "
-                   "mediana)")
-    else:
-        chart = notify.ceifa_chart_png(ctx)
-        caption = (f"📈 <b>{html.escape(station.city)}</b> — trajetória hora "
-                   "a hora + distribuição da MÁXIMA de hoje (ensemble · TAF "
-                   "· mediana)")
-    notify.send_photo(
-        token, chat_id, chart, caption)
 
 
 def _ceifa_alert_rows(ceifa_pending, ceifa_seen, signal_rows,
@@ -1403,7 +1393,7 @@ def _send_station_block(token, chat_id, station, ctx, positions,
                         errors, yes_prob, position_success_prob,
                         pre_msgs=None) -> None:
     """Envia o bloco completo de UMA estação (divisor, sinais/alertas da
-    rodada, posições, tabela de odds, gráfico e hora a hora). Levanta na
+    rodada, posições, tabela de odds e resumo hora a hora). Levanta na
     primeira falha de envio."""
     for m in pre_msgs or []:
         notify.send_message(token, chat_id, m)
@@ -1451,9 +1441,7 @@ def _send_station_block(token, chat_id, station, ctx, positions,
     else:
         print(f"[{station.icao}] sem mercado de odds relevante.")
 
-    # 4c) gráfico com nowcast + distribuições e o hora a hora
-    notify.send_photo(token, chat_id, notify.station_chart_png(ctx),
-                      notify.station_lines(ctx))
+    # 4c) resumo textual hora a hora; o gráfico meteorológico fica só no monitor.
     notify.send_message(token, chat_id, notify.station_hourly_lines(ctx))
     print(f"[{station.icao}] enviado.")
 
