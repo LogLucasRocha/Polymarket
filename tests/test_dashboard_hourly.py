@@ -1,4 +1,5 @@
 import unittest
+from unittest import mock
 
 import pandas as pd
 
@@ -50,6 +51,28 @@ class DashboardHourlyTest(unittest.TestCase):
         chart = dashboard.hourly_chart(stats, ("Up", "Down"))
         self.assertEqual({trace.name for trace in chart.data}, {"Up", "Down"})
         self.assertEqual(chart.layout.barmode, "stack")
+
+    def test_consolidated_chart_names_spy_instead_of_other(self):
+        stats = {"signals": [
+            {"ts": "2026-08-01T13:00:00Z", "extreme": "spy"},
+            {"ts": "2026-08-01T13:05:00Z", "extreme": "maximum"},
+        ]}
+
+        piv = dashboard.hourly_by_category(stats)
+        chart = dashboard.hourly_chart(stats)
+
+        self.assertEqual(piv.loc[10, "SPY Up or Down"], 1.0)
+        self.assertEqual({trace.name for trace in chart.data},
+                         {"SPY Up or Down", "Máxima"})
+        self.assertNotIn("Outra", {trace.name for trace in chart.data})
+
+    @mock.patch.object(dashboard.st, "caption")
+    @mock.patch.object(dashboard.st, "markdown")
+    def test_page_context_has_no_ceifa_monitor_banner(self, markdown, caption):
+        dashboard.hero("Produção consolidada")
+
+        caption.assert_called_once_with("Produção consolidada")
+        markdown.assert_not_called()
 
     def test_mean_daily_return_averages_resolved_days_with_entries(self):
         stats = {"per_day": [
