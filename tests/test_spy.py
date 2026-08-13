@@ -394,7 +394,7 @@ class SpyStudyTests(unittest.TestCase):
             "dia": "2026-08-07", "preco_up": 0.50,
             "preco_down": 0.50, "ask_up": 0.99, "ask_down": 0.05,
             "up_label": "Up", "down_label": "Down",
-            "ask_up_volume": 8,
+            "up_token_id": "spy-up-token", "ask_up_volume": 8,
         }])
         now = dt.datetime(2026, 8, 7, 19, 31, tzinfo=dt.timezone.utc)
         with mock.patch.object(study, "_load_market", return_value=frame):
@@ -402,6 +402,7 @@ class SpyStudyTests(unittest.TestCase):
         self.assertEqual(candidate["side"], "up")
         self.assertEqual(candidate["price"], 0.99)
         self.assertEqual(candidate["pair_sum"], 1.04)
+        self.assertEqual(candidate["token_id"], "spy-up-token")
 
     def test_live_candidate_rejects_stale_snapshot(self):
         frame = _frame([{

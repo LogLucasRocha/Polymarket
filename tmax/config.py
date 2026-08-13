@@ -256,6 +256,7 @@ CEIFA_MINIMUM_TAF_FILTER = True  # bloqueia TSRA/VCTS no restante do dia local
 CEIFA_PRICE_MIN = 0.95      # exclusivo: preço do NÃO > 0,95
 CEIFA_PRICE_MAX = 0.995     # exclusivo: preço do NÃO < 0,995
 CEIFA_STAKE_FRAC = 0.01     # parcela relativa ao saldo livre de cada rodada
+CEIFA_POSITION_CAP_FRAC = 0.03  # máximo investido em um contrato / patrimônio
 CEIFA_REPEAT_MINUTES = 5    # nova parcela em cada rodada elegível
 
 # FILTRO DE INCERTEZA (decisão do Lucas, 22/07 — substitui o stop loss no

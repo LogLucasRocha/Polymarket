@@ -197,10 +197,12 @@ def main() -> int:
     # geral só é enviado se POSITIONS_SUMMARY_ENABLED estiver explicitamente
     # ligado; por padrão permanece desativado.
     positions: list[dict] = []
+    positions_loaded = False
     wallet = os.environ.get("POLYMARKET_WALLET")
     if wallet and not args.no_positions:
         try:
             positions = polymarket.fetch_positions(wallet)
+            positions_loaded = True
         except Exception as exc:  # noqa: BLE001 — leitura da carteira é acessório
             print(f"[polymarket] ERRO ao ler posições: {exc}", file=sys.stderr)
         # Evolução do portfólio: no máximo 1x por hora (decisão do Lucas).
@@ -462,8 +464,9 @@ def main() -> int:
         )]
 
     # Stake relativa: no instante de cada rodada com oportunidade, recomenda
-    # 1% do pUSD livre. Se as compras anteriores foram executadas, o próprio
-    # saldo menor reduz naturalmente a parcela seguinte.
+    # 1% do pUSD livre. Cada contrato, porém, pode receber no máximo 3% do
+    # patrimônio total (saldo livre + posições a mercado). A última parcela é
+    # reduzida ao espaço restante; depois do teto, o alerta deixa de sair.
     free_pusd = None
     if ceifa_pending or minimum_pending or spy_pending:
         if not wallet:
@@ -473,6 +476,20 @@ def main() -> int:
         else:
             try:
                 free_pusd, first_stake = _current_ceifa_stake(wallet)
+                if not positions_loaded:
+                    positions = polymarket.fetch_positions(wallet)
+                    positions_loaded = True
+                positions_value = polymarket.fetch_positions_value(wallet)
+                total_capital = free_pusd + positions_value
+                allocated_by_token = _position_cost_by_token(positions)
+                token_by_key = {
+                    key: row.get("no_token_id")
+                    for rows in (signal_rows, minimum_signal_rows)
+                    for key, row in rows.items()
+                }
+                if spy_candidate:
+                    token_by_key[spy_candidate["key"]] = (
+                        spy_candidate.get("token_id"))
                 combined_pending, order = {}, []
                 for station in stations:
                     for extreme, pending in (
@@ -489,7 +506,11 @@ def main() -> int:
                     order.append("spy:SPY")
                 allocated = _allocate_relative_stakes(
                     combined_pending, order, free_pusd,
-                    config.CEIFA_STAKE_FRAC)
+                    config.CEIFA_STAKE_FRAC,
+                    token_by_contract=token_by_key,
+                    allocated_by_token=allocated_by_token,
+                    total_capital=total_capital,
+                    position_cap_frac=config.CEIFA_POSITION_CAP_FRAC)
                 ceifa_pending = {
                     station.icao: allocated[f"maximum:{station.icao}"]
                     for station in stations
@@ -503,7 +524,8 @@ def main() -> int:
                 spy_pending = ({"SPY": allocated["spy:SPY"]}
                                if "spy:SPY" in allocated else {})
                 print(f"[ceifa] primeira stake atual: ${first_stake:.2f} "
-                      f"de ${free_pusd:.2f} livres.")
+                      f"de ${free_pusd:.2f} livres; teto por posição: "
+                      f"${total_capital * config.CEIFA_POSITION_CAP_FRAC:.2f}.")
             except Exception as exc:
                 print(f"[ceifa] ERRO ao apurar stake atual: {exc}",
                       file=sys.stderr)
@@ -639,11 +661,38 @@ def _current_ceifa_stake(wallet: str) -> tuple[float, float]:
     return free_pusd, stake
 
 
-def _allocate_relative_stakes(pending: dict, stations, free_pusd: float,
-                              stake_frac: float) -> dict:
-    """Anexa a stake a cada contrato, abatendo as parcelas anteriores."""
+def _position_cost_by_token(positions: list[dict]) -> dict[str, float]:
+    """Capital efetivamente investido, agrupado pelo token da posição."""
+    allocated: dict[str, float] = {}
+    for position in positions:
+        token = position.get("asset")
+        if not token:
+            continue
+        initial = position.get("initialValue")
+        if initial is not None:
+            cost = float(initial or 0)
+        elif position.get("size") is not None and position.get("avgPrice") is not None:
+            cost = (float(position.get("size") or 0)
+                    * float(position.get("avgPrice") or 0))
+        else:
+            cost = float(position.get("currentValue") or 0)
+        allocated[str(token)] = allocated.get(str(token), 0.0) + max(cost, 0.0)
+    return allocated
+
+
+def _allocate_relative_stakes(
+        pending: dict, stations, free_pusd: float, stake_frac: float, *,
+        token_by_contract: dict[str, str | None] | None = None,
+        allocated_by_token: dict[str, float] | None = None,
+        total_capital: float | None = None,
+        position_cap_frac: float | None = None) -> dict:
+    """Anexa stakes sequenciais e, quando configurado, limita cada posição."""
     remaining = free_pusd
     allocated = {}
+    enforce_cap = total_capital is not None and position_cap_frac is not None
+    cap_usd = ((total_capital or 0.0) * (position_cap_frac or 0.0)
+               if enforce_cap else None)
+    position_cost = dict(allocated_by_token or {})
     for station in stations:
         key = station if isinstance(station, str) else station.icao
         contracts = pending.get(key, [])
@@ -652,9 +701,28 @@ def _allocate_relative_stakes(pending: dict, stations, free_pusd: float,
         rows = []
         for contract in contracts:
             stake = remaining * stake_frac
+            if enforce_cap:
+                contract_key = str(contract[0])
+                token = (token_by_contract or {}).get(contract_key)
+                if not token:
+                    print(f"[ceifa] {contract_key}: sem token para conferir o "
+                          "limite da posição; alerta bloqueado.")
+                    continue
+                token = str(token)
+                already = position_cost.get(token, 0.0)
+                room = max(float(cap_usd) - already, 0.0)
+                if room <= 0:
+                    print(f"[ceifa] {contract_key}: limite da posição atingido "
+                          f"(${already:.2f} de ${cap_usd:.2f}).")
+                    continue
+                stake = min(stake, room)
+                position_cost[token] = already + stake
+            if stake <= 0:
+                continue
             remaining -= stake
             rows.append((*contract, stake))
-        allocated[key] = rows
+        if rows:
+            allocated[key] = rows
     return allocated
 
 
