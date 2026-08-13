@@ -89,29 +89,24 @@ def _close_utc(market: str, dia: str) -> pd.Timestamp:
 
 def _resolved(group: pd.DataFrame, column: str, close: pd.Timestamp,
               now_ts: pd.Timestamp) -> float | None:
-    """Preço final de um lado, quando o dia já ACABOU.
+    """Resultado oficial pinado em 0/1; nunca infere pelo preco pre-close.
 
-    O dia acabou quando o relógio — o último snapshot do lago (``now_ts``) —
-    passou o fechamento. Dois regimes de captura:
-
-    - **Não rolling (SPY):** seguimos capturando o mesmo dia depois do fechamento,
-      então há snapshot ≥ close e exigimos o preço pinado (0/1). Assim uma captura
-      incompleta que parou no meio (ex.: 0,60) não é pontuada.
-    - **Rolling (Bitcoin):** o dia vira no próprio fechamento e NUNCA há snapshot
-      depois dele. Quando o relógio já passou o close, o último preço antes do
-      fechamento é o desfecho (melhor estimativa disponível).
-
-    Sem isso, um strike fundo no dinheiro pareceria resolvido cedo demais, e um
-    mercado rolling nunca resolveria."""
+    Mercados rolling mudam de contrato no fechamento. O ultimo snapshot pode
+    apontar para o lado errado segundos antes da virada, portanto so aceitamos
+    a linha oficial persistida pela captura ou um pino natural no/apos o close.
+    """
     if now_ts < close:
-        return None                        # dia ainda aberto — não pontua
-    valid = group.dropna(subset=[column])
+        return None
+    official = group.get(
+        "resolucao_oficial", pd.Series(False, index=group.index))
+    explicit = group[official.fillna(False).astype(bool)]
+    valid = explicit.dropna(subset=[column])
+    if valid.empty:
+        valid = group[group["ts"] >= close].dropna(subset=[column])
     if valid.empty:
         return None
     value = float(valid.sort_values("ts").iloc[-1][column])
-    if group["ts"].max() >= close:         # há dado no fechamento → exige pino
-        return value if value >= 0.99 or value <= 0.01 else None
-    return value                           # rolling: último preço pré-fechamento
+    return value if value >= 0.99 or value <= 0.01 else None
 
 
 def _entry_price(row, name: str) -> float | None:

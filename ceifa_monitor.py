@@ -1048,11 +1048,10 @@ def market_page(market: str, production: bool = False,
     # o dia em andamento (barra âmbar = ainda em aberto; verde = já resolvido).
     st.subheader("Parcelas por dia")
     plot = daily.copy()
-    plot["estado"] = plot["resolvido"].map(
-        {True: "Resolvido", False: "Em aberto"})
     fig = px.bar(
-        plot, x="dia", y="parcelas", color="estado", text="parcelas",
-        color_discrete_map={"Resolvido": GREEN, "Em aberto": AMBER},
+        plot, x="dia", y="parcelas", color="resultado", text="parcelas",
+        color_discrete_map={"Acerto": GREEN, "Erro": RED,
+                            "Sem entrada": MUTED, "Em aberto": AMBER},
         custom_data=["resultado"])
     fig.update_traces(
         textposition="outside", cliponaxis=False,

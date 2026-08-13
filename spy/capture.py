@@ -30,6 +30,7 @@ except Exception:  # noqa: BLE001
 import datetime as dt
 import json
 import sys
+from pathlib import Path
 
 import requests
 
@@ -74,6 +75,15 @@ def _side(outcomes, prices, token_ids, i: int) -> dict:
             "label": str(outcomes[i]) if i < len(outcomes) else None}
 
 
+def _pinned(value) -> bool:
+    """A Gamma publica o resultado oficial com os dois lados pinados em 0/1."""
+    try:
+        price = float(value)
+    except (TypeError, ValueError):
+        return False
+    return price <= .01 or price >= .99
+
+
 def fetch_market(slug: str, kind: str, timeout: int = 30) -> list[dict] | None:
     """Lista de contratos do evento do dia. None se não existe hoje.
 
@@ -104,8 +114,78 @@ def fetch_market(slug: str, kind: str, timeout: int = 30) -> list[dict] | None:
             "faixa": faixa,
             "up": _side(outcomes, prices, token_ids, 0),
             "down": _side(outcomes, prices, token_ids, 1),
+            "resolvido": (
+                len(prices) >= 2
+                and all(_pinned(price) for price in prices[:2])
+                and (market.get("umaResolutionStatus") == "resolved"
+                     or bool(market.get("closed")))),
         })
     return out or None
+
+
+def _resolution_records(mercado: Mercado, day: dt.date,
+                        timeout: int = 30) -> list[dict]:
+    """Busca o desfecho oficial de todos os contratos de um dia fechado."""
+    slug = market_slug(mercado.slug_prefix, day)
+    entries = fetch_market(slug, mercado.kind, timeout)
+    if not entries:
+        return []
+    close = close_utc(mercado, day)
+    records = []
+    for entry in entries:
+        if not entry.get("resolvido"):
+            continue
+        records.append({
+            "ts_utc": close.isoformat(), "dia": day.isoformat(),
+            "slug": slug, "faixa": entry["faixa"],
+            "preco_up": entry["up"].get("price"),
+            "preco_down": entry["down"].get("price"),
+            "up_label": entry["up"].get("label"),
+            "down_label": entry["down"].get("label"),
+            "up_token_id": entry["up"].get("token_id"),
+            "down_token_id": entry["down"].get("token_id"),
+            "ask_up": None, "ask_up_volume": None,
+            "ask_down": None, "ask_down_volume": None,
+            "livro_consultado": False,
+            "resolucao_oficial": True,
+            "fonte_historica": "gamma.outcomePrices",
+        })
+    return records
+
+
+def reconcile_resolutions(mercado: Mercado,
+                          root: Path | None = None) -> int:
+    """Persiste resolucoes oficiais ausentes nos parquets ja arquivados."""
+    import pandas as pd
+
+    root = root or config.ROOT
+    arch_dir = root / f"dados_{mercado.key}" / "mercado"
+    if not arch_dir.exists():
+        return 0
+    updated = 0
+    for path in sorted(arch_dir.glob("*.parquet")):
+        frame = pd.read_parquet(path)
+        official = frame.get(
+            "resolucao_oficial", pd.Series(False, index=frame.index))
+        if official.fillna(False).astype(bool).any():
+            continue
+        try:
+            day = dt.date.fromisoformat(path.stem)
+            records = _resolution_records(mercado, day)
+        except Exception as exc:  # noqa: BLE001 - best effort
+            print(f"resolucao {mercado.key}/{path.stem} falhou: {exc}",
+                  file=sys.stderr)
+            continue
+        if not records:
+            continue
+        merged = pd.concat([frame, pd.DataFrame(records)], ignore_index=True)
+        merged = merged.drop_duplicates(
+            ["ts_utc", "dia", "faixa"], keep="last")
+        merged.to_parquet(path, index=False)
+        updated += len(records)
+        print(f"resolucao oficial {mercado.key}/{path.stem}: "
+              f"{len(records)} contrato(s)")
+    return updated
 
 
 def _attach_asks(entries: list[dict], timeout: int = 30) -> None:
@@ -244,6 +324,7 @@ def main() -> int:
     for mercado in MERCADOS.values():
         try:
             salvar(mercado, coletar(mercado))
+            reconcile_resolutions(mercado)
         except Exception as exc:  # noqa: BLE001 — captura é acessória
             print(f"erro ao salvar {mercado.key}: {exc}", file=sys.stderr)
     return 0
