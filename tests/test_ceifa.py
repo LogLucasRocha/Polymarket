@@ -31,6 +31,22 @@ class WarmTargetRiskTests(unittest.TestCase):
             ceifa._resolved_price(near_zero, "preco_nao"), 0.006)
         self.assertIsNone(ceifa._resolved_price(still_open, "preco_nao"))
 
+    def test_live_contract_stays_open_until_local_midnight(self):
+        frame = pd.DataFrame([
+            {"ts_utc": "2026-08-13T18:00:00Z", "icao": "CYYZ",
+             "dia": "2026-08-13", "faixa": "30°C",
+             "snapshot_live": True},
+            {"ts_utc": "2026-08-13T22:30:00Z", "icao": "LFPB",
+             "dia": "2026-08-13", "faixa": "39°C",
+             "snapshot_live": True},
+        ])
+        frame["ts"] = pd.to_datetime(frame["ts_utc"], utc=True)
+
+        self.assertEqual(
+            ceifa._open_live_contracts(frame),
+            {("CYYZ", "2026-08-13", "30°C")},
+        )
+
     def test_blocks_london_case(self):
         self.assertTrue(ceifa.is_warm_target_risk(
             "EGLC", "27°C", 1.2, 26.2, 27.5))
