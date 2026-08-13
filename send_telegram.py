@@ -310,9 +310,11 @@ def main() -> int:
             if not ceifa.is_ceifa_price(price):
                 continue
             if ceifa.is_wide_book_risk(price, v.get("yes_ask")):
-                print(f"[ceifa] {icao}: filtrado — livro largo (NÃO "
-                      f"{v['label']} ${price:.3f} + Sim "
-                      f"${float(v.get('yes_ask')):.3f} passa de 100¢).")
+                pair = v.get("yes_ask")
+                pair_text = (f"Sim ${float(pair):.3f} + Não ${price:.3f}"
+                             if pair is not None else "ask do Sim ausente")
+                print(f"[ceifa] {icao}: filtrado — {pair_text}; é preciso "
+                      "somar menos de 105¢.")
                 continue
             H = peak_by_icao.get(icao)
             ctx_i = contexts.get(icao)
@@ -387,9 +389,11 @@ def main() -> int:
             if not ceifa.is_ceifa_price(price):
                 continue
             if ceifa.is_wide_book_risk(price, value.get("yes_ask")):
-                print(f"[ceifa mínima] {icao}: filtrado — livro largo (NÃO "
-                      f"{value['label']} ${price:.3f} + Sim "
-                      f"${float(value.get('yes_ask')):.3f} passa de 100¢).")
+                pair = value.get("yes_ask")
+                pair_text = (f"Sim ${float(pair):.3f} + Não ${price:.3f}"
+                             if pair is not None else "ask do Sim ausente")
+                print(f"[ceifa mínima] {icao}: filtrado — {pair_text}; é "
+                      "preciso somar menos de 105¢.")
                 continue
             forecast = minimum_forecasts.get(icao) or {}
             cold_hour = forecast.get("pico_hora")
