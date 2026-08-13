@@ -404,13 +404,12 @@ def is_upper_tail_ceiling_risk(icao: str, faixa, ensemble_ceiling,
 
 def is_wide_book_risk(no_price, yes_ask,
                       max_overround: float | None = None) -> bool:
-    """Veta a compra quando o livro está largo (as duas pontas caras).
+    """Veta quando os asks do par não comprovam soma abaixo do teto.
 
-    Num binário saudável ``ask_sim + ask_nao ≈ 100¢``. Se o Não que vamos
-    comprar está na banda mas o Sim TAMBÉM está caro, o overround
-    (``no_price + yes_ask − 1``) estoura — o livro é ilíquido e o preço do Não
-    não é uma probabilidade confiável. Sem o ask do Sim não há como julgar:
-    não bloqueia (deixa os outros filtros decidirem)."""
+    Com o limite padrão, ``ask_sim + ask_nao`` deve ser menor que 105¢. Soma
+    igual a 105¢ também bloqueia. Snapshots históricos sem uma das duas ofertas
+    continuam sem esse veto, pois não há uma soma observada a comparar.
+    """
     if not config.CEIFA_WIDE_BOOK_FILTER:
         return False
     if yes_ask is None or pd.isna(yes_ask) or no_price is None \
@@ -418,7 +417,7 @@ def is_wide_book_risk(no_price, yes_ask,
         return False
     limit = (config.CEIFA_WIDE_BOOK_MAX_OVERROUND if max_overround is None
              else float(max_overround))
-    return (float(no_price) + float(yes_ask) - 1.0) > limit
+    return round(float(no_price) + float(yes_ask), 6) >= round(1.0 + limit, 6)
 
 
 def plateau_temperature(obs: list[dict], min_hours: float | None = None) -> float | None:
@@ -1036,6 +1035,8 @@ def simulate_yes_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
 
             price = normalize_market_price(ask)
             if not is_ceifa_price(price):
+                continue
+            if is_wide_book_risk(price, entry_row.get("ask_nao")):
                 continue
             signals.append({
                 "icao": icao, "day": day, "faixa": faixa,

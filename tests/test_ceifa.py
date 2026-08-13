@@ -146,12 +146,13 @@ class WarmTargetRiskTests(unittest.TestCase):
         # NÃO 96¢ + Sim 5¢ = 101¢ (overround 1¢) → livro colado → passa.
         self.assertFalse(ceifa.is_wide_book_risk(0.96, 0.05))
 
-    def test_wide_book_respects_the_eight_cent_threshold(self):
-        self.assertFalse(ceifa.is_wide_book_risk(0.96, 0.11))   # overround 7¢
-        self.assertTrue(ceifa.is_wide_book_risk(0.96, 0.13))    # overround 9¢
+    def test_pair_asks_must_sum_to_less_than_105_cents(self):
+        self.assertFalse(ceifa.is_wide_book_risk(0.97, 0.079))
+        self.assertTrue(ceifa.is_wide_book_risk(0.97, 0.08))
+        self.assertTrue(ceifa.is_wide_book_risk(0.97, 0.10))  # Paris: 107¢
 
     def test_wide_book_needs_the_yes_ask(self):
-        # Sem o ask do Sim não há como julgar o livro → não bloqueia.
+        # Sem o ask do Sim não há uma soma observada para comparar.
         self.assertFalse(ceifa.is_wide_book_risk(0.96, None))
 
     def test_blocks_exact_band_when_p90_touches_lower_boundary(self):

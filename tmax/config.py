@@ -312,11 +312,11 @@ CEIFA_LOWER_TAIL_MARGIN = 0.25
 # TAMBÉM está caro, o livro está largo/ilíquido e o preço do Não não é uma
 # probabilidade confiável — é só uma ordem de venda larga. Ex.: 25°C com Sim 51¢
 # + Não 92¢ = 143¢ (overround 43¢) o mercado ainda dá ~51% ao bucket. Corta a
-# entrada quando (ask_sim + ask_nao − 100¢) passa do limite. Calibrado no
-# histórico de mínimas: p99 do overround é 6¢; 8¢ bloqueia só ~0,7% das entradas
-# (os livros claramente quebrados) sem tocar no fluxo colado.
+# entrada quando ask_sim + ask_nao chega a 105¢. A soma precisa ser
+# estritamente menor que 105¢ para autorizar qualquer compra. Paris 13/08:
+# Sim 10¢ + Não 97¢ = 107¢, portanto bloqueada.
 CEIFA_WIDE_BOOK_FILTER = True
-CEIFA_WIDE_BOOK_MAX_OVERROUND = 0.08
+CEIFA_WIDE_BOOK_MAX_OVERROUND = 0.05
 
 # ----------------------------------------------------------- Execução automática
 # Executor de ordens da Ceifa via API (CLOB). SEGURANÇA EM CAMADAS:
