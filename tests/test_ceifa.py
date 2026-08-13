@@ -569,6 +569,21 @@ class BrasiliaDayBucketTests(unittest.TestCase):
         self.assertEqual(stats["n_position_cap_blocked"], 1)
         self.assertEqual(len(stats["candidate_signals"]), 5)
 
+    def test_pending_parcels_are_counted_without_affecting_return(self):
+        signals = [{
+            "icao": "EGLC", "day": "2026-08-13", "day_br": "2026-08-13",
+            "faixa": "30°C", "ts": pd.Timestamp(
+                f"2026-08-13T13:{minute:02d}:00Z"),
+            "price": 0.97, "won": None, "resolved": False,
+        } for minute in (0, 5, 10, 15, 20)]
+
+        stats = ceifa._stats_relative_available_stake(signals, 1, 0.01)
+
+        self.assertEqual(stats["n"], 0)
+        self.assertEqual(stats["pending_n"], 4)
+        self.assertEqual(stats["pending_by_day"], {"2026-08-13": 4})
+        self.assertEqual(stats["real_mult"], 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -171,8 +171,8 @@ def simulate(window_hours: int | None = None, market: str = "spy") -> dict:
         close = _close_utc(market, str(dia))
         final = {"up": _resolved(group, "preco_up", close, now_ts),
                  "down": _resolved(group, "preco_down", close, now_ts)}
-        if final["up"] is None and final["down"] is None:
-            continue                       # contrato ainda não resolveu
+        contract_resolved = (final["up"] is not None
+                             or final["down"] is not None)
         cutoff = (None if window_hours is None
                   else close - pd.Timedelta(hours=window_hours))
         last_ts = None
@@ -184,7 +184,8 @@ def simulate(window_hours: int | None = None, market: str = "spy") -> dict:
                 continue
             if cutoff is not None and (row["ts"] < cutoff or row["ts"] > close):
                 continue
-            if baseline_side is not None and final[baseline_side] is not None \
+            if baseline_side is not None and (not contract_resolved
+                    or final[baseline_side] is not None) \
                     and (baseline_last_ts is None or
                          (row["ts"] - baseline_last_ts) >=
                          pd.Timedelta(minutes=INTERVAL_MINUTES)):
@@ -195,13 +196,14 @@ def simulate(window_hours: int | None = None, market: str = "spy") -> dict:
             if last_ts is not None and \
                     (row["ts"] - last_ts) < pd.Timedelta(minutes=INTERVAL_MINUTES):
                 continue
-            if final[side] is None:
+            if contract_resolved and final[side] is None:
                 continue
             signals.append({
                 "icao": market.upper(), "day": str(dia),
                 "faixa": f"{faixa}·{side}", "pick": side,
                 "ts": row["ts"], "price": _entry_price(row, side),
-                "won": final[side] > 0.5, "stopped": False,
+                "won": (final[side] > 0.5 if contract_resolved else None),
+                "resolved": contract_resolved, "stopped": False,
                 "loss_frac": None, "spread": None,
             })
             last_ts = row["ts"]

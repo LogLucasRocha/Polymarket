@@ -361,6 +361,19 @@ def combine_active_strategies(maximum: dict, minimum: dict,
             dict(signal, extreme="spy", archive_kind="spy")
             for signal in spy.get("candidate_signals", spy.get("signals", []))
         ]
+    pending_signals = [
+        dict(signal, extreme="maximum", archive_kind="maximum")
+        for signal in maximum.get("pending_candidate_signals", [])
+    ] + [
+        dict(signal, extreme="minimum", archive_kind="minimum")
+        for signal in minimum.get("pending_candidate_signals", [])
+    ]
+    if spy is not None:
+        pending_signals += [
+            dict(signal, extreme="spy", archive_kind="spy")
+            for signal in spy.get("pending_candidate_signals", [])
+        ]
+    signals += pending_signals
     days = len({str(signal["day"]) for signal in signals})
     stats = ceifa._stats_relative_available_stake(
         signals, days=days, stake_frac=config.CEIFA_STAKE_FRAC)
@@ -546,7 +559,8 @@ def proximity_scenario(maximum: dict, minimum: dict) -> dict:
 
 def slice_strategy(stats: dict, lookback_days: int | None) -> dict:
     """Recalcula a banca para o período escolhido, sem olhar o futuro."""
-    signals = list(stats.get("candidate_signals", stats.get("signals", [])))
+    signals = (list(stats.get("candidate_signals", stats.get("signals", [])))
+               + list(stats.get("pending_candidate_signals", [])))
     if not signals or lookback_days is None:
         return stats
     # Fatia pela MESMA chave que agrupa o "Retorno de cada dia" (dia de Brasília

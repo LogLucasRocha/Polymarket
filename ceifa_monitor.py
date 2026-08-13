@@ -242,8 +242,20 @@ def equity_chart(stats: dict) -> go.Figure:
 
 def daily_chart(stats: dict, days: int | None = None) -> go.Figure:
     daily = pd.DataFrame(stats.get("per_day", []))
-    if daily.empty:
+    pending_by_day = stats.get("pending_by_day", {})
+    if daily.empty and not pending_by_day:
         return go.Figure()
+    pending = pd.DataFrame([
+        {"day": day, "pending": count}
+        for day, count in pending_by_day.items()
+    ])
+    if daily.empty:
+        daily = pd.DataFrame(columns=["day", "ret", "n", "wins"])
+    daily = daily.merge(pending, on="day", how="outer")
+    daily["ret"] = daily["ret"].fillna(0.0)
+    daily["n"] = daily["n"].fillna(0).astype(int)
+    daily["wins"] = daily["wins"].fillna(0).astype(int)
+    daily["pending"] = daily["pending"].fillna(0).astype(int)
     daily["day"] = pd.to_datetime(daily["day"])
     daily = clip_last_days(daily, days)
     if daily.empty:
@@ -251,16 +263,29 @@ def daily_chart(stats: dict, days: int | None = None) -> go.Figure:
     daily["return_pct"] = daily["ret"] * 100
     daily["resultado"] = daily["return_pct"].map(
         lambda value: "Positivo" if value >= 0 else "Negativo")
-    fig = px.bar(
-        daily, x="day", y="return_pct", color="resultado",
-        color_discrete_map={"Positivo": GREEN, "Negativo": RED},
-        custom_data=["n", "wins"],
-    )
-    fig.update_traces(
-        hovertemplate=("%{x|%d/%m}<br>Retorno: %{y:+.2f}%"
-                       "<br>Parcelas: %{customdata[0]}"
-                       "<br>Acertos: %{customdata[1]}<extra></extra>"))
-    mean_ret = daily["return_pct"].mean()
+    fig = go.Figure()
+    for result, color in (("Positivo", GREEN), ("Negativo", RED)):
+        subset = daily[daily["resultado"] == result]
+        if subset.empty:
+            continue
+        fig.add_trace(go.Bar(
+            x=subset["day"], y=subset["return_pct"], name=result,
+            marker_color=color, customdata=subset[["n", "wins", "pending"]],
+            hovertemplate=("%{x|%d/%m}<br>Retorno: %{y:+.2f}%"
+                           "<br>Resolvidas: %{customdata[0]}"
+                           "<br>Acertos: %{customdata[1]}"
+                           "<br>Aguardando resultado: %{customdata[2]}"
+                           "<extra></extra>")))
+    pending_rows = daily[daily["pending"] > 0]
+    if not pending_rows.empty:
+        fig.add_trace(go.Bar(
+            x=pending_rows["day"], y=pending_rows["pending"],
+            name="Aguardando resultado", marker_color=MUTED, opacity=0.85,
+            yaxis="y2", customdata=pending_rows[["n"]],
+            hovertemplate=("%{x|%d/%m}<br>Aguardando resultado: %{y}"
+                           "<br>Já resolvidas: %{customdata[0]}<extra></extra>")))
+    resolved_daily = daily[daily["n"] > 0]
+    mean_ret = resolved_daily["return_pct"].mean() if not resolved_daily.empty else 0
     fig.add_hline(
         y=mean_ret, line_dash="dash", line_color=AMBER,
         annotation_text=f"média {mean_ret:+.2f}%",
@@ -268,7 +293,10 @@ def daily_chart(stats: dict, days: int | None = None) -> go.Figure:
     fig.update_layout(
         height=330, margin=dict(l=15, r=15, t=10, b=10),
         xaxis_title=None, yaxis_title="Retorno do dia (%)",
-        showlegend=False,
+        yaxis2=dict(title="Parcelas aguardando", overlaying="y", side="right",
+                    rangemode="tozero", gridcolor="rgba(0,0,0,0)"),
+        barmode="group", showlegend=not pending_rows.empty,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
     )
     fig.update_xaxes(showgrid=False)
     return dark_figure(fig)
@@ -565,7 +593,8 @@ def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
         st.caption(
             f"Mostrando {shown} de {len(daily)} dia(s) de apostas · melhor dia "
             f"{pct(risk['best_day'], 2)} · pior dia {pct(risk['worst_day'], 2)} "
-            "· linha tracejada = retorno médio do período exibido.")
+            "· linha tracejada = retorno médio do período exibido · barras "
+            "cinzas = parcelas que ainda aguardam resolução.")
 
     render_hourly_section(stats)
 
