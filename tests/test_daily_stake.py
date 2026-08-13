@@ -85,6 +85,51 @@ class DailyStakeTests(unittest.TestCase):
         self.assertAlmostEqual(result["A"][1][-1], 9.9)
         self.assertAlmostEqual(result["B"][0][-1], 9.801)
 
+    def test_position_cost_uses_invested_value_instead_of_market_value(self):
+        positions = [{
+            "asset": "token-a", "size": 20, "avgPrice": 0.97,
+            "currentValue": 12.0,
+        }, {
+            "asset": "token-a", "initialValue": 4.5,
+            "currentValue": 3.0,
+        }]
+
+        result = send_telegram._position_cost_by_token(positions)
+
+        self.assertAlmostEqual(result["token-a"], 23.9)
+
+    def test_blocks_contract_already_at_three_percent_of_capital(self):
+        pending = {"A": [("a", "30°C", 0.97, 10)]}
+
+        result = send_telegram._allocate_relative_stakes(
+            pending, ["A"], 1000.0, 0.01,
+            token_by_contract={"a": "token-a"},
+            allocated_by_token={"token-a": 30.0},
+            total_capital=1000.0, position_cap_frac=0.03)
+
+        self.assertNotIn("A", result)
+
+    def test_reduces_last_stake_to_remaining_three_percent_room(self):
+        pending = {"A": [("a", "30°C", 0.97, 10)]}
+
+        result = send_telegram._allocate_relative_stakes(
+            pending, ["A"], 1000.0, 0.01,
+            token_by_contract={"a": "token-a"},
+            allocated_by_token={"token-a": 25.0},
+            total_capital=1000.0, position_cap_frac=0.03)
+
+        self.assertAlmostEqual(result["A"][0][-1], 5.0)
+
+    def test_blocks_alert_when_token_is_missing_under_position_cap(self):
+        pending = {"A": [("a", "30°C", 0.97, 10)]}
+
+        result = send_telegram._allocate_relative_stakes(
+            pending, ["A"], 1000.0, 0.01,
+            token_by_contract={}, allocated_by_token={},
+            total_capital=1000.0, position_cap_frac=0.03)
+
+        self.assertNotIn("A", result)
+
     @patch("send_telegram.dt.datetime")
     def test_minimum_alert_is_archived_with_its_strategy_and_day(self, now):
         now.now.return_value = dt.datetime(2026, 7, 31, 4, 5)

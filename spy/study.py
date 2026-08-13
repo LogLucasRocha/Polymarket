@@ -272,9 +272,13 @@ def production_candidate(now_utc: dt.datetime | None = None) -> dict | None:
     pair_sum = None
     if pd.notna(latest.get("ask_up")) and pd.notna(latest.get("ask_down")):
         pair_sum = float(latest["ask_up"]) + float(latest["ask_down"])
+    token_id = latest.get(f"{side}_token_id")
+    if pd.isna(token_id):
+        token_id = None
     return {
         "key": f"{day}:{side}", "day": day, "side": side,
         "label": label, "opposite": opposite, "price": float(price),
+        "token_id": token_id,
         "ask_size": latest.get(f"ask_{side}_volume"),
         "pair_sum": pair_sum, "ts": latest_ts.to_pydatetime(),
         "close": close.to_pydatetime(),
