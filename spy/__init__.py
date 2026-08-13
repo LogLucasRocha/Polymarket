@@ -3,7 +3,8 @@
 Cada mercado (SPY Up or Down, Bitcoin Above, ...) tem o mesmo formato: dois
 lados cujos preços somam ~1, com o dia no slug. A estratégia aloca no lado que
 estiver na faixa de compra, 1% do caixa livre a cada 5 min, em janelas
-relativas ao fechamento. Só observa — sem alerta e sem ordem.
+relativas ao fechamento. O SPY Up/Down usa H-1 em produção com alerta no
+Telegram; suas outras janelas e todos os demais mercados seguem em observação.
 
 O pacote se chama ``spy`` por herança (foi o primeiro mercado), mas hoje é
 genérico: novos mercados entram só no registro ``MERCADOS`` abaixo.

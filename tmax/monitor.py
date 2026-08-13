@@ -20,6 +20,7 @@ import pandas as pd
 import requests
 
 from spy import MERCADOS
+from spy import study as spy_study
 
 from . import ceifa, config
 
@@ -338,7 +339,13 @@ def run_yes_strategy(archive_kind: str) -> dict:
     return stats
 
 
-def combine_active_strategies(maximum: dict, minimum: dict) -> dict:
+def run_spy_strategy() -> dict:
+    """Executa a regra ativa do SPY Up/Down exclusivamente na H-1."""
+    return spy_study.run_production()
+
+
+def combine_active_strategies(maximum: dict, minimum: dict,
+                              spy: dict | None = None) -> dict:
     """Recalcula máximas + mínimas como uma única banca compartilhada."""
     signals = [
         dict(signal, extreme="maximum", archive_kind="maximum")
@@ -347,13 +354,18 @@ def combine_active_strategies(maximum: dict, minimum: dict) -> dict:
         dict(signal, extreme="minimum", archive_kind="minimum")
         for signal in minimum.get("signals", [])
     ]
+    if spy is not None:
+        signals += [
+            dict(signal, extreme="spy", archive_kind="spy")
+            for signal in spy.get("signals", [])
+        ]
     days = len({str(signal["day"]) for signal in signals})
     stats = ceifa._stats_relative_available_stake(
         signals, days=days, stake_frac=config.CEIFA_STAKE_FRAC)
     stats.update({
         "repeat_minutes": config.CEIFA_REPEAT_MINUTES,
         "archive_kind": "consolidated",
-        "side": "NAO",
+        "side": "MISTO" if spy is not None else "NAO",
         "single_band": bool(maximum.get("single_band")
                               and minimum.get("single_band")),
         "active_components": {
@@ -373,7 +385,9 @@ def combine_active_strategies(maximum: dict, minimum: dict) -> dict:
             "n_filtrado_lower_tail", 0),
         "n_filtrado_taf": minimum.get("n_filtrado_taf", 0),
         "n_filtrado_wide_book": (maximum.get("n_filtrado_wide_book", 0)
-                                 + minimum.get("n_filtrado_wide_book", 0)),
+                                 + minimum.get("n_filtrado_wide_book", 0)
+                                 + (spy or {}).get("pair_filter_blocked", 0)),
+        "pair_filter_blocked": (spy or {}).get("pair_filter_blocked", 0),
         "n_filtrado_faixa_unica": (
             maximum.get("n_filtrado_faixa_unica", 0)
             + minimum.get("n_filtrado_faixa_unica", 0)),
@@ -384,6 +398,8 @@ def combine_active_strategies(maximum: dict, minimum: dict) -> dict:
         "filtered_records": (maximum.get("filtered_records", [])
                              + minimum.get("filtered_records", [])),
     })
+    if spy is not None:
+        stats["active_components"]["spy"] = spy.get("n", 0)
     return stats
 
 
@@ -557,6 +573,7 @@ def slice_strategy(stats: dict, lookback_days: int | None) -> dict:
         "n_filtrado_upper_tail", "n_filtrado_wide_book",
         "n_filtrado_taf", "n_filtrado_100c",
         "n_filtrado_0c", "n_filtrado_faixa_unica",
+        "pair_filter_blocked",
     ):
         sliced[key] = stats.get(key, 0)
     return sliced
@@ -1024,8 +1041,10 @@ def error_timeline(icao: str, day: str, faixa: str, entry_utc: str,
 
 
 def data_freshness(archive_kind: str = "maximum") -> dict:
-    if archive_kind == "consolidated":
+    if archive_kind in {"consolidated", "climatology"}:
         snapshots = [data_freshness("maximum"), data_freshness("minimum")]
+        if archive_kind == "consolidated":
+            snapshots.append(data_freshness("spy"))
         updated_values = [item["updated"] for item in snapshots
                           if item["updated"] is not None]
         days = [item["latest_day"] for item in snapshots if item["latest_day"]]
@@ -1034,6 +1053,18 @@ def data_freshness(archive_kind: str = "maximum") -> dict:
             "updated": max(updated_values) if updated_values else None,
             "latest_day": max(days) if days else None,
         }
+    if archive_kind == "spy":
+        roots = (config.ROOT / "dados_spy", config.ROOT / "data_spy",
+                 config.ROOT / "data_spy_live")
+        files = [path for root in roots if root.exists()
+                 for path in root.rglob("*")
+                 if path.is_file() and path.suffix in {".parquet", ".jsonl"}]
+        if not files:
+            return {"files": 0, "updated": None, "latest_day": None}
+        latest = max(files, key=lambda path: path.stat().st_mtime)
+        updated = dt.datetime.fromtimestamp(latest.stat().st_mtime).astimezone()
+        return {"files": len(files), "updated": updated,
+                "latest_day": spy_study.latest_day("spy")}
     archive = MAXIMUM_ARCHIVE if archive_kind == "maximum" else MINIMUM_ARCHIVE
     live_archive = archive.with_name(f"{archive.name}_live")
     files = [path for root in (archive, live_archive)

@@ -378,6 +378,41 @@ class SpyStudyTests(unittest.TestCase):
         self.assertEqual(stats["n"], 0)
         self.assertEqual(stats["real_mult"], 1.0)
 
+    def test_production_is_only_h1(self):
+        frame = _day_series({}, last_up=0.999)
+        with mock.patch.object(study, "_load_market", return_value=frame):
+            stats = study.run_production()
+            daily = study.daily_summary(window_hours=1)
+        self.assertEqual(stats["window_hours"], 1)
+        self.assertEqual(stats["archive_kind"], "spy")
+        self.assertEqual(stats["n"], 12)
+        self.assertEqual(int(daily.iloc[0]["parcelas"]), 12)
+
+    def test_live_candidate_requires_recent_h1_executable_snapshot(self):
+        frame = _frame([{
+            "ts_utc": "2026-08-07T19:30:00+00:00",
+            "dia": "2026-08-07", "preco_up": 0.50,
+            "preco_down": 0.50, "ask_up": 0.99, "ask_down": 0.05,
+            "up_label": "Up", "down_label": "Down",
+            "ask_up_volume": 8,
+        }])
+        now = dt.datetime(2026, 8, 7, 19, 31, tzinfo=dt.timezone.utc)
+        with mock.patch.object(study, "_load_market", return_value=frame):
+            candidate = study.production_candidate(now)
+        self.assertEqual(candidate["side"], "up")
+        self.assertEqual(candidate["price"], 0.99)
+        self.assertEqual(candidate["pair_sum"], 1.04)
+
+    def test_live_candidate_rejects_stale_snapshot(self):
+        frame = _frame([{
+            "ts_utc": "2026-08-07T19:00:00+00:00",
+            "dia": "2026-08-07", "preco_up": 0.97,
+            "preco_down": 0.03,
+        }])
+        now = dt.datetime(2026, 8, 7, 19, 20, tzinfo=dt.timezone.utc)
+        with mock.patch.object(study, "_load_market", return_value=frame):
+            self.assertIsNone(study.production_candidate(now))
+
 
 if __name__ == "__main__":
     unittest.main()

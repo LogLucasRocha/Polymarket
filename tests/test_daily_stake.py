@@ -101,6 +101,19 @@ class DailyStakeTests(unittest.TestCase):
         self.assertEqual(rows[0]["extremo"], "minimum")
         self.assertIsNone(rows[0]["volume_disponivel"])
 
+    def test_spy_h1_alert_names_side_filters_and_brasilia_close(self):
+        close = dt.datetime(2026, 8, 11, 20, 0, tzinfo=dt.timezone.utc)
+        contracts = [("2026-08-11:down", "Down", 0.97, 12,
+                      {"pair_sum": 1.04, "close": close}, 8.08)]
+
+        text = send_telegram._spy_h1_text(contracts)
+
+        self.assertIn("SPY UP OR DOWN — H-1", text)
+        self.assertIn("Comprar <b>DOWN</b>", text)
+        self.assertIn("stake: <b>$8.08</b>", text)
+        self.assertIn("104.0¢", text)
+        self.assertIn("17:00 de Brasília", text)
+
 
 if __name__ == "__main__":
     unittest.main()
