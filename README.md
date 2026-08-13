@@ -50,12 +50,14 @@ entra no zip do botão Atualizar). Fim de semana/feriado sem mercado — a rodad
 apenas não grava.
 
 O estudo (`spy.study`, aba de cada mercado em **Em teste**) aloca no lado cujo
-preço estiver na faixa **(0,95, 0,998)**, adicionando 1% do caixa livre a cada
+preço estiver na faixa **(0,95, 0,995)**, adicionando 1% do caixa livre a cada
 5 min — o mesmo modelo de parcelas da Ceifa. Uma parcela só é aceita quando as
 melhores ofertas dos dois lados somam menos de **105¢**; em 105¢ ou mais, o
 snapshot é vetado. Reporta parcelas, assertividade,
 rendimento e drawdown em seis janelas relativas ao fechamento (16:00 ET): sem
-janela, H-1, H-2, H-3, H-6 e H-12. Só observa; não envia alerta nem ordem.
+janela, H-1, H-2, H-3, H-6 e H-12. No SPY Up/Down, a H-1 está em produção e
+envia alertas de compra de Up ou Down no Telegram; as outras janelas continuam
+como hipóteses. Os demais mercados seguem somente em observação.
 
 Todos os mercados em teste usam a faixa conservadora **(95¢, 99,5¢)**.
 
@@ -136,7 +138,7 @@ reports/               relatórios gerados
 ## Bot do Telegram (comandos)
 
 O `send_telegram.py` é disparado a cada 5 min pelo cron externo; o agendamento
-nativo do GitHub Actions (`main.yml`) fica a cada 10 min como redundância. Além
+nativo do GitHub Actions (`main.yml`) também fica a cada 5 min. Além
 de mandar os alertas, agora **lê os comandos e cliques de botão** (getUpdates)
 na mesma rodada — então a resposta chega com latência de **até ~5 min** (não
 há servidor sempre ligado; foi a opção escolhida para não exigir infra nova).

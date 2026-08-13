@@ -369,6 +369,25 @@ class MonitorTest(unittest.TestCase):
         self.assertEqual(stats["signals"][0]["extreme"], "maximum")
         self.assertEqual(stats["signals"][1]["extreme"], "minimum")
 
+    def test_spy_h1_joins_the_same_consolidated_bankroll(self):
+        maximum = {"n": 0, "signals": []}
+        minimum = {"n": 0, "signals": []}
+        spy = {
+            "n": 1, "pair_filter_blocked": 4,
+            "signals": [{
+                "icao": "SPY", "day": "2026-08-11", "faixa": "—·up",
+                "ts": dt.datetime(2026, 8, 11, 19, 5), "price": 0.97,
+                "won": True, "stopped": False, "loss_frac": None,
+            }],
+        }
+
+        stats = monitor.combine_active_strategies(maximum, minimum, spy)
+
+        self.assertEqual(stats["active_components"]["spy"], 1)
+        self.assertEqual(stats["signals"][0]["extreme"], "spy")
+        self.assertEqual(stats["pair_filter_blocked"], 4)
+        self.assertEqual(stats["side"], "MISTO")
+
     def test_observed_cvar_is_mean_of_worst_days(self):
         # 4 dias bons + 1 dia com perda: o CVaR 1% cai no pior dia real.
         per_day = [{"ret": 0.02}, {"ret": 0.01}, {"ret": 0.015},

@@ -2,7 +2,7 @@ name: Previsão Tmax → Telegram
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:        
 
 permissions:
@@ -62,6 +62,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python heal_buffer.py
 
+      # Captura antes dos alertas: o SPY H-1 em produção lê exatamente o
+      # snapshot recém-gravado. Os demais mercados continuam em observação.
+      - name: Capturar mercados binários (SPY e criptos)
+        continue-on-error: true
+        run: python -m spy.capture
+
       - name: Enviar previsão pro Telegram
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
@@ -94,17 +100,10 @@ jobs:
       # Captura da temperatura MÍNIMA (lowest) — pendurada no digest porque o
       # cron do workflow próprio (lowtemp_live.yml) é estrangulado pelo GitHub e
       # perderia a janela da madrugada. O disparo externo mantém 5 min; este
-      # schedule nativo de 10 min funciona como redundância.
+      # schedule nativo de 5 min funciona como redundância.
       - name: Capturar temperatura mínima (observação)
         continue-on-error: true
         run: python -m lowtemp.capture
-
-      # Captura dos mercados binários diários (SPY, Bitcoin, Solana, Ethereum)
-      # para estudo/observação. Fim de semana/feriado sem mercado — a
-      # rodada apenas não grava. Só arquiva; não envia alerta nem ordem.
-      - name: Capturar mercados binários (SPY e criptos)
-        continue-on-error: true
-        run: python -m spy.capture
 
       # Pacote mutável do dia corrente para o botão Atualizar do dashboard.
       # Fica como asset de uma release, portanto não cria 144 commits por dia

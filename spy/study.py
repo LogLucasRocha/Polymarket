@@ -232,6 +232,60 @@ def run_variants(market: str = "spy") -> list[tuple[str, dict]]:
     return [(label, simulate(hours, market)) for label, hours in WINDOWS]
 
 
+def run_production() -> dict:
+    """SPY Up/Down ativo: somente a janela H-1."""
+    stats = simulate(window_hours=1, market="spy")
+    stats.update({
+        "archive_kind": "spy",
+        "side": "UP/DOWN",
+        "production": True,
+    })
+    return stats
+
+
+def production_candidate(now_utc: dt.datetime | None = None) -> dict | None:
+    """Oportunidade executável do snapshot mais recente do SPY na H-1.
+
+    A captura precisa ser recente para um buffer antigo não gerar alerta. O
+    mesmo seletor de lado do backtest aplica a banda exclusiva e o veto da
+    soma dos asks.
+    """
+    df = _load_market("spy")
+    if df.empty:
+        return None
+    now = pd.Timestamp(now_utc or dt.datetime.now(dt.timezone.utc))
+    if now.tzinfo is None:
+        now = now.tz_localize("UTC")
+    else:
+        now = now.tz_convert("UTC")
+    latest_ts = df["ts"].max()
+    if now - latest_ts > pd.Timedelta(minutes=INTERVAL_MINUTES * 3):
+        return None
+    latest = df[df["ts"] == latest_ts].sort_values("faixa").iloc[0]
+    day = str(latest["dia"])
+    close = _close_utc("spy", day)
+    if now < close - pd.Timedelta(hours=1) or now > close:
+        return None
+    side = _side_in_band(latest, "spy")
+    if side is None:
+        return None
+    price = _entry_price(latest, side)
+    if price is None:
+        return None
+    opposite = "down" if side == "up" else "up"
+    label = str(latest.get(f"{side}_label") or side.title())
+    pair_sum = None
+    if pd.notna(latest.get("ask_up")) and pd.notna(latest.get("ask_down")):
+        pair_sum = float(latest["ask_up"]) + float(latest["ask_down"])
+    return {
+        "key": f"{day}:{side}", "day": day, "side": side,
+        "label": label, "opposite": opposite, "price": float(price),
+        "ask_size": latest.get(f"ask_{side}_volume"),
+        "pair_sum": pair_sum, "ts": latest_ts.to_pydatetime(),
+        "close": close.to_pydatetime(),
+    }
+
+
 def latest_day(market: str = "spy") -> str | None:
     df = _load_market(market)
     if df.empty:
@@ -297,7 +351,7 @@ def latest_strikes(market: str = "spy") -> pd.DataFrame:
 
 
 def _count_parcelas(group: pd.DataFrame, close: pd.Timestamp,
-                    now_ts: pd.Timestamp,
+                    now_ts: pd.Timestamp, window_hours: int | None = None,
                     market: str = "spy") -> tuple[int, int, bool]:
     """Parcelas, acertos e se resolveu, para um contrato (dia, faixa)."""
     group = group.sort_values("ts")
@@ -306,7 +360,11 @@ def _count_parcelas(group: pd.DataFrame, close: pd.Timestamp,
     resolved = final["up"] is not None or final["down"] is not None
     parcelas = acertos = 0
     last_ts = None
+    cutoff = (None if window_hours is None
+              else close - pd.Timedelta(hours=window_hours))
     for _, row in group.iterrows():
+        if cutoff is not None and (row["ts"] < cutoff or row["ts"] > close):
+            continue
         side = _side_in_band(row, market)
         if side is None:
             continue
@@ -331,7 +389,8 @@ def side_labels(market: str = "spy") -> tuple[str, str]:
     return up, down
 
 
-def daily_summary(market: str = "spy") -> pd.DataFrame:
+def daily_summary(market: str = "spy",
+                  window_hours: int | None = None) -> pd.DataFrame:
     """Uma linha por dia capturado: parcelas, se resolveu e o resultado."""
     df = _load_market(market)
     cols = ["dia", "parcelas", "acertos", "resolvido", "resultado"]
@@ -344,7 +403,8 @@ def daily_summary(market: str = "spy") -> pd.DataFrame:
         parcelas = acertos = 0
         resolved = False
         for _, group in day_group.groupby("faixa"):
-            p, a, r = _count_parcelas(group, close, now_ts, market)
+            p, a, r = _count_parcelas(
+                group, close, now_ts, window_hours, market)
             parcelas += p
             acertos += a
             resolved = resolved or r
@@ -364,7 +424,8 @@ def daily_summary(market: str = "spy") -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values("dia").reset_index(drop=True)
 
 
-def today_progress(market: str = "spy") -> dict:
+def today_progress(market: str = "spy",
+                   window_hours: int | None = None) -> dict:
     """Andamento do dia mais recente, mesmo antes de resolver."""
     df = _load_market(market)
     if df.empty:
@@ -376,7 +437,8 @@ def today_progress(market: str = "spy") -> dict:
     parcelas = 0
     resolved = False
     for _, group in day_group.groupby("faixa"):
-        p, _a, r = _count_parcelas(group, close, now_ts, market)
+        p, _a, r = _count_parcelas(
+            group, close, now_ts, window_hours, market)
         parcelas += p
         resolved = resolved or r
     return {"day": day, "snapshots": int(day_group["ts"].nunique()),

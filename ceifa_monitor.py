@@ -175,6 +175,8 @@ def hero(subtitle: str) -> None:
 
 @st.cache_data(show_spinner="Recalculando a Ceifa nos nossos snapshots…")
 def load_strategy(kind: str, side: str) -> dict:
+    if kind == "spy":
+        return monitor.run_spy_strategy()
     if side == "SIM":
         return monitor.run_yes_strategy(kind)
     return (monitor.run_minimum_strategy() if kind == "minimum"
@@ -505,10 +507,14 @@ def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
 
         if consolidated:
             components = full_stats.get("active_components") or {}
+            spy_count = components.get("spy")
+            spy_line = (f"<br>SPY Up/Down H-1: {spy_count:,} parcelas · "
+                        if spy_count is not None else " · ")
             st.markdown(
                 "<div class='section-note'><b>Estratégias ativas consolidadas</b><br>"
                 f"Máximas: {components.get('maximum', 0):,} parcelas · "
-                f"Mínimas: {components.get('minimum', 0):,} parcelas · "
+                f"Mínimas: {components.get('minimum', 0):,} parcelas"
+                f"{spy_line}"
                 "uma única banca compartilhada entre todos os sinais.</div>"
                 .replace(",", "."), unsafe_allow_html=True)
         elif side == "SIM":
@@ -565,10 +571,13 @@ def errors_page(stats: dict) -> None:
         rows = []
         for signal in losing:
             station = config.STATIONS.get(signal.get("icao"))
+            strategy = {
+                "minimum": "Mínima", "maximum": "Máxima",
+                "spy": "SPY H-1",
+            }.get(signal.get("extreme"), "Máxima")
             rows.append({
                 "Data": str(signal.get("day")),
-                "Estratégia": ("Mínima" if signal.get("extreme") == "minimum"
-                               else "Máxima"),
+                "Estratégia": strategy,
                 "Cidade": station.city if station else signal.get("icao"),
                 "ICAO": signal.get("icao"),
                 "Faixa": signal.get("faixa"),
@@ -578,12 +587,13 @@ def errors_page(stats: dict) -> None:
             })
         losses = pd.DataFrame(rows).sort_values(
             ["Data", "Estratégia", "Cidade"], ascending=[False, True, True])
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3, c4 = st.columns(4)
         c1.metric("Erros", len(losses))
         c2.metric("Máximas", int((losses["Estratégia"] == "Máxima").sum()))
         c3.metric("Mínimas", int((losses["Estratégia"] == "Mínima").sum()))
+        c4.metric("SPY H-1", int((losses["Estratégia"] == "SPY H-1").sum()))
         st.info(
-            "Lista consolidada de erros (máximas e mínimas na mesma banca).")
+            "Lista consolidada de erros das estratégias na mesma banca.")
         st.dataframe(losses, hide_index=True, width="stretch")
         return
 
@@ -809,13 +819,18 @@ def cities_page(stats: dict, full_stats: dict,
     st.subheader("Filtros ativos")
     if consolidated:
         components = full_stats.get("active_components") or {}
+        includes_spy = "spy" in components
         st.info(
-            "O consolidado soma as duas estratégias ativas usando a mesma "
+            "O consolidado soma as estratégias ativas usando a mesma "
             "banca. As máximas usam ensemble/nowcast/platô; as mínimas "
-            "bloqueiam TSRA/VCTS previstos no TAF.")
-        f1, f2 = st.columns(2)
+            "bloqueiam TSRA/VCTS previstos no TAF."
+            + (" O SPY usa preço, H-1 e liquidez do par."
+               if includes_spy else ""))
+        f1, f2, f3 = st.columns(3)
         f1.metric("Parcelas de máximas", components.get("maximum", 0))
         f2.metric("Parcelas de mínimas", components.get("minimum", 0))
+        if includes_spy:
+            f3.metric("Parcelas de SPY H-1", components.get("spy", 0))
     elif side == "SIM":
         st.info(
             "O teste do SIM ainda não usa filtro de ensemble, nowcast ou platô. "
@@ -885,9 +900,11 @@ def cities_page(stats: dict, full_stats: dict,
               freshness["updated"].strftime("%d/%m %H:%M")
               if freshness["updated"] else "—")
     if consolidated:
-        st.caption(
-            "Consolidado ativo: NÃO de máximas + NÃO de mínimas · "
-            "uma única banca · sem alavancagem.")
+        components = full_stats.get("active_components") or {}
+        scope = "NÃO de máximas + NÃO de mínimas"
+        if "spy" in components:
+            scope += " + SPY Up/Down H-1"
+        st.caption(f"Consolidado ativo: {scope} · uma única banca · sem alavancagem.")
     elif minimum:
         st.caption(
             f"Regra ativa: NÃO entre {config.CEIFA_PRICE_MIN * 100:.1f}¢ e "
@@ -902,22 +919,33 @@ def cities_page(stats: dict, full_stats: dict,
             f"{config.CEIFA_REPEAT_MINUTES} minutos · sem alavancagem.")
 
 
-def market_page(market: str) -> None:
+def market_page(market: str, production: bool = False,
+                lookback: int | None = None) -> None:
     """Estudo observacional de um mercado binário diário (SPY, Bitcoin, ...)."""
-    variants = load_market(market)
+    if production:
+        production_stats = monitor.slice_strategy(
+            load_strategy("spy", "UP/DOWN"), lookback)
+        variants = [("H-1", production_stats)]
+    else:
+        variants = load_market(market)
+        if market == "spy":
+            variants = [(label, stats) for label, stats in variants
+                        if label != "H-1"]
     band_low, band_high = spy_study.price_band(market)
     band_label = (f"{band_low * 100:.0f}–{band_high * 100:.1f}¢"
                   .replace(".", ","))
     latest = spy_study.latest_day(market)
     lado_a, lado_b = spy_study.side_labels(market)
     fechamento = spy_study.close_label(market)
+    phase = ("Em produção na H-1." if production else
+             "Fase de observação — sem apostas reais.")
     st.caption(
         f"Último dia capturado: {latest or '—'} · aloca no lado "
         f"({lado_a} ou {lado_b}) que estiver na faixa {band_label}, com 1% do caixa "
         "livre a cada 5 min, somente quando os asks dos dois lados somarem "
-        "menos de 105¢. Fase de observação — sem apostas reais.")
+        f"menos de 105¢. {phase}")
 
-    daily = spy_study.daily_summary(market)
+    daily = spy_study.daily_summary(market, 1 if production else None)
     prices = spy_study.latest_prices(market)
     strikes = spy_study.latest_strikes(market)
     if daily.empty and prices.empty and strikes.empty:
@@ -928,7 +956,7 @@ def market_page(market: str) -> None:
         return
 
     # Multi-strike (Bitcoin): tabela dos strikes do último snapshot, marcando
-    # quem está na faixa de compra (95–99,8¢) num dos lados.
+    # quem está na faixa de compra (95–99,5¢) num dos lados.
     if not strikes.empty:
         st.subheader("Strikes do último snapshot")
         view = strikes.rename(columns={
@@ -1045,7 +1073,8 @@ def market_page(market: str) -> None:
             f"mercado ({fechamento}), quando o dia resolve.")
         return
 
-    st.subheader("Resultado por janela de entrada")
+    st.subheader("Resultado da produção H-1" if production
+                 else "Resultado por janela de entrada")
     st.caption(
         "Rendimento percentual composto: cada parcela usa 1% do patrimônio "
         "ainda livre no dia (1%, depois 0,99%, depois 0,9801% da banca inicial "
@@ -1091,7 +1120,8 @@ def market_page(market: str) -> None:
     if base.get("per_day"):
         left, right = st.columns(2)
         with left:
-            st.subheader("Evolução (sem janela)")
+            st.subheader("Evolução (H-1)" if production
+                         else f"Evolução ({variants[0][0].lower()})")
             st.plotly_chart(equity_chart(base), width="stretch")
         with right:
             st.subheader("Retorno de cada dia")
@@ -1122,13 +1152,10 @@ def main() -> None:
         pick_col, period_col, refresh_col = st.columns(
             [2.6, 1.25, .65], vertical_alignment="bottom")
         if producao:
-            # Só a visão consolidada faz sentido (máximas + mínimas numa banca).
-            choice = "📊 Ativas consolidadas"
-            pick_col.markdown(
-                "<div style='display:flex;align-items:center;min-height:2.6rem;"
-                "padding-bottom:.15rem;font-weight:600;font-size:1.02rem'>"
-                "📊 Estratégias ativas consolidadas</div>",
-                unsafe_allow_html=True)
+            choice = pick_col.radio(
+                "Produção",
+                ["📊 Tudo consolidado", "🌦️ Climatologia", "◇ SPY H-1"],
+                horizontal=True, key="production_navigation")
         else:
             choice = pick_col.radio(
                 "Hipótese em teste",
@@ -1188,19 +1215,26 @@ def main() -> None:
         market_page(market)
         return
 
-    # Daqui pra baixo é só produção (estratégias ativas, lado NÃO).
-    consolidated = choice == "📊 Ativas consolidadas"
-    side = "NÃO"
-    kind = ("consolidated" if consolidated else
-            "minimum" if choice == "❄️ Mínimas" else "maximum")
-    minimum = kind == "minimum"
+    # Produção separada do SPY; as demais janelas continuam apenas em teste.
+    if choice == "◇ SPY H-1":
+        hero("SPY Up or Down · produção H-1 · alertas de compra de Up ou Down "
+             "a cada cinco minutos quando todos os filtros permitem.")
+        market_page("spy", production=True, lookback=lookback)
+        return
 
-    if consolidated:
-        subtitle = ("Estratégias ativas em produção · NÃO de máximas e mínimas "
+    # Climatologia isolada ou todas as estratégias numa única banca.
+    all_consolidated = choice == "📊 Tudo consolidado"
+    consolidated = True
+    side = "MISTO" if all_consolidated else "NÃO"
+    kind = "consolidated" if all_consolidated else "climatology"
+    minimum = False
+
+    if all_consolidated:
+        subtitle = ("Produção consolidada · climatologia + SPY Up/Down H-1 "
                     "numa única banca compartilhada.")
     else:
-        subtitle = (f"Temperaturas {'mínimas' if minimum else 'máximas'} · "
-                    "estratégia ativa (NÃO), parcelada a cada cinco minutos.")
+        subtitle = ("Climatologia em produção · NÃO de máximas e mínimas "
+                    "numa única banca compartilhada.")
     hero(subtitle)
     freshness = monitor.data_freshness(kind)
     st.caption(
@@ -1209,9 +1243,13 @@ def main() -> None:
 
     experimental_stats = None
     proximity_stats = None
-    if consolidated:
-        maximum_stats = load_strategy("maximum", "NÃO")
-        minimum_stats = load_strategy("minimum", "NÃO")
+    maximum_stats = load_strategy("maximum", "NÃO")
+    minimum_stats = load_strategy("minimum", "NÃO")
+    if all_consolidated:
+        spy_stats = load_strategy("spy", "UP/DOWN")
+        full_stats = monitor.combine_active_strategies(
+            maximum_stats, minimum_stats, spy_stats)
+    else:
         full_stats = monitor.combine_active_strategies(
             maximum_stats, minimum_stats)
         experimental_full = monitor.single_band_scenario(
@@ -1222,8 +1260,6 @@ def main() -> None:
             maximum_stats, minimum_stats)
         proximity_stats = monitor.slice_strategy(
             proximity_full, lookback)
-    else:
-        full_stats = load_strategy(kind, side)
     stats = monitor.slice_strategy(full_stats, lookback)
 
     # Visão geral + Erros + Cidades e filtros reunidos em abas.

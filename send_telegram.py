@@ -59,6 +59,7 @@ import re
 import sys
 import time
 import unicodedata
+from zoneinfo import ZoneInfo
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -66,6 +67,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 from tmax import (calibration, capture, ceifa, config, distribution, notify,
                   pipeline, polymarket)
 from lowtemp import capture as minimum_capture
+from spy import study as spy_study
 
 
 def main() -> int:
@@ -278,9 +280,11 @@ def main() -> int:
     # cada aviso corresponde a uma nova parcela relativa ao saldo livre atual.
     ceifa_seen = set(state.get("ceifa", []))
     ceifa_last_sent = state.get("ceifa_last_sent", {})
+    spy_last_sent = state.get("spy_h1_last_sent", {})
     run_now_utc = dt.datetime.now(dt.timezone.utc)
     ceifa_pending: dict[str, list] = {}     # máximas: icao -> contratos
     minimum_pending: dict[str, list] = {}   # mínimas: icao -> contratos
+    spy_pending: dict[str, list] = {}
     ceifa_fresh: set[tuple[str, str]] = set()  # (extremo, icao) novo
     ceifa_keep: list = []
     # H-1: a entrada é SÓ na hora local ANTERIOR ao pico previsto pelo modelo
@@ -444,15 +448,28 @@ def main() -> int:
             if k not in ceifa_seen:
                 ceifa_fresh.add(("minimum", icao))
 
+    # SPY Up/Down EM PRODUÇÃO: apenas H-1, com a mesma banda, veto do par,
+    # cadência e stake relativa das demais estratégias. A captura do workflow
+    # roda antes deste script, então o candidato usa o snapshot recém-gravado.
+    spy_candidate = _cap(spy_study.production_candidate, run_now_utc)
+    if spy_candidate and _ceifa_send_due(
+            spy_last_sent.get(spy_candidate["key"]), run_now_utc,
+            config.CEIFA_REPEAT_MINUTES):
+        spy_pending["SPY"] = [(
+            spy_candidate["key"], spy_candidate["label"],
+            spy_candidate["price"], spy_candidate.get("ask_size"),
+            spy_candidate,
+        )]
+
     # Stake relativa: no instante de cada rodada com oportunidade, recomenda
     # 1% do pUSD livre. Se as compras anteriores foram executadas, o próprio
     # saldo menor reduz naturalmente a parcela seguinte.
     free_pusd = None
-    if ceifa_pending or minimum_pending:
+    if ceifa_pending or minimum_pending or spy_pending:
         if not wallet:
             print("[ceifa] ERRO ao apurar stake atual: carteira não definida.",
                   file=sys.stderr)
-            ceifa_pending, minimum_pending = {}, {}
+            ceifa_pending, minimum_pending, spy_pending = {}, {}, {}
         else:
             try:
                 free_pusd, first_stake = _current_ceifa_stake(wallet)
@@ -467,6 +484,9 @@ def main() -> int:
                         group = f"{extreme}:{station.icao}"
                         combined_pending[group] = contracts
                         order.append(group)
+                if spy_pending.get("SPY"):
+                    combined_pending["spy:SPY"] = spy_pending["SPY"]
+                    order.append("spy:SPY")
                 allocated = _allocate_relative_stakes(
                     combined_pending, order, free_pusd,
                     config.CEIFA_STAKE_FRAC)
@@ -480,12 +500,14 @@ def main() -> int:
                     for station in stations
                     if f"minimum:{station.icao}" in allocated
                 }
+                spy_pending = ({"SPY": allocated["spy:SPY"]}
+                               if "spy:SPY" in allocated else {})
                 print(f"[ceifa] primeira stake atual: ${first_stake:.2f} "
                       f"de ${free_pusd:.2f} livres.")
             except Exception as exc:
                 print(f"[ceifa] ERRO ao apurar stake atual: {exc}",
                       file=sys.stderr)
-                ceifa_pending, minimum_pending = {}, {}
+                ceifa_pending, minimum_pending, spy_pending = {}, {}, {}
 
     # Grava as parcelas desta rodada para o executor de ordens (opcional; roda
     # na máquina do usuário com a chave da carteira). Acessório — nunca derruba.
@@ -558,6 +580,16 @@ def main() -> int:
         except Exception as exc:  # noqa: BLE001
             print(f"[ceifa mínima] {icao}: ERRO: {exc}", file=sys.stderr)
 
+    contratos = spy_pending.get("SPY")
+    if contratos:
+        try:
+            notify.send_message(token, chat_id, _spy_h1_text(contratos))
+            for key, *_rest in contratos:
+                spy_last_sent[key] = run_now_utc.isoformat()
+            print(f"[SPY H-1] {len(contratos)} parcela(s) alertada(s).")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[SPY H-1] ERRO: {exc}", file=sys.stderr)
+
     # Captura dos alertas de estratégia desta rodada (Ceifa).
     _cap(lambda: capture.record_alerts(
         dt.datetime.now(dt.timezone.utc),
@@ -583,6 +615,7 @@ def main() -> int:
                         "cond_alerts": cond_state,
                         "ceifa": ceifa_keep,
                         "ceifa_last_sent": ceifa_last_sent,
+                        "spy_h1_last_sent": spy_last_sent,
                         "pnl_sent_at": state.get("pnl_sent_at", 0),
                         "commands_set": state.get("commands_set", False),
                         "tg_offset": tg_offset})
@@ -1191,6 +1224,36 @@ def _ceifa_repeat_text(station, ctx, contratos, extreme="maximum",
     linhas.append(_ceifa_distribution_line(
         station, ctx, extreme, forecast))
     return "\n".join(linhas)
+
+
+def _spy_h1_text(contratos) -> str:
+    """Alerta textual da parcela ativa de SPY Up/Down na H-1."""
+    linhas = ["📈 <b>Ceifa — SPY UP OR DOWN — H-1</b>"]
+    for _key, label, price, size, candidate, stake in contratos:
+        available = (f"{float(size):g} cota(s)"
+                     if size is not None and not pd_is_nan(size) else "—")
+        linhas.append(
+            f"• Comprar <b>{html.escape(str(label).upper())}</b> "
+            f"@ ${price:.3f} · stake: <b>${stake:,.2f}</b> "
+            f"· disponível: {available}")
+        pair_sum = candidate.get("pair_sum")
+        if pair_sum is not None:
+            linhas.append(f"• Up + Down: <b>{pair_sum * 100:.1f}¢</b> (&lt;105¢)")
+        close = candidate["close"]
+        br = close.astimezone(ZoneInfo("America/Sao_Paulo"))
+        et = close.astimezone(ZoneInfo("America/New_York"))
+        linhas.append(
+            f"🕐 Fecha às <b>{br:%H:%M} de Brasília</b> "
+            f"({et:%H:%M} ET) · nova parcela a cada 5 min enquanto elegível.")
+    return "\n".join(linhas)
+
+
+def pd_is_nan(value) -> bool:
+    """NaN seguro sem adicionar pandas ao caminho crítico do Telegram."""
+    try:
+        return value != value
+    except Exception:
+        return False
 
 
 def _send_ceifa_block(token, chat_id, station, ctx, contratos,
