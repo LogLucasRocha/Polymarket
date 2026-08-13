@@ -458,6 +458,13 @@ def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
               f"{stats.get('wins', 0)}/{stats.get('n', 0)} {count_name}")
     c4.metric("Erros", str(errors), f"em {unique_n} contratos")
     c5.metric("Drawdown máximo", f"{stats.get('real_dd', 0):.2%}")
+    blocked_by_cap = stats.get("n_position_cap_blocked", 0)
+    if blocked_by_cap:
+        st.caption(
+            f"Teto de 3% por posição: {blocked_by_cap:,} sinal(is) elegível(is) "
+            "não viraram parcela; a última parcela de cada posição foi reduzida "
+            "quando necessário para não ultrapassar o limite."
+            .replace(",", "."))
 
     if experimental_stats is not None and proximity_stats is not None:
         comparison = []
@@ -531,7 +538,8 @@ def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
         elif minimum:
             st.markdown(
                 "<div class='section-note'><b>Estratégia ativa de mínimas</b><br>"
-                "Parcelas de 1% do caixa livre a cada cinco minutos na H-1. "
+                "Parcelas de 1% do caixa livre a cada cinco minutos na H-1, "
+                "até 3% do patrimônio por posição. "
                 "A estratégia ainda não possui filtro meteorológico de "
                 "incerteza próprio.</div>",
                 unsafe_allow_html=True)
@@ -911,13 +919,15 @@ def cities_page(stats: dict, full_stats: dict,
             f"Regra ativa: NÃO entre {config.CEIFA_PRICE_MIN * 100:.1f}¢ e "
             f"{config.CEIFA_PRICE_MAX * 100:.1f}¢ · H-1 do mínimo previsto · "
             f"{config.CEIFA_STAKE_FRAC:.0%} do caixa livre a cada "
-            f"{config.CEIFA_REPEAT_MINUTES} minutos · sem teto por contrato.")
+            f"{config.CEIFA_REPEAT_MINUTES} minutos · teto de "
+            f"{config.CEIFA_POSITION_CAP_FRAC:.0%} do patrimônio por posição.")
     else:
         st.caption(
             f"Regra ativa: NÃO entre {config.CEIFA_PRICE_MIN * 100:.1f}¢ e "
             f"{config.CEIFA_PRICE_MAX * 100:.1f}¢ · H-1 · "
             f"{config.CEIFA_STAKE_FRAC:.0%} do caixa livre a cada "
-            f"{config.CEIFA_REPEAT_MINUTES} minutos · sem alavancagem.")
+            f"{config.CEIFA_REPEAT_MINUTES} minutos · teto de "
+            f"{config.CEIFA_POSITION_CAP_FRAC:.0%} do patrimônio por posição.")
 
 
 def market_page(market: str, production: bool = False,
@@ -943,7 +953,8 @@ def market_page(market: str, production: bool = False,
     st.caption(
         f"Último dia capturado: {latest or '—'} · aloca no lado "
         f"({lado_a} ou {lado_b}) que estiver na faixa {band_label}, com 1% do caixa "
-        "livre a cada 5 min, somente quando os asks dos dois lados somarem "
+        "livre a cada 5 min e teto de 3% do patrimônio por posição, somente "
+        "quando os asks dos dois lados somarem "
         f"menos de 105¢. {phase}")
 
     daily = spy_study.daily_summary(market, 1 if production else None)
@@ -1078,8 +1089,9 @@ def market_page(market: str, production: bool = False,
     st.caption(
         "Rendimento percentual composto: cada parcela usa 1% do patrimônio "
         "ainda livre no dia (1%, depois 0,99%, depois 0,9801% da banca inicial "
-        "do dia, e assim por diante). O saldo liquidado vira a base do dia "
-        "seguinte.")
+        "do dia, e assim por diante), até o máximo de 3% por posição; a última "
+        "parcela é reduzida ao espaço restante. O saldo liquidado vira a base "
+        "do dia seguinte.")
     rows = []
     for label, stats in variants:
         pick = stats.get("by_pick", {})
@@ -1091,6 +1103,7 @@ def market_page(market: str, production: bool = False,
             "Janela": label,
             "Parcelas": stats.get("n", 0),
             "Vetadas ≥105¢": stats.get("pair_filter_blocked", 0),
+            "Vetadas teto 3%": stats.get("n_position_cap_blocked", 0),
             "Média parcelas/dia": num_or_dash(
                 mean_daily_parcels(stats, resolvidos), digits=2),
             "Acerto": f"{stats.get('hit', 0):.2%}",
@@ -1108,7 +1121,9 @@ def market_page(market: str, production: bool = False,
         "da janela divididas por todos os dias resolvidos, incluindo dias com "
         "zero entrada; **Vetadas ≥105¢** = diferença líquida de parcelas que "
         "existiriam sem o veto da soma dos asks, após aplicar a mesma janela e "
-        "cadência de 5 minutos; **Média diária** = média aritmética dos retornos dos "
+        "cadência de 5 minutos; **Vetadas teto 3%** = sinais elegíveis que não "
+        "viraram parcela porque aquela posição já atingiu 3% do patrimônio; "
+        "**Média diária** = média aritmética dos retornos dos "
         "dias com parcelas naquela janela; **Pior dia** = o "
         "retorno do dia mais negativo; **CVaR 1%** = média dos 1% piores dias "
         "(com histórico curto equivale ao pior dia). H-n = só as parcelas nas "
@@ -1211,7 +1226,7 @@ def main() -> None:
                       .replace(".", ","))
         hero(f"{MERCADOS[market].nome} · hipótese em teste · aloca no lado na "
              f"faixa {band_label}, 1% do caixa livre a cada 5 min · Yes + No nos "
-             "asks abaixo de 105¢.")
+             "asks abaixo de 105¢ · teto de 3% por posição.")
         market_page(market)
         return
 

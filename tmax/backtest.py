@@ -705,7 +705,7 @@ def ceifa_report_text(st: dict, titulo: str | None = None,
     ret_med = (sum(d["ret"] for d in per_day) / len(per_day)) if per_day else 0.0
     repeated = st.get("repeat_minutes") is not None
     sizing = (f"1% do caixa livre por parcela, a cada "
-              f"{st['repeat_minutes']} min" if repeated
+              f"{st['repeat_minutes']} min, até 3% por posição" if repeated
               else "10% da banca por entrada")
     count_label = "Parcelas" if repeated else "Entradas"
 

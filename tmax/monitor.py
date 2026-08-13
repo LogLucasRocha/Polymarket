@@ -309,8 +309,8 @@ def run_strategy(single_band: bool = False) -> dict:
 def run_minimum_strategy(single_band: bool = False) -> dict:
     """Executa a Ceifa ativa de temperaturas mínimas.
 
-    Usa parcelas de 1% do caixa livre a cada cinco minutos na H-1, sem os
-    filtros meteorológicos das máximas.
+    Usa parcelas de 1% do caixa livre a cada cinco minutos na H-1, com teto de
+    3% do patrimônio por posição e sem os filtros meteorológicos das máximas.
     """
     stats = ceifa.simulate_repeated(
         icaos=set(config.STATIONS), archive=MINIMUM_ARCHIVE,
@@ -349,15 +349,17 @@ def combine_active_strategies(maximum: dict, minimum: dict,
     """Recalcula máximas + mínimas como uma única banca compartilhada."""
     signals = [
         dict(signal, extreme="maximum", archive_kind="maximum")
-        for signal in maximum.get("signals", [])
+        for signal in maximum.get("candidate_signals",
+                                  maximum.get("signals", []))
     ] + [
         dict(signal, extreme="minimum", archive_kind="minimum")
-        for signal in minimum.get("signals", [])
+        for signal in minimum.get("candidate_signals",
+                                  minimum.get("signals", []))
     ]
     if spy is not None:
         signals += [
             dict(signal, extreme="spy", archive_kind="spy")
-            for signal in spy.get("signals", [])
+            for signal in spy.get("candidate_signals", spy.get("signals", []))
         ]
     days = len({str(signal["day"]) for signal in signals})
     stats = ceifa._stats_relative_available_stake(
@@ -369,8 +371,10 @@ def combine_active_strategies(maximum: dict, minimum: dict,
         "single_band": bool(maximum.get("single_band")
                               and minimum.get("single_band")),
         "active_components": {
-            "maximum": maximum.get("n", 0),
-            "minimum": minimum.get("n", 0),
+            "maximum": sum(signal.get("extreme") == "maximum"
+                           for signal in stats["signals"]),
+            "minimum": sum(signal.get("extreme") == "minimum"
+                           for signal in stats["signals"]),
         },
         "n_filtrado": (maximum.get("n_filtrado", 0)
                         + minimum.get("n_filtrado", 0)),
@@ -399,7 +403,8 @@ def combine_active_strategies(maximum: dict, minimum: dict,
                              + minimum.get("filtered_records", [])),
     })
     if spy is not None:
-        stats["active_components"]["spy"] = spy.get("n", 0)
+        stats["active_components"]["spy"] = sum(
+            signal.get("extreme") == "spy" for signal in stats["signals"])
     return stats
 
 
@@ -407,8 +412,8 @@ def single_band_scenario(maximum: dict, minimum: dict) -> dict:
     """Deriva a faixa única das entradas ativas, sem reler os snapshots."""
     scenarios = []
     for source in (maximum, minimum):
-        signals, removed = ceifa._select_single_band_signals(
-            list(source.get("signals", [])))
+        signals, removed = ceifa._select_single_band_signals(list(
+            source.get("candidate_signals", source.get("signals", []))))
         scenario = ceifa._stats_relative_available_stake(
             signals, days=source.get("days", 0),
             stake_frac=config.CEIFA_STAKE_FRAC)
@@ -515,7 +520,8 @@ def proximity_scenario(maximum: dict, minimum: dict) -> dict:
         lookup = _forecast_extreme_lookup(archive, field)
         kept = []
         blocked = 0
-        for signal in source.get("signals", []):
+        for signal in source.get("candidate_signals",
+                                 source.get("signals", [])):
             observed = _observed_extreme_at_entry(signal, lookup, extreme)
             if is_proximity_comparison_risk(
                     signal["icao"], signal["faixa"], observed, extreme):
@@ -540,7 +546,7 @@ def proximity_scenario(maximum: dict, minimum: dict) -> dict:
 
 def slice_strategy(stats: dict, lookback_days: int | None) -> dict:
     """Recalcula a banca para o período escolhido, sem olhar o futuro."""
-    signals = list(stats.get("signals", []))
+    signals = list(stats.get("candidate_signals", stats.get("signals", [])))
     if not signals or lookback_days is None:
         return stats
     # Fatia pela MESMA chave que agrupa o "Retorno de cada dia" (dia de Brasília

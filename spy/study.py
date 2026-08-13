@@ -2,8 +2,8 @@
 
 Para cada mercado, a cada 5 min aloca no lado (up **ou** down) cujo melhor ask
 executável estiver na faixa (0,95, 0,995), somando 1% do caixa livre — o
-modelo de parcelas da Ceifa. Como o mercado é binário, no máximo um lado cabe
-na faixa.
+modelo de parcelas da Ceifa, com teto de 3% do capital por posição. Como o
+mercado é binário, no máximo um lado cabe na faixa.
 
 Roda seis variantes de janela em relação ao fechamento (padrão 16:00 ET): sem
 janela, H-1, H-2, H-3, H-6 e H-12. Só lê os snapshots capturados (dados_{key}/
@@ -215,9 +215,10 @@ def simulate(window_hours: int | None = None, market: str = "spy") -> dict:
     # Diferença líquida, já depois da mesma janela e cadência de cinco minutos.
     # Não é contagem de linhas brutas rejeitadas.
     stats["pair_filter_blocked"] = max(baseline_n - len(signals), 0)
+    executed = stats.get("signals", signals)
     stats["by_pick"] = {
-        "up": sum(1 for s in signals if s.get("pick") == "up"),
-        "down": sum(1 for s in signals if s.get("pick") == "down"),
+        "up": sum(1 for s in executed if s.get("pick") == "up"),
+        "down": sum(1 for s in executed if s.get("pick") == "down"),
     }
     return stats
 
@@ -377,6 +378,44 @@ def _count_parcelas(group: pd.DataFrame, close: pd.Timestamp,
     return parcelas, acertos, resolved
 
 
+def _allowed_day_parcels(day_group: pd.DataFrame, close: pd.Timestamp,
+                         now_ts: pd.Timestamp,
+                         window_hours: int | None = None,
+                         market: str = "spy") -> tuple[int, int, bool]:
+    """Conta apenas parcelas que passam pelo teto, compartilhando o caixa."""
+    candidates: list[dict] = []
+    resolved = False
+    for faixa, group in day_group.groupby("faixa"):
+        group = group.sort_values("ts")
+        final = {"up": _resolved(group, "preco_up", close, now_ts),
+                 "down": _resolved(group, "preco_down", close, now_ts)}
+        contract_resolved = final["up"] is not None or final["down"] is not None
+        resolved = resolved or contract_resolved
+        cutoff = (None if window_hours is None
+                  else close - pd.Timedelta(hours=window_hours))
+        last_ts = None
+        for _, row in group.iterrows():
+            if cutoff is not None and (row["ts"] < cutoff or row["ts"] > close):
+                continue
+            side = _side_in_band(row, market)
+            if side is None:
+                continue
+            if last_ts is not None and (row["ts"] - last_ts) < pd.Timedelta(
+                    minutes=INTERVAL_MINUTES):
+                continue
+            candidates.append({
+                "icao": market.upper(), "day": str(row["dia"]),
+                "faixa": f"{faixa}·{side}", "pick": side,
+                "ts": row["ts"], "price": _entry_price(row, side),
+                "won": bool(contract_resolved and final[side] is not None
+                            and final[side] > 0.5),
+                "stopped": False, "loss_frac": None, "spread": None,
+            })
+            last_ts = row["ts"]
+    scored = ceifa._stats_relative_available_stake(candidates, 1, STAKE_FRAC)
+    return scored["n"], scored["wins"] if resolved else 0, resolved
+
+
 def side_labels(market: str = "spy") -> tuple[str, str]:
     """Rótulos dos dois lados (up/down) do dia mais recente, se gravados."""
     df = _load_market(market)
@@ -399,14 +438,8 @@ def daily_summary(market: str = "spy",
     now_ts = df["ts"].max()
     for dia, day_group in df.groupby("dia"):
         close = _close_utc(market, str(dia))
-        parcelas = acertos = 0
-        resolved = False
-        for _, group in day_group.groupby("faixa"):
-            p, a, r = _count_parcelas(
-                group, close, now_ts, window_hours, market)
-            parcelas += p
-            acertos += a
-            resolved = resolved or r
+        parcelas, acertos, resolved = _allowed_day_parcels(
+            day_group, close, now_ts, window_hours, market)
         if not resolved:
             resultado = "Em aberto"
         elif parcelas == 0:
@@ -433,12 +466,7 @@ def today_progress(market: str = "spy",
     close = _close_utc(market, day)
     now_ts = df["ts"].max()
     day_group = df[df["dia"] == day]
-    parcelas = 0
-    resolved = False
-    for _, group in day_group.groupby("faixa"):
-        p, _a, r = _count_parcelas(
-            group, close, now_ts, window_hours, market)
-        parcelas += p
-        resolved = resolved or r
+    parcelas, _acertos, resolved = _allowed_day_parcels(
+        day_group, close, now_ts, window_hours, market)
     return {"day": day, "snapshots": int(day_group["ts"].nunique()),
             "parcelas": parcelas, "resolved": resolved}
