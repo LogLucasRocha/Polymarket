@@ -245,10 +245,11 @@ def daily_chart(stats: dict, days: int | None = None) -> go.Figure:
     pending_by_day = stats.get("pending_by_day", {})
     if daily.empty and not pending_by_day:
         return go.Figure()
-    pending = pd.DataFrame([
-        {"day": day, "pending": count}
-        for day, count in pending_by_day.items()
-    ])
+    pending = pd.DataFrame(
+        [{"day": day, "pending": count}
+         for day, count in pending_by_day.items()],
+        columns=["day", "pending"],
+    )
     if daily.empty:
         daily = pd.DataFrame(columns=["day", "ret", "n", "wins"])
     daily = daily.merge(pending, on="day", how="outer")

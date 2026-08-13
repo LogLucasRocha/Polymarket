@@ -115,6 +115,18 @@ class DashboardHourlyTest(unittest.TestCase):
                        if trace.name == "Positivo")
         self.assertEqual(list(returns.customdata[0]), [26, 26, 8])
 
+    def test_daily_chart_accepts_resolved_days_without_pending_parcels(self):
+        stats = {"per_day": [{
+            "day": "2026-08-13", "ret": 0.0026,
+            "n": 26, "wins": 26, "cap": 1.0026,
+        }]}
+
+        chart = dashboard.daily_chart(stats)
+
+        self.assertEqual(len(chart.data), 1)
+        self.assertEqual(chart.data[0].name, "Positivo")
+        self.assertEqual(list(chart.data[0].customdata[0]), [26, 26, 0])
+
 
 if __name__ == "__main__":
     unittest.main()
