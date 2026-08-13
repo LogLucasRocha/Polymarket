@@ -469,7 +469,7 @@ class StrikesTests(unittest.TestCase):
         self.assertFalse(progress["resolved"])
         self.assertGreater(progress["parcelas"], 0)           # mas conta parcelas
 
-    def test_rolling_day_resolves_after_it_rolls(self):
+    def test_rolling_day_does_not_guess_resolution_after_it_rolls(self):
         # Bitcoin (rolling): o dia vira às 16:00 UTC e NUNCA há snapshot depois
         # dele para o próprio dia — o último é ~15:50. Assim que a captura do dia
         # seguinte aparece (relógio > fechamento), o dia fechado deve resolver
@@ -488,15 +488,35 @@ class StrikesTests(unittest.TestCase):
         with mock.patch.object(study, "_load_market", return_value=frame):
             stats = study.simulate(None, "bitcoin")
             daily = study.daily_summary("bitcoin")
-        # o dia 09 resolveu (Yes 0,97 > 0,5 = venceu), mesmo sem pino no close
-        self.assertGreater(stats["n"], 0)
-        self.assertEqual(stats["wins"], stats["n"])
+        # Sem a resolucao oficial, o ultimo preco pre-close nao pontua.
+        self.assertEqual(stats["n"], 0)
         row09 = daily[daily["dia"] == pd.Timestamp("2026-08-09")].iloc[0]
-        self.assertTrue(bool(row09["resolvido"]))
-        self.assertEqual(row09["resultado"], "Acerto")
+        self.assertFalse(bool(row09["resolvido"]))
+        self.assertEqual(row09["resultado"], "Em aberto")
         # o dia 10, ainda aberto (relógio < seu fechamento), não pontua
         row10 = daily[daily["dia"] == pd.Timestamp("2026-08-10")].iloc[0]
         self.assertFalse(bool(row10["resolvido"]))
+
+    def test_rolling_day_uses_explicit_official_resolution(self):
+        rows = [{
+            "ts_utc": "2026-08-13T15:00:00+00:00", "dia": "2026-08-13",
+            "faixa": "â€”", "preco_up": .98, "preco_down": .02,
+        }, {
+            "ts_utc": "2026-08-13T16:00:00+00:00", "dia": "2026-08-13",
+            "faixa": "â€”", "preco_up": 0., "preco_down": 1.,
+            "resolucao_oficial": True,
+        }, {
+            "ts_utc": "2026-08-13T16:10:00+00:00", "dia": "2026-08-14",
+            "faixa": "â€”", "preco_up": .5, "preco_down": .5,
+        }]
+        frame = _frame(rows)
+        with mock.patch.object(study, "_load_market", return_value=frame):
+            stats = study.simulate(1, "btc_updown")
+            daily = study.daily_summary("btc_updown", 1)
+        self.assertEqual(stats["n"], 1)
+        self.assertEqual(stats["wins"], 0)
+        day = daily[daily["dia"] == pd.Timestamp("2026-08-13")].iloc[0]
+        self.assertEqual(day["resultado"], "Erro")
 
 
 class ArchiveByCloseTests(unittest.TestCase):

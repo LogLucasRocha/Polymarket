@@ -9,6 +9,7 @@ import pandas as pd
 
 from spy import MERCADOS
 from spy import backfill
+from spy import capture
 
 
 class SpyBackfillTests(unittest.TestCase):
@@ -64,6 +65,30 @@ class SpyBackfillTests(unittest.TestCase):
             saved = pd.read_parquet(path)
         self.assertEqual(len(saved), 1)
         self.assertAlmostEqual(float(saved.iloc[0]["preco_up"]), .984)
+
+    def test_reconciles_official_resolution_into_archived_rolling_day(self):
+        day = dt.date(2026, 8, 13)
+        row = {
+            "ts_utc": "2026-08-13T15:55:00+00:00", "dia": str(day),
+            "slug": "bitcoin-up-or-down-on-august-13-2026", "faixa": "â€”",
+            "preco_up": .9845, "preco_down": .0155,
+        }
+        official = dict(row, ts_utc="2026-08-13T16:00:00+00:00",
+                        preco_up=0., preco_down=1., resolucao_oficial=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "dados_btc_updown" / "mercado" / f"{day}.parquet"
+            path.parent.mkdir(parents=True)
+            pd.DataFrame([row]).to_parquet(path, index=False)
+            with mock.patch.object(
+                    capture, "_resolution_records", return_value=[official]):
+                updated = capture.reconcile_resolutions(
+                    MERCADOS["btc_updown"], root)
+            saved = pd.read_parquet(path)
+        self.assertEqual(updated, 1)
+        resolved = saved[saved["resolucao_oficial"].fillna(False)]
+        self.assertEqual(len(resolved), 1)
+        self.assertEqual(float(resolved.iloc[0]["preco_down"]), 1.)
 
 
 if __name__ == "__main__":
