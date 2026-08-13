@@ -203,6 +203,31 @@ def _resolved_prices(frame: pd.DataFrame, column: str) -> dict[tuple, float]:
     }
 
 
+def _open_live_contracts(frame: pd.DataFrame) -> set[tuple]:
+    """Contratos ao vivo cujo dia local ainda não terminou.
+
+    Um preço intradiário pode encostar em 0/1 antes da resolução oficial. Para
+    o painel, essas parcelas continuam pendentes até a meia-noite local da
+    cidade. O relógio usado é o snapshot mais recente do próprio pacote, para
+    que o replay seja determinístico e não dependa da hora em que foi aberto.
+    """
+    if frame.empty or "snapshot_live" not in frame or "ts" not in frame:
+        return set()
+    live = frame[frame["snapshot_live"].fillna(False).astype(bool)]
+    if live.empty:
+        return set()
+    captured_at = frame["ts"].max()
+    open_contracts = set()
+    for row in live[["icao", "dia", "faixa"]].drop_duplicates().itertuples(
+            index=False):
+        day = dt.date.fromisoformat(str(row.dia))
+        closes_local = dt.datetime.combine(
+            day + dt.timedelta(days=1), dt.time.min, tzinfo=_tz(row.icao))
+        if captured_at < pd.Timestamp(closes_local).tz_convert("UTC"):
+            open_contracts.add((row.icao, row.dia, row.faixa))
+    return open_contracts
+
+
 def _execution_candidates(frame: pd.DataFrame, side: str) -> pd.DataFrame:
     """Pre-filtra vetorialmente snapshots com oferta executavel da Ceifa."""
     checked = (frame["livro_consultado"].fillna(False).astype(bool)
@@ -745,6 +770,7 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
                 "stake_frac": stake_frac, "repeat_minutes": interval_minutes}
 
     resolutions = _resolved_prices(mkt, "preco_nao")
+    open_live_contracts = _open_live_contracts(mkt)
     candidates = _execution_candidates(mkt, "NAO")
     candidates["hloc"] = candidates.groupby("icao")["ts"].transform(
         lambda series: series.dt.tz_convert(_tz(series.name)).dt.hour)
@@ -769,7 +795,13 @@ def simulate_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
     for (icao, day, faixa), group in candidates.groupby(
             ["icao", "dia", "faixa"], observed=True):
         group = group.sort_values("ts")
-        final_no = resolutions.get((icao, day, faixa))
+        contract = (icao, day, faixa)
+        contract_open = contract in open_live_contracts
+        final_no = None if contract_open else resolutions.get(contract)
+        # Ausência de preço final em um contrato antigo significa lacuna do
+        # arquivo, não uma posição que continua aberta indefinidamente.
+        if final_no is None and not contract_open:
+            continue
         last_entry_ts = None
         for _, entry_row in group.iterrows():
             fget = lambda name, default=None: entry_row.get(  # noqa: E731
