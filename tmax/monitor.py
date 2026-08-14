@@ -557,7 +557,8 @@ def proximity_scenario(maximum: dict, minimum: dict) -> dict:
     return combined
 
 
-def slice_strategy(stats: dict, lookback_days: int | None) -> dict:
+def slice_strategy(stats: dict, lookback_days: int | None,
+                   reference_day=None) -> dict:
     """Recalcula a banca para o período escolhido, sem olhar o futuro."""
     signals = (list(stats.get("candidate_signals", stats.get("signals", [])))
                + list(stats.get("pending_candidate_signals", [])))
@@ -567,7 +568,8 @@ def slice_strategy(stats: dict, lookback_days: int | None) -> dict:
     # na Ceifa, data-alvo no SPY/Bitcoin); senão um dia de fronteira perde parte
     # das parcelas ao encurtar a janela.
     bucket = ceifa._day_bucket
-    last_day = max(pd.Timestamp(bucket(signal)) for signal in signals)
+    last_day = (pd.Timestamp(reference_day) if reference_day is not None else
+                max(pd.Timestamp(bucket(signal)) for signal in signals))
     cutoff = last_day - pd.Timedelta(days=lookback_days - 1)
     selected = [signal for signal in signals
                 if pd.Timestamp(bucket(signal)) >= cutoff]
@@ -587,6 +589,12 @@ def slice_strategy(stats: dict, lookback_days: int | None) -> dict:
         "active_components": stats.get("active_components"),
         "single_band": stats.get("single_band", False),
     })
+    picks = [signal.get("pick") for signal in sliced.get("signals", [])]
+    if any(pick in {"up", "down"} for pick in picks):
+        sliced["by_pick"] = {
+            "up": picks.count("up"),
+            "down": picks.count("down"),
+        }
     for key in (
         "n_filtrado", "n_filtrado_spread", "n_filtrado_nowcast",
         "n_filtrado_plateau", "n_filtrado_ensemble_band",
@@ -594,6 +602,7 @@ def slice_strategy(stats: dict, lookback_days: int | None) -> dict:
         "n_filtrado_taf", "n_filtrado_100c",
         "n_filtrado_0c", "n_filtrado_faixa_unica",
         "pair_filter_blocked",
+        "n_position_cap_blocked",
     ):
         sliced[key] = stats.get(key, 0)
     return sliced

@@ -362,7 +362,10 @@ def hourly_counts(stats: dict) -> pd.Series:
 
 
 def hourly_day_count(stats: dict) -> int:
-    """Dias com parcelas, incluindo zero nas horas sem entrada daquele dia."""
+    """Dias elegíveis usados como divisor da média horária."""
+    eligible_days = stats.get("hourly_eligible_days")
+    if eligible_days is not None:
+        return int(eligible_days)
     stamps = _local_timestamps(stats)
     if stamps.empty:
         return 0
@@ -400,7 +403,7 @@ def hourly_by_category(stats: dict,
     frame = pd.DataFrame(rows, columns=["ts", "cat"])
     ts = pd.to_datetime(frame["ts"], utc=True).dt.tz_convert(USER_TZ)
     frame["hora"] = ts.dt.hour
-    days = int(ts.dt.normalize().nunique()) or 1
+    days = hourly_day_count(stats) or 1
     piv = (frame.groupby(["hora", "cat"]).size().unstack(fill_value=0)
            .reindex(range(24), fill_value=0))
     return piv.astype(float) / days
@@ -468,9 +471,29 @@ def render_hourly_section(stats: dict,
                        for hour, value in top.items())
     st.caption(
         f"Média por dia nos horários de pico: {picos}. "
-        f"Cálculo sobre {days} dia(s) com apostas, incluindo zero nas "
-        "horas sem entrada. O acumulado continua disponível ao passar "
+        f"Cálculo sobre {days} dia(s) elegível(is) do período, incluindo zero "
+        "nos dias e horários sem entrada. O acumulado continua disponível ao passar "
         "o mouse — o relógio é o de Brasília.")
+
+
+def market_period(daily: pd.DataFrame, market: str,
+                  lookback: int | None) -> tuple[pd.DataFrame, pd.Timestamp | None,
+                                                 int]:
+    """Aplica o período da tela e conta somente dias em que o mercado opera."""
+    if daily.empty:
+        return daily, None, 0
+    end = pd.Timestamp(daily["dia"].max()).normalize()
+    captured_start = pd.Timestamp(daily["dia"].min()).normalize()
+    start = (captured_start if lookback is None else
+             end - pd.Timedelta(days=lookback - 1))
+    selected = daily[
+        (pd.to_datetime(daily["dia"]) >= start)
+        & (pd.to_datetime(daily["dia"]) <= end)
+    ].copy()
+    eligible = pd.date_range(start, end, freq="D")
+    if MERCADOS[market].weekdays_only:
+        eligible = eligible[eligible.dayofweek < 5]
+    return selected.reset_index(drop=True), start, len(eligible)
 
 
 def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
@@ -966,15 +989,28 @@ def cities_page(stats: dict, full_stats: dict,
 def market_page(market: str, production: bool = False,
                 lookback: int | None = None) -> None:
     """Estudo observacional de um mercado binário diário (SPY, Bitcoin, ...)."""
+    daily = spy_study.daily_summary(market, 1 if production else None)
+    daily, period_start, eligible_days = market_period(daily, market, lookback)
+    reference_day = (pd.Timestamp(daily["dia"].max())
+                     if not daily.empty else None)
     if production:
         production_stats = monitor.slice_strategy(
-            load_strategy("spy", "UP/DOWN"), lookback)
+            load_strategy("spy", "UP/DOWN"), lookback,
+            reference_day=reference_day)
         variants = [("H-1", production_stats)]
     else:
-        variants = load_market(market)
+        variants = [
+            (label, monitor.slice_strategy(
+                stats, lookback, reference_day=reference_day))
+            for label, stats in load_market(market)
+        ]
         if market == "spy":
             variants = [(label, stats) for label, stats in variants
                         if label != "H-1"]
+    variants = [
+        (label, {**stats, "hourly_eligible_days": eligible_days})
+        for label, stats in variants
+    ]
     band_low, band_high = spy_study.price_band(market)
     band_label = (f"{band_low * 100:.0f}–{band_high * 100:.1f}¢"
                   .replace(".", ","))
@@ -990,7 +1026,6 @@ def market_page(market: str, production: bool = False,
         "quando os asks dos dois lados somarem "
         f"menos de 105¢. {phase}")
 
-    daily = spy_study.daily_summary(market, 1 if production else None)
     prices = spy_study.latest_prices(market)
     strikes = spy_study.latest_strikes(market)
     if daily.empty and prices.empty and strikes.empty:
@@ -1278,7 +1313,7 @@ def main() -> None:
         hero(f"{MERCADOS[market].nome} · hipótese em teste · aloca no lado na "
              f"faixa {band_label}, 1% do caixa livre a cada 5 min · Yes + No nos "
              "asks abaixo de 105¢ · teto de 3% por posição.")
-        market_page(market)
+        market_page(market, lookback=lookback)
         return
 
     # Produção separada do SPY; as demais janelas continuam apenas em teste.
