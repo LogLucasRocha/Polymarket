@@ -109,6 +109,19 @@ class DailyStakeTests(unittest.TestCase):
 
         self.assertNotIn("A", result)
 
+    def test_three_relative_parcels_reach_operational_alert_limit(self):
+        pending = {"A": [("a", "30°C", 0.97, 10)]}
+        target = send_telegram.config.CEIFA_POSITION_TARGET_FRAC
+
+        result = send_telegram._allocate_relative_stakes(
+            pending, ["A"], 970.299, 0.01,
+            token_by_contract={"a": "token-a"},
+            allocated_by_token={"token-a": target * 1000.0},
+            total_capital=1000.0, position_cap_frac=target)
+
+        self.assertNotIn("A", result)
+        self.assertAlmostEqual(target, 0.029701)
+
     def test_reduces_last_stake_to_remaining_three_percent_room(self):
         pending = {"A": [("a", "30°C", 0.97, 10)]}
 
