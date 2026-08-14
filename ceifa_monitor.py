@@ -494,9 +494,8 @@ def overview(stats: dict, full_stats: dict, minimum: bool, side: str,
     blocked_by_cap = stats.get("n_position_cap_blocked", 0)
     if blocked_by_cap:
         st.caption(
-            f"Teto de 3% por posição: {blocked_by_cap:,} sinal(is) elegível(is) "
-            "não viraram parcela; a última parcela de cada posição foi reduzida "
-            "quando necessário para não ultrapassar o limite."
+            f"Limite de 3 parcelas e 3% por posição: {blocked_by_cap:,} "
+            "sinal(is) elegível(is) não viraram parcela."
             .replace(",", "."))
 
     if experimental_stats is not None and proximity_stats is not None:

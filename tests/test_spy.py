@@ -219,11 +219,11 @@ class SpyStudyTests(unittest.TestCase):
         frame = _day_series({}, last_up=0.999)   # Up sempre 0,97; resolve Up=1
         with mock.patch.object(study, "_load_market", return_value=frame):
             stats = study.simulate(window_hours=None)
-        # O quarto sinal completa exatamente 3% e os demais são vetados.
-        self.assertEqual(stats["n"], 4)
-        self.assertEqual(stats["wins"], 4)      # Up venceu
-        self.assertEqual(stats["by_pick"], {"up": 4, "down": 0})
-        self.assertEqual(stats["n_position_cap_blocked"], 92)
+        # Três parcelas por posição; os demais sinais são vetados.
+        self.assertEqual(stats["n"], 3)
+        self.assertEqual(stats["wins"], 3)      # Up venceu
+        self.assertEqual(stats["by_pick"], {"up": 3, "down": 0})
+        self.assertEqual(stats["n_position_cap_blocked"], 93)
         self.assertGreater(stats["real_mult"], 1.0)
 
     def test_simulation_charges_the_executable_ask(self):
@@ -248,15 +248,15 @@ class SpyStudyTests(unittest.TestCase):
         self.assertAlmostEqual(stakes[0], 0.01)
         self.assertAlmostEqual(stakes[1], 0.0099)
         self.assertAlmostEqual(stakes[2], 0.009801)
-        self.assertAlmostEqual(stats["signals"][3]["stake"], 0.000299)
-        self.assertAlmostEqual(sum(s["stake"] for s in stats["signals"]), 0.03)
+        self.assertAlmostEqual(
+            sum(s["stake"] for s in stats["signals"]), 0.029701)
 
     def test_h1_window_keeps_only_last_hour(self):
         frame = _day_series({}, last_up=0.999)
         with mock.patch.object(study, "_load_market", return_value=frame):
             stats = study.simulate(window_hours=1)
-        # O teto encerra a posição na quarta parcela da H-1.
-        self.assertEqual(stats["n"], 4)
+        # O teto encerra a posição na terceira parcela da H-1.
+        self.assertEqual(stats["n"], 3)
 
     def test_allocates_to_down_when_down_is_in_band(self):
         # Down em 0,97 (na faixa), Up em 0,03; resolve Down=1 (fechou em queda).
@@ -272,8 +272,8 @@ class SpyStudyTests(unittest.TestCase):
         frame = _frame(rows)
         with mock.patch.object(study, "_load_market", return_value=frame):
             stats = study.simulate(window_hours=None)
-        self.assertEqual(stats["by_pick"], {"up": 0, "down": 4})
-        self.assertEqual(stats["wins"], 4)       # Down venceu
+        self.assertEqual(stats["by_pick"], {"up": 0, "down": 3})
+        self.assertEqual(stats["wins"], 3)       # Down venceu
 
     def test_unresolved_day_is_skipped(self):
         # Último preço no meio (0,60): dia ainda não resolveu → nada conta.
@@ -290,7 +290,7 @@ class SpyStudyTests(unittest.TestCase):
         self.assertEqual(progress["day"], "2026-08-07")
         self.assertFalse(progress["resolved"])
         self.assertEqual(progress["snapshots"], 97)
-        self.assertEqual(progress["parcelas"], 4)    # trava em 3% da posição
+        self.assertEqual(progress["parcelas"], 3)
 
     def test_daily_summary_marks_open_day(self):
         frame = _day_series({}, last_up=0.60)   # não resolveu
@@ -300,7 +300,7 @@ class SpyStudyTests(unittest.TestCase):
         row = daily.iloc[0]
         self.assertFalse(bool(row["resolvido"]))
         self.assertEqual(row["resultado"], "Em aberto")
-        self.assertEqual(int(row["parcelas"]), 4)
+        self.assertEqual(int(row["parcelas"]), 3)
 
     def test_daily_summary_marks_resolved_win(self):
         frame = _day_series({}, last_up=0.999)  # resolveu Up=1
@@ -388,8 +388,8 @@ class SpyStudyTests(unittest.TestCase):
             daily = study.daily_summary(window_hours=1)
         self.assertEqual(stats["window_hours"], 1)
         self.assertEqual(stats["archive_kind"], "spy")
-        self.assertEqual(stats["n"], 4)
-        self.assertEqual(int(daily.iloc[0]["parcelas"]), 4)
+        self.assertEqual(stats["n"], 3)
+        self.assertEqual(int(daily.iloc[0]["parcelas"]), 3)
 
     def test_live_candidate_requires_recent_h1_executable_snapshot(self):
         frame = _frame([{

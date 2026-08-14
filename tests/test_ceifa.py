@@ -569,7 +569,7 @@ class BrasiliaDayBucketTests(unittest.TestCase):
         stats = ceifa._stats_relative_available_stake(signals, 1, 0.01)
         self.assertEqual([d["day"] for d in stats["per_day"]], ["2026-08-09"])
 
-    def test_position_cap_trims_fourth_parcel_and_blocks_the_rest(self):
+    def test_position_is_limited_to_three_parcels(self):
         signals = [{
             "icao": "SPY", "day": "2026-08-09", "faixa": "—·up",
             "pick": "up", "ts": pd.Timestamp(f"2026-08-09T19:{minute:02d}:00Z"),
@@ -578,12 +578,26 @@ class BrasiliaDayBucketTests(unittest.TestCase):
 
         stats = ceifa._stats_relative_available_stake(signals, 1, 0.01)
 
-        self.assertEqual(stats["n"], 4)
-        self.assertAlmostEqual(sum(s["stake"] for s in stats["signals"]), 0.03)
-        self.assertAlmostEqual(stats["signals"][-1]["stake"], 0.000299)
-        self.assertEqual(stats["n_position_cap_trimmed"], 1)
-        self.assertEqual(stats["n_position_cap_blocked"], 1)
+        self.assertEqual(stats["n"], 3)
+        self.assertAlmostEqual(
+            sum(s["stake"] for s in stats["signals"]), 0.029701)
+        self.assertAlmostEqual(stats["signals"][-1]["stake"], 0.009801)
+        self.assertEqual(stats["n_position_cap_trimmed"], 0)
+        self.assertEqual(stats["n_position_cap_blocked"], 2)
         self.assertEqual(len(stats["candidate_signals"]), 5)
+
+    def test_position_limit_does_not_reset_at_brasilia_midnight(self):
+        signals = [{
+            "icao": "ZGGG", "day": "2026-08-14", "faixa": "35°C",
+            "day_br": "2026-08-13" if minute < 15 else "2026-08-14",
+            "ts": pd.Timestamp(f"2026-08-14T00:{minute:02d}:00Z"),
+            "price": 0.97, "won": True,
+        } for minute in (0, 5, 10, 15, 20, 25)]
+
+        stats = ceifa._stats_relative_available_stake(signals, 2, 0.01)
+
+        self.assertEqual(stats["n"], 3)
+        self.assertEqual(stats["n_position_cap_blocked"], 3)
 
     def test_pending_parcels_are_counted_without_affecting_return(self):
         signals = [{
@@ -596,8 +610,8 @@ class BrasiliaDayBucketTests(unittest.TestCase):
         stats = ceifa._stats_relative_available_stake(signals, 1, 0.01)
 
         self.assertEqual(stats["n"], 0)
-        self.assertEqual(stats["pending_n"], 4)
-        self.assertEqual(stats["pending_by_day"], {"2026-08-13": 4})
+        self.assertEqual(stats["pending_n"], 3)
+        self.assertEqual(stats["pending_by_day"], {"2026-08-13": 3})
         self.assertEqual(stats["real_mult"], 1.0)
 
 

@@ -257,6 +257,7 @@ CEIFA_PRICE_MIN = 0.95      # exclusivo: preço do NÃO > 0,95
 CEIFA_PRICE_MAX = 0.995     # exclusivo: preço do NÃO < 0,995
 CEIFA_STAKE_FRAC = 0.01     # parcela relativa ao saldo livre de cada rodada
 CEIFA_POSITION_CAP_FRAC = 0.03  # máximo investido em um contrato / patrimônio
+CEIFA_POSITION_MAX_PARCELS = 3  # no máximo três compras executadas por contrato
 CEIFA_REPEAT_MINUTES = 5    # nova parcela em cada rodada elegível
 
 # FILTRO DE INCERTEZA (decisão do Lucas, 22/07 — substitui o stop loss no

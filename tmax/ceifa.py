@@ -1093,8 +1093,10 @@ def simulate_yes_repeated(log=lambda m: None, icaos=None, archive=ARCHIVE,
 def _stats_relative_available_stake(signals: list, days: int,
                                     stake_frac: float,
                                     position_cap_frac: float =
-                                    config.CEIFA_POSITION_CAP_FRAC) -> dict:
-    """Parcela o caixa livre e limita cada contrato a uma fração do capital."""
+                                    config.CEIFA_POSITION_CAP_FRAC,
+                                    position_max_parcels: int =
+                                    config.CEIFA_POSITION_MAX_PARCELS) -> dict:
+    """Parcela o caixa livre e limita valor e quantidade por contrato."""
     # Bucket do dia: para a Ceifa, o dia em que o Lucas operou (fuso de
     # Brasília, ``day_br``); para SPY/Bitcoin, que não têm ``day_br``, a
     # data-alvo do próprio mercado (``day``), definida pelo fechamento dele.
@@ -1108,11 +1110,12 @@ def _stats_relative_available_stake(signals: list, days: int,
     capital, peak, max_drawdown = 1.0, 1.0, 0.0
     executed, per_day = [], []
     position_cap_blocked = position_cap_trimmed = 0
+    allocated_by_contract: dict[tuple, float] = defaultdict(float)
+    parcels_by_contract: dict[tuple, int] = defaultdict(int)
     for day in sorted(by_day):
         start = capital
         available, settled = start, 0.0
         day_executed = []
-        allocated_by_contract: dict[tuple, float] = defaultdict(float)
         for signal in sorted(by_day[day], key=lambda item: item["ts"]):
             stake = stake_frac * available
             contract = (
@@ -1120,6 +1123,9 @@ def _stats_relative_available_stake(signals: list, days: int,
                 signal.get("icao"), str(signal.get("day")),
                 signal.get("faixa"), signal.get("pick") or signal.get("side"),
             )
+            if parcels_by_contract[contract] >= position_max_parcels:
+                position_cap_blocked += 1
+                continue
             position_cap = position_cap_frac * start
             room = max(position_cap - allocated_by_contract[contract], 0.0)
             if room <= 1e-12:
@@ -1132,6 +1138,7 @@ def _stats_relative_available_stake(signals: list, days: int,
                 position_cap_blocked += 1
                 continue
             allocated_by_contract[contract] += stake
+            parcels_by_contract[contract] += 1
             available -= stake
             settled += stake / signal["price"] if signal["won"] else 0.0
             placed = dict(signal, stake=stake)
@@ -1158,7 +1165,8 @@ def _stats_relative_available_stake(signals: list, days: int,
         by_city[signal["icao"]][0] += 1
         by_city[signal["icao"]][1] += int(signal["won"])
     pending_stats = _pending_position_cap_stats(
-        pending_candidates, stake_frac, position_cap_frac)
+        pending_candidates, stake_frac, position_cap_frac,
+        position_max_parcels)
     return {
         "n": n, "days": days, "wins": wins,
         "hit": wins / n if n else 0.0,
@@ -1173,6 +1181,7 @@ def _stats_relative_available_stake(signals: list, days: int,
         "pending_n": len(pending_stats["signals"]),
         "stake_frac": stake_frac,
         "position_cap_frac": position_cap_frac,
+        "position_max_parcels": position_max_parcels,
         "n_position_cap_blocked": position_cap_blocked,
         "n_position_cap_trimmed": position_cap_trimmed,
         "n_capital_limited": position_cap_blocked,
@@ -1181,21 +1190,25 @@ def _stats_relative_available_stake(signals: list, days: int,
 
 
 def _pending_position_cap_stats(signals: list, stake_frac: float,
-                                position_cap_frac: float) -> dict:
+                                position_cap_frac: float,
+                                position_max_parcels: int) -> dict:
     """Conta posições abertas com a mesma sequência de stake, sem liquidá-las."""
     by_day: dict = defaultdict(list)
     for signal in signals:
         by_day[_day_bucket(signal)].append(signal)
     placed, counts = [], defaultdict(int)
+    allocated_by_contract: dict[tuple, float] = defaultdict(float)
+    parcels_by_contract: dict[tuple, int] = defaultdict(int)
     for day in sorted(by_day):
         available = 1.0
-        allocated_by_contract: dict[tuple, float] = defaultdict(float)
         for signal in sorted(by_day[day], key=lambda item: item["ts"]):
             contract = (
                 signal.get("extreme") or signal.get("archive_kind"),
                 signal.get("icao"), str(signal.get("day")),
                 signal.get("faixa"), signal.get("pick") or signal.get("side"),
             )
+            if parcels_by_contract[contract] >= position_max_parcels:
+                continue
             room = max(position_cap_frac - allocated_by_contract[contract], 0.0)
             if room <= 1e-12:
                 continue
@@ -1203,6 +1216,7 @@ def _pending_position_cap_stats(signals: list, stake_frac: float,
             if stake <= 1e-12:
                 continue
             allocated_by_contract[contract] += stake
+            parcels_by_contract[contract] += 1
             available -= stake
             placed.append(dict(signal, stake=stake))
             counts[day] += 1

@@ -400,10 +400,11 @@ class MonitorTest(unittest.TestCase):
 
         stats = monitor.combine_active_strategies(maximum, minimum)
 
-        self.assertEqual(stats["n"], 4)
-        self.assertEqual(stats["n_position_cap_blocked"], 1)
-        self.assertAlmostEqual(sum(s["stake"] for s in stats["signals"]), 0.03)
-        self.assertEqual(stats["active_components"]["maximum"], 4)
+        self.assertEqual(stats["n"], 3)
+        self.assertEqual(stats["n_position_cap_blocked"], 2)
+        self.assertAlmostEqual(
+            sum(s["stake"] for s in stats["signals"]), 0.029701)
+        self.assertEqual(stats["active_components"]["maximum"], 3)
 
     def test_observed_cvar_is_mean_of_worst_days(self):
         # 4 dias bons + 1 dia com perda: o CVaR 1% cai no pior dia real.
