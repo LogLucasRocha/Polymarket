@@ -10,7 +10,7 @@ autópsia visual de cada erro. A navegação (fixada no rodapé) separa duas ár
   mínimas. Cada uma reúne, em abas, a **Visão geral**, os **Erros** e as
   **Cidades e filtros**.
 - **🧪 Em teste (hipóteses)** — mercados binários diários em observação:
-  **SPY**, **Bitcoin**, **Solana** e **Ethereum**, nas modalidades **Up or Down** e
+  **SPY**, **Bitcoin**, **Solana**, **Ethereum** e **WTI**, nas modalidades **Up or Down** e
   **Above** disponíveis para cada ativo.
 
 No Windows, abra `Monitor Ceifa.cmd` ou use o atalho de mesmo nome criado na
@@ -40,10 +40,10 @@ enquanto preço, oferta e H-1 continuarem elegíveis, com teto de 3% do patrimô
 por posição e sem alavancagem. Trata-se apenas de monitoramento; nenhum alerta
 executa uma aposta.
 
-### Estudo de mercados binários diários (SPY, Bitcoin, Solana, Ethereum, ...)
+### Estudo de mercados binários diários (SPY, Bitcoin, Solana, Ethereum, WTI, ...)
 
 Monitor observacional de mercados binários da Polymarket, definidos no registro
-`spy.MERCADOS` (hoje **SPY**, **Bitcoin**, **Solana** e **Ethereum**; novos entram só nesse
+`spy.MERCADOS` (hoje **SPY**, **Bitcoin**, **Solana**, **Ethereum** e **WTI**; novos entram só nesse
 dicionário). A cada 5 min o `spy.capture` (pendurado no `main.yml`)
 arquiva, para cada mercado, um snapshot do dia com preço e melhor ask dos dois
 lados em `dados_{key}/` (parquet commitado) e `data_{key}/` (buffer do dia, que

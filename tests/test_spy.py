@@ -68,6 +68,37 @@ class RegistryTests(unittest.TestCase):
             study._close_utc("spy", "2026-08-08"),
             pd.Timestamp("2026-08-08T20:00:00Z"))
 
+    def test_wti_markets_match_urls_and_close_at_17_et(self):
+        from spy import market_date
+
+        above = MERCADOS["wti"]
+        updown = MERCADOS["wti_updown"]
+        self.assertEqual(above.kind, "strikes")
+        self.assertEqual(updown.kind, "binary")
+        for market, expected in (
+                (above, "wti-closes-above-on-august-14-2026"),
+                (updown, "wti-up-or-down-on-august-14-2026")):
+            self.assertTrue(market.rolling)
+            self.assertTrue(market.weekdays_only)
+            self.assertEqual(market.close_hour, 17)
+            self.assertEqual(market.tz, "America/New_York")
+            self.assertEqual(
+                capture.market_slug(market.slug_prefix,
+                                    dt.date(2026, 8, 14)),
+                expected)
+            self.assertEqual(
+                study._close_utc(market.key, "2026-08-14"),
+                pd.Timestamp("2026-08-14T21:00:00Z"))
+
+        before_close = dt.datetime(2026, 8, 14, 20, 59,
+                                   tzinfo=dt.timezone.utc)
+        after_close = dt.datetime(2026, 8, 14, 21, 1,
+                                  tzinfo=dt.timezone.utc)
+        self.assertEqual(market_date(updown, before_close),
+                         dt.date(2026, 8, 14))
+        self.assertEqual(market_date(updown, after_close),
+                         dt.date(2026, 8, 17))
+
     def test_bitcoin_closes_at_16_utc(self):
         # Bitcoin: o dia vira/resolve às 16:00 UTC.
         self.assertEqual(
