@@ -510,7 +510,7 @@ def main() -> int:
                     token_by_contract=token_by_key,
                     allocated_by_token=allocated_by_token,
                     total_capital=total_capital,
-                    position_cap_frac=config.CEIFA_POSITION_CAP_FRAC)
+                    position_cap_frac=config.CEIFA_POSITION_TARGET_FRAC)
                 ceifa_pending = {
                     station.icao: allocated[f"maximum:{station.icao}"]
                     for station in stations
@@ -525,7 +525,8 @@ def main() -> int:
                                if "spy:SPY" in allocated else {})
                 print(f"[ceifa] primeira stake atual: ${first_stake:.2f} "
                       f"de ${free_pusd:.2f} livres; teto por posição: "
-                      f"${total_capital * config.CEIFA_POSITION_CAP_FRAC:.2f}.")
+                      f"${total_capital * config.CEIFA_POSITION_TARGET_FRAC:.2f} "
+                      f"({config.CEIFA_POSITION_MAX_PARCELS} parcelas).")
             except Exception as exc:
                 print(f"[ceifa] ERRO ao apurar stake atual: {exc}",
                       file=sys.stderr)
