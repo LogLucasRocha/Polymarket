@@ -52,6 +52,31 @@ class DashboardHourlyTest(unittest.TestCase):
         self.assertEqual({trace.name for trace in chart.data}, {"Up", "Down"})
         self.assertEqual(chart.layout.barmode, "stack")
 
+    def test_market_hourly_average_uses_all_eligible_days(self):
+        stats = {
+            "hourly_eligible_days": 5,
+            "signals": [{"ts": "2026-08-11T19:00:00Z", "pick": "up"}],
+        }
+
+        piv = dashboard.hourly_by_category(stats, ("Up", "Down"))
+
+        self.assertEqual(dashboard.hourly_day_count(stats), 5)
+        self.assertAlmostEqual(piv.loc[16, "Up"], 0.2)
+
+    def test_market_period_filters_seven_days_and_excludes_spy_weekends(self):
+        daily = pd.DataFrame({
+            "dia": pd.date_range("2026-08-07", "2026-08-14", freq="D"),
+            "parcelas": [3, 0, 0, 0, 1, 0, 0, 0],
+        })
+
+        selected, start, eligible_days = dashboard.market_period(
+            daily, "spy", 7)
+
+        self.assertEqual(start, pd.Timestamp("2026-08-08"))
+        self.assertEqual(selected["dia"].min(), pd.Timestamp("2026-08-08"))
+        self.assertEqual(selected["dia"].max(), pd.Timestamp("2026-08-14"))
+        self.assertEqual(eligible_days, 5)
+
     def test_consolidated_chart_names_spy_instead_of_other(self):
         stats = {"signals": [
             {"ts": "2026-08-01T13:00:00Z", "extreme": "spy"},

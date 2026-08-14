@@ -307,6 +307,23 @@ class MonitorTest(unittest.TestCase):
         self.assertAlmostEqual(stakes[0], 0.01)
         self.assertAlmostEqual(stakes[1], 0.0099)
 
+    def test_slice_can_anchor_period_on_latest_captured_market_day(self):
+        signals = [
+            {"icao": "SPY", "day": "2026-08-07", "faixa": "—·up",
+             "ts": dt.datetime(2026, 8, 7, 19, 0), "price": 0.98,
+             "won": True, "stopped": False, "loss_frac": None},
+            {"icao": "SPY", "day": "2026-08-11", "faixa": "—·up",
+             "ts": dt.datetime(2026, 8, 11, 19, 0), "price": 0.98,
+             "won": True, "stopped": False, "loss_frac": None},
+        ]
+        stats = {"signals": signals, "repeat_minutes": 5}
+
+        sliced = monitor.slice_strategy(
+            stats, 7, reference_day="2026-08-14")
+
+        self.assertEqual(sliced["period_cutoff"], "2026-08-08")
+        self.assertEqual(sliced["n"], 1)
+
     def test_slice_keeps_boundary_day_whole_by_brasilia_bucket(self):
         # Um dia de Brasília (02/08) reúne parcelas de duas datas-alvo de
         # mercado (02/08 e a virada UTC do 03/08). A janela deve manter o dia
