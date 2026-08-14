@@ -96,6 +96,22 @@ MERCADOS: dict[str, Mercado] = {
     "msft_updown": Mercado("msft_updown", "Microsoft Up or Down",
                            "msft-up-or-down-on", rolling=True,
                            weekdays_only=True, kind="binary"),
+    # Mercados multi-strike de fechamento das ações, todos às 16:00 ET.
+    "meta_above": Mercado("meta_above", "Meta Closes Above",
+                          "meta-close-above-on", rolling=True,
+                          weekdays_only=True, kind="strikes"),
+    "amzn_above": Mercado("amzn_above", "Amazon Closes Above",
+                          "amzn-close-above-on", rolling=True,
+                          weekdays_only=True, kind="strikes"),
+    "aapl_above": Mercado("aapl_above", "Apple Closes Above",
+                          "aapl-close-above-on", rolling=True,
+                          weekdays_only=True, kind="strikes"),
+    "googl_above": Mercado("googl_above", "Google Closes Above",
+                           "googl-close-above-on", rolling=True,
+                           weekdays_only=True, kind="strikes"),
+    "nvda_above": Mercado("nvda_above", "NVIDIA Closes Above",
+                          "nvda-close-above-on", rolling=True,
+                          weekdays_only=True, kind="strikes"),
 }
 
 # Faixa padrão de todos os mercados em teste: >95¢ e <99,5¢.

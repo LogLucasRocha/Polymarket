@@ -41,3 +41,13 @@ data_tsla_updown/
 data_tsla_updown_live/
 data_msft_updown/
 data_msft_updown_live/
+data_meta_above/
+data_meta_above_live/
+data_amzn_above/
+data_amzn_above_live/
+data_aapl_above/
+data_aapl_above_live/
+data_googl_above/
+data_googl_above_live/
+data_nvda_above/
+data_nvda_above_live/
