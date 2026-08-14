@@ -50,6 +50,11 @@ jobs:
             data_eth_updown
             data_wti
             data_wti_updown
+            data_ng_updown
+            data_aapl_updown
+            data_googl_updown
+            data_tsla_updown
+            data_msft_updown
           key: tmax-data-${{ github.run_id }}
           restore-keys: |
             tmax-data-
@@ -125,7 +130,10 @@ jobs:
                    Path("data_btc_updown"), Path("data_spy_above"),
                    Path("data_solana"), Path("data_sol_updown"),
                    Path("data_ethereum"), Path("data_eth_updown"),
-                   Path("data_wti"), Path("data_wti_updown"))
+                   Path("data_wti"), Path("data_wti_updown"),
+                   Path("data_ng_updown"), Path("data_aapl_updown"),
+                   Path("data_googl_updown"), Path("data_tsla_updown"),
+                   Path("data_msft_updown"))
           with ZipFile("ceifa-live.zip", "w", ZIP_DEFLATED) as archive:
               for root in roots:
                   if not root.exists():
@@ -172,6 +180,11 @@ jobs:
           [ -d dados_eth_updown ] && git add dados_eth_updown || true
           [ -d dados_wti ] && git add dados_wti || true
           [ -d dados_wti_updown ] && git add dados_wti_updown || true
+          [ -d dados_ng_updown ] && git add dados_ng_updown || true
+          [ -d dados_aapl_updown ] && git add dados_aapl_updown || true
+          [ -d dados_googl_updown ] && git add dados_googl_updown || true
+          [ -d dados_tsla_updown ] && git add dados_tsla_updown || true
+          [ -d dados_msft_updown ] && git add dados_msft_updown || true
           if git diff --cached --quiet; then
             echo "sem dados novos para commitar"; exit 0
           fi

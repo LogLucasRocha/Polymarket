@@ -79,6 +79,23 @@ MERCADOS: dict[str, Mercado] = {
     "wti_updown": Mercado("wti_updown", "WTI Up or Down",
                           "wti-up-or-down-on", close_hour=17, rolling=True,
                           weekdays_only=True, kind="binary"),
+    # Natural Gas encerra a sessão às 17:00 ET, como o WTI.
+    "ng_updown": Mercado("ng_updown", "Natural Gas Up or Down",
+                         "ng-up-or-down-on", close_hour=17, rolling=True,
+                         weekdays_only=True, kind="binary"),
+    # Ações americanas usam o fechamento regular das 16:00 ET.
+    "aapl_updown": Mercado("aapl_updown", "Apple Up or Down",
+                           "aapl-up-or-down-on", rolling=True,
+                           weekdays_only=True, kind="binary"),
+    "googl_updown": Mercado("googl_updown", "Google Up or Down",
+                            "googl-up-or-down-on", rolling=True,
+                            weekdays_only=True, kind="binary"),
+    "tsla_updown": Mercado("tsla_updown", "Tesla Up or Down",
+                           "tsla-up-or-down-on", rolling=True,
+                           weekdays_only=True, kind="binary"),
+    "msft_updown": Mercado("msft_updown", "Microsoft Up or Down",
+                           "msft-up-or-down-on", rolling=True,
+                           weekdays_only=True, kind="binary"),
 }
 
 # Faixa padrão de todos os mercados em teste: >95¢ e <99,5¢.
