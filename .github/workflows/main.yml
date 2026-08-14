@@ -55,6 +55,11 @@ jobs:
             data_googl_updown
             data_tsla_updown
             data_msft_updown
+            data_meta_above
+            data_amzn_above
+            data_aapl_above
+            data_googl_above
+            data_nvda_above
           key: tmax-data-${{ github.run_id }}
           restore-keys: |
             tmax-data-
@@ -133,7 +138,9 @@ jobs:
                    Path("data_wti"), Path("data_wti_updown"),
                    Path("data_ng_updown"), Path("data_aapl_updown"),
                    Path("data_googl_updown"), Path("data_tsla_updown"),
-                   Path("data_msft_updown"))
+                   Path("data_msft_updown"), Path("data_meta_above"),
+                   Path("data_amzn_above"), Path("data_aapl_above"),
+                   Path("data_googl_above"), Path("data_nvda_above"))
           with ZipFile("ceifa-live.zip", "w", ZIP_DEFLATED) as archive:
               for root in roots:
                   if not root.exists():
@@ -185,6 +192,11 @@ jobs:
           [ -d dados_googl_updown ] && git add dados_googl_updown || true
           [ -d dados_tsla_updown ] && git add dados_tsla_updown || true
           [ -d dados_msft_updown ] && git add dados_msft_updown || true
+          [ -d dados_meta_above ] && git add dados_meta_above || true
+          [ -d dados_amzn_above ] && git add dados_amzn_above || true
+          [ -d dados_aapl_above ] && git add dados_aapl_above || true
+          [ -d dados_googl_above ] && git add dados_googl_above || true
+          [ -d dados_nvda_above ] && git add dados_nvda_above || true
           if git diff --cached --quiet; then
             echo "sem dados novos para commitar"; exit 0
           fi

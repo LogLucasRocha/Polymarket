@@ -1213,7 +1213,9 @@ def main() -> None:
                  "Ξ Ethereum Above", "▲ WTI Above",
                  "↕ NG Up/Down", "↕ AAPL Up/Down",
                  "↕ GOOGL Up/Down", "↕ TSLA Up/Down",
-                 "↕ MSFT Up/Down"],
+                 "↕ MSFT Up/Down", "▲ META Above",
+                 "▲ AMZN Above", "▲ AAPL Above",
+                 "▲ GOOGL Above", "▲ NVDA Above"],
                 horizontal=True, key="test_navigation")
         period_label = period_col.selectbox(
             "Período",
@@ -1255,6 +1257,11 @@ def main() -> None:
             "↕ GOOGL Up/Down": "googl_updown",
             "↕ TSLA Up/Down": "tsla_updown",
             "↕ MSFT Up/Down": "msft_updown",
+            "▲ META Above": "meta_above",
+            "▲ AMZN Above": "amzn_above",
+            "▲ AAPL Above": "aapl_above",
+            "▲ GOOGL Above": "googl_above",
+            "▲ NVDA Above": "nvda_above",
         }[choice]
         if market not in MERCADOS:
             # O Streamlit recarrega este arquivo mas mantém o pacote spy antigo

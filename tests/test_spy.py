@@ -133,6 +133,29 @@ class RegistryTests(unittest.TestCase):
                 study._close_utc(key, "2026-08-14"),
                 pd.Timestamp("2026-08-14T20:00:00Z"))
 
+    def test_equity_above_markets_match_urls_and_close_at_16_et(self):
+        markets = {
+            "meta_above": "meta-close-above-on-august-14-2026",
+            "amzn_above": "amzn-close-above-on-august-14-2026",
+            "aapl_above": "aapl-close-above-on-august-14-2026",
+            "googl_above": "googl-close-above-on-august-14-2026",
+            "nvda_above": "nvda-close-above-on-august-14-2026",
+        }
+        for key, expected_slug in markets.items():
+            market = MERCADOS[key]
+            self.assertEqual(market.kind, "strikes")
+            self.assertEqual(market.close_hour, 16)
+            self.assertEqual(market.tz, "America/New_York")
+            self.assertTrue(market.rolling)
+            self.assertTrue(market.weekdays_only)
+            self.assertEqual(
+                capture.market_slug(market.slug_prefix,
+                                    dt.date(2026, 8, 14)),
+                expected_slug)
+            self.assertEqual(
+                study._close_utc(key, "2026-08-14"),
+                pd.Timestamp("2026-08-14T20:00:00Z"))
+
     def test_bitcoin_closes_at_16_utc(self):
         # Bitcoin: o dia vira/resolve às 16:00 UTC.
         self.assertEqual(

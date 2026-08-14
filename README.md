@@ -12,7 +12,8 @@ autópsia visual de cada erro. A navegação (fixada no rodapé) separa duas ár
 - **🧪 Em teste (hipóteses)** — mercados binários diários em observação:
   **SPY**, **Bitcoin**, **Solana**, **Ethereum** e **WTI**, nas modalidades
   **Up or Down** e **Above** disponíveis, além de **Natural Gas**, **Apple**,
-  **Google**, **Tesla** e **Microsoft** em **Up or Down**.
+  **Google**, **Tesla** e **Microsoft** em **Up or Down**, e mercados
+  **Close Above** de **Meta**, **Amazon**, **Apple**, **Google** e **NVIDIA**.
 
 No Windows, abra `Monitor Ceifa.cmd` ou use o atalho de mesmo nome criado na
 Área de Trabalho. O iniciador sobe o Streamlit em segundo plano e abre
