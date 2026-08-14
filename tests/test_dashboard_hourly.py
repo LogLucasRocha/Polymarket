@@ -110,6 +110,8 @@ class DashboardHourlyTest(unittest.TestCase):
         self.assertEqual(list(pending.y), [8])
         self.assertEqual(pending.marker.color, dashboard.MUTED)
         self.assertEqual(pending.yaxis, "y2")
+        self.assertEqual(pending.width, 18 * 60 * 60 * 1000)
+        self.assertEqual(list(pending.text), ["8 em aberto"])
         self.assertFalse(chart.layout.yaxis2.visible)
         returns = next(trace for trace in chart.data
                        if trace.name == "Positivo")

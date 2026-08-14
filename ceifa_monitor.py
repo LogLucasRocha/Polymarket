@@ -282,6 +282,10 @@ def daily_chart(stats: dict, days: int | None = None) -> go.Figure:
         fig.add_trace(go.Bar(
             x=pending_rows["day"], y=pending_rows["pending"],
             name="Aguardando resultado", marker_color=MUTED, opacity=0.85,
+            width=18 * 60 * 60 * 1000,
+            text=pending_rows["pending"].map(lambda value: f"{value} em aberto"),
+            textposition="inside", insidetextanchor="middle",
+            textfont=dict(color=INK, size=12),
             yaxis="y2", customdata=pending_rows[["n"]],
             hovertemplate=("%{x|%d/%m}<br>Aguardando resultado: %{y}"
                            "<br>Já resolvidas: %{customdata[0]}<extra></extra>")))
