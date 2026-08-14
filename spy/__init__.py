@@ -70,6 +70,15 @@ MERCADOS: dict[str, Mercado] = {
     # pregão e pula fins de semana.
     "spy_above": Mercado("spy_above", "SPY Closes Above", "spy-closes-above-on",
                          rolling=True, weekdays_only=True, kind="strikes"),
+    # WTI usa o fechamento da sessão regular divulgado pela Pyth às 17:00
+    # ET. As duas modalidades avançam ao próximo pregão e pulam fins de
+    # semana, da mesma forma que os mercados de bolsa do SPY.
+    "wti": Mercado("wti", "WTI Closes Above", "wti-closes-above-on",
+                   close_hour=17, rolling=True, weekdays_only=True,
+                   kind="strikes"),
+    "wti_updown": Mercado("wti_updown", "WTI Up or Down",
+                          "wti-up-or-down-on", close_hour=17, rolling=True,
+                          weekdays_only=True, kind="binary"),
 }
 
 # Faixa padrão de todos os mercados em teste: >95¢ e <99,5¢.

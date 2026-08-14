@@ -27,3 +27,7 @@ __pycache__/
 .heal_ok
 data_spy_above/
 data_spy_above_live/
+data_wti/
+data_wti_live/
+data_wti_updown/
+data_wti_updown_live/
