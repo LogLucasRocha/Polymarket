@@ -31,3 +31,13 @@ data_wti/
 data_wti_live/
 data_wti_updown/
 data_wti_updown_live/
+data_ng_updown/
+data_ng_updown_live/
+data_aapl_updown/
+data_aapl_updown_live/
+data_googl_updown/
+data_googl_updown_live/
+data_tsla_updown/
+data_tsla_updown_live/
+data_msft_updown/
+data_msft_updown_live/

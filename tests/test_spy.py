@@ -99,6 +99,40 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(market_date(updown, after_close),
                          dt.date(2026, 8, 17))
 
+    def test_ng_and_equities_match_urls_and_trading_closes(self):
+        ng = MERCADOS["ng_updown"]
+        self.assertEqual(ng.close_hour, 17)
+        self.assertEqual(ng.tz, "America/New_York")
+        self.assertTrue(ng.rolling)
+        self.assertTrue(ng.weekdays_only)
+        self.assertEqual(
+            capture.market_slug(ng.slug_prefix, dt.date(2026, 8, 14)),
+            "ng-up-or-down-on-august-14-2026")
+        self.assertEqual(
+            study._close_utc(ng.key, "2026-08-14"),
+            pd.Timestamp("2026-08-14T21:00:00Z"))
+
+        equities = {
+            "aapl_updown": "aapl-up-or-down-on-august-14-2026",
+            "googl_updown": "googl-up-or-down-on-august-14-2026",
+            "tsla_updown": "tsla-up-or-down-on-august-14-2026",
+            "msft_updown": "msft-up-or-down-on-august-14-2026",
+        }
+        for key, expected_slug in equities.items():
+            market = MERCADOS[key]
+            self.assertEqual(market.kind, "binary")
+            self.assertEqual(market.close_hour, 16)
+            self.assertEqual(market.tz, "America/New_York")
+            self.assertTrue(market.rolling)
+            self.assertTrue(market.weekdays_only)
+            self.assertEqual(
+                capture.market_slug(market.slug_prefix,
+                                    dt.date(2026, 8, 14)),
+                expected_slug)
+            self.assertEqual(
+                study._close_utc(key, "2026-08-14"),
+                pd.Timestamp("2026-08-14T20:00:00Z"))
+
     def test_bitcoin_closes_at_16_utc(self):
         # Bitcoin: o dia vira/resolve às 16:00 UTC.
         self.assertEqual(
