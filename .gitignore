@@ -33,6 +33,8 @@ data_wti_updown/
 data_wti_updown_live/
 data_ng_updown/
 data_ng_updown_live/
+data_xauusd_updown/
+data_xauusd_updown_live/
 data_aapl_updown/
 data_aapl_updown_live/
 data_googl_updown/

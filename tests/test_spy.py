@@ -133,6 +133,30 @@ class RegistryTests(unittest.TestCase):
                 study._close_utc(key, "2026-08-14"),
                 pd.Timestamp("2026-08-14T20:00:00Z"))
 
+    def test_gold_matches_url_and_closes_at_17_et(self):
+        from spy import market_date
+
+        gold = MERCADOS["xauusd_updown"]
+        self.assertEqual(gold.kind, "binary")
+        self.assertEqual(gold.close_hour, 17)
+        self.assertEqual(gold.tz, "America/New_York")
+        self.assertTrue(gold.rolling)
+        self.assertTrue(gold.weekdays_only)
+        self.assertEqual(
+            capture.market_slug(gold.slug_prefix, dt.date(2026, 8, 14)),
+            "xauusd-up-or-down-on-august-14-2026")
+        self.assertEqual(
+            study._close_utc(gold.key, "2026-08-14"),
+            pd.Timestamp("2026-08-14T21:00:00Z"))
+        self.assertEqual(
+            market_date(gold, dt.datetime(
+                2026, 8, 14, 20, 59, tzinfo=dt.timezone.utc)),
+            dt.date(2026, 8, 14))
+        self.assertEqual(
+            market_date(gold, dt.datetime(
+                2026, 8, 14, 21, 1, tzinfo=dt.timezone.utc)),
+            dt.date(2026, 8, 17))
+
     def test_equity_above_markets_match_urls_and_close_at_16_et(self):
         markets = {
             "meta_above": "meta-close-above-on-august-14-2026",
