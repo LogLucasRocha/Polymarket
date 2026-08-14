@@ -51,6 +51,7 @@ jobs:
             data_wti
             data_wti_updown
             data_ng_updown
+            data_xauusd_updown
             data_aapl_updown
             data_googl_updown
             data_tsla_updown
@@ -76,7 +77,7 @@ jobs:
 
       # Captura antes dos alertas: o SPY H-1 em produção lê exatamente o
       # snapshot recém-gravado. Os demais mercados continuam em observação.
-      - name: Capturar mercados binários (SPY e criptos)
+      - name: Capturar mercados binários e multi-strike
         continue-on-error: true
         run: python -m spy.capture
 
@@ -136,7 +137,8 @@ jobs:
                    Path("data_solana"), Path("data_sol_updown"),
                    Path("data_ethereum"), Path("data_eth_updown"),
                    Path("data_wti"), Path("data_wti_updown"),
-                   Path("data_ng_updown"), Path("data_aapl_updown"),
+                   Path("data_ng_updown"), Path("data_xauusd_updown"),
+                   Path("data_aapl_updown"),
                    Path("data_googl_updown"), Path("data_tsla_updown"),
                    Path("data_msft_updown"), Path("data_meta_above"),
                    Path("data_amzn_above"), Path("data_aapl_above"),
@@ -188,6 +190,7 @@ jobs:
           [ -d dados_wti ] && git add dados_wti || true
           [ -d dados_wti_updown ] && git add dados_wti_updown || true
           [ -d dados_ng_updown ] && git add dados_ng_updown || true
+          [ -d dados_xauusd_updown ] && git add dados_xauusd_updown || true
           [ -d dados_aapl_updown ] && git add dados_aapl_updown || true
           [ -d dados_googl_updown ] && git add dados_googl_updown || true
           [ -d dados_tsla_updown ] && git add dados_tsla_updown || true

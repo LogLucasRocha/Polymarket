@@ -83,6 +83,11 @@ MERCADOS: dict[str, Mercado] = {
     "ng_updown": Mercado("ng_updown", "Natural Gas Up or Down",
                          "ng-up-or-down-on", close_hour=17, rolling=True,
                          weekdays_only=True, kind="binary"),
+    # Ouro usa o fechamento da Pyth das 16:59 ET; a janela vira às 17:00 ET
+    # e segue o calendário de sessões de negociação do metal.
+    "xauusd_updown": Mercado("xauusd_updown", "Gold (XAUUSD) Up or Down",
+                              "xauusd-up-or-down-on", close_hour=17,
+                              rolling=True, weekdays_only=True, kind="binary"),
     # Ações americanas usam o fechamento regular das 16:00 ET.
     "aapl_updown": Mercado("aapl_updown", "Apple Up or Down",
                            "aapl-up-or-down-on", rolling=True,

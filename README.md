@@ -45,7 +45,7 @@ executa uma aposta.
 ### Estudo de mercados binários diários (SPY, cripto, energia e ações)
 
 Monitor observacional de mercados binários da Polymarket, definidos no registro
-`spy.MERCADOS` (hoje **SPY**, criptomoedas, **WTI**, **Natural Gas** e ações americanas; novos entram só nesse
+`spy.MERCADOS` (hoje **SPY**, criptomoedas, **WTI**, **Natural Gas**, **Ouro** e ações americanas; novos entram só nesse
 dicionário). A cada 5 min o `spy.capture` (pendurado no `main.yml`)
 arquiva, para cada mercado, um snapshot do dia com preço e melhor ask dos dois
 lados em `dados_{key}/` (parquet commitado) e `data_{key}/` (buffer do dia, que
