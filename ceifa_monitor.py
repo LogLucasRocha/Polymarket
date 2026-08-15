@@ -277,18 +277,28 @@ def daily_chart(stats: dict, days: int | None = None) -> go.Figure:
                            "<br>Acertos: %{customdata[1]}"
                            "<br>Aguardando resultado: %{customdata[2]}"
                            "<extra></extra>")))
+    # Dia corrente ainda sem retorno: marcamos a coluna com uma faixa de
+    # destaque CONFINADA À REGIÃO POSITIVA (de 0 até o topo dos retornos), que
+    # nunca cruza a linha do zero. Uma barra de contagem em eixo secundário
+    # (rangemode tozero sobreposto ao eixo de %) era escalada e cruzava o zero,
+    # pintando a área negativa — parecendo um retorno gigante. A contagem vira
+    # rótulo; a legenda vem de um traço-proxy invisível.
     pending_rows = daily[daily["pending"] > 0]
     if not pending_rows.empty:
+        topo = max(float(daily["return_pct"].max()), 0.0) or 1.0
+        for _, row in pending_rows.iterrows():
+            day = row["day"]
+            fig.add_shape(
+                type="rect", xref="x", yref="y", layer="below",
+                x0=day - pd.Timedelta(hours=12), x1=day + pd.Timedelta(hours=12),
+                y0=0, y1=topo, fillcolor=MUTED, opacity=0.16, line_width=0)
+            fig.add_annotation(
+                x=day, y=topo, yref="y", yanchor="bottom", showarrow=False,
+                text=f"{int(row['pending'])} em aberto",
+                font=dict(color=MUTED, size=11))
         fig.add_trace(go.Bar(
-            x=pending_rows["day"], y=pending_rows["pending"],
-            name="Aguardando resultado", marker_color=MUTED, opacity=0.85,
-            width=18 * 60 * 60 * 1000,
-            text=pending_rows["pending"].map(lambda value: f"{value} em aberto"),
-            textposition="inside", insidetextanchor="middle",
-            textfont=dict(color=INK, size=12),
-            yaxis="y2", customdata=pending_rows[["n"]],
-            hovertemplate=("%{x|%d/%m}<br>Aguardando resultado: %{y}"
-                           "<br>Já resolvidas: %{customdata[0]}<extra></extra>")))
+            x=[None], y=[None], name="Aguardando resultado",
+            marker_color=MUTED, opacity=0.85, showlegend=True, hoverinfo="skip"))
     resolved_daily = daily[daily["n"] > 0]
     mean_ret = resolved_daily["return_pct"].mean() if not resolved_daily.empty else 0
     fig.add_hline(
@@ -298,8 +308,6 @@ def daily_chart(stats: dict, days: int | None = None) -> go.Figure:
     fig.update_layout(
         height=330, margin=dict(l=15, r=15, t=10, b=10),
         xaxis_title=None, yaxis_title="Retorno do dia (%)",
-        yaxis2=dict(overlaying="y", side="right", rangemode="tozero",
-                    visible=False, gridcolor="rgba(0,0,0,0)"),
         barmode="group", showlegend=not pending_rows.empty,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
     )
@@ -1129,13 +1137,16 @@ def market_page(market: str, production: bool = False,
     plot = daily.copy()
     fig = px.bar(
         plot, x="dia", y="parcelas", color="resultado", text="parcelas",
-        color_discrete_map={"Acerto": GREEN, "Erro": RED,
+        color_discrete_map={"Acerto": GREEN, "Parcial": BLUE, "Erro": RED,
                             "Sem entrada": MUTED, "Em aberto": AMBER},
-        custom_data=["resultado"])
+        category_orders={"resultado": ["Acerto", "Parcial", "Erro",
+                                       "Sem entrada", "Em aberto"]},
+        custom_data=["resultado", "acertos"])
     fig.update_traces(
         textposition="outside", cliponaxis=False,
-        hovertemplate=("%{x|%d/%m}<br>Parcelas: %{y}"
-                       "<br>%{customdata[0]}<extra></extra>"))
+        hovertemplate=("%{x|%d/%m}<br>%{customdata[0]}"
+                       "<br>Parcelas: %{y} · Acertos: %{customdata[1]}"
+                       "<extra></extra>"))
     fig.update_layout(
         height=300, margin=dict(l=15, r=15, t=10, b=10),
         xaxis_title=None, yaxis_title="Parcelas", legend_title_text=None,

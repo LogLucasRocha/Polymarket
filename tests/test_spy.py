@@ -422,6 +422,20 @@ class SpyStudyTests(unittest.TestCase):
         self.assertTrue(bool(row["resolvido"]))
         self.assertEqual(row["resultado"], "Acerto")
 
+    def test_daily_summary_marks_mixed_day_as_partial(self):
+        # O lado em banda alterna (down em banda cedo, up depois) e só o up
+        # vence no fecho → dia PARCIAL: categoria única, nunca a razão "3/97"
+        # (que virava uma legenda por valor no gráfico "Parcelas por dia").
+        frame = _day_series({"12:00": 0.03, "12:05": 0.03, "12:10": 0.03},
+                            last_up=0.999)
+        with mock.patch.object(study, "_load_market", return_value=frame):
+            daily = study.daily_summary()
+        row = daily.iloc[0]
+        self.assertTrue(bool(row["resolvido"]))
+        self.assertEqual(row["resultado"], "Parcial")
+        self.assertGreater(int(row["acertos"]), 0)          # razão nas colunas
+        self.assertLess(int(row["acertos"]), int(row["parcelas"]))
+
     def test_latest_prices_returns_series_of_latest_day(self):
         frame = _day_series({}, last_up=0.999)
         with mock.patch.object(study, "_load_market", return_value=frame):

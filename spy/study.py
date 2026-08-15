@@ -451,7 +451,10 @@ def daily_summary(market: str = "spy",
         elif acertos == 0:
             resultado = "Erro"
         else:
-            resultado = f"{acertos}/{parcelas}"
+            # Dia misto (o lado em banda alternou e só um venceu no fecho).
+            # Categoria única — a razão acertos/parcelas fica nas colunas para
+            # o tooltip, sem virar uma legenda por valor ("14/29", "9/34"...).
+            resultado = "Parcial"
         rows.append({"dia": pd.to_datetime(str(dia)), "parcelas": parcelas,
                      "acertos": acertos, "resolvido": resolved,
                      "resultado": resultado})

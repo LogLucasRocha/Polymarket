@@ -130,14 +130,22 @@ class DashboardHourlyTest(unittest.TestCase):
 
         chart = dashboard.daily_chart(stats)
 
+        # O dia em aberto vira uma FAIXA de destaque confinada à região
+        # positiva (não uma barra num eixo secundário que cruzava o zero). A
+        # legenda vem de um traço-proxy invisível.
         pending = next(trace for trace in chart.data
                        if trace.name == "Aguardando resultado")
-        self.assertEqual(list(pending.y), [8])
         self.assertEqual(pending.marker.color, dashboard.MUTED)
-        self.assertEqual(pending.yaxis, "y2")
-        self.assertEqual(pending.width, 18 * 60 * 60 * 1000)
-        self.assertEqual(list(pending.text), ["8 em aberto"])
-        self.assertFalse(chart.layout.yaxis2.visible)
+        self.assertTrue(pending.showlegend)
+        self.assertTrue(all(v is None for v in pending.y))   # nada cruza o zero
+        self.assertNotIn("yaxis2", chart.layout.to_plotly_json())
+        faixa = [s for s in chart.layout.shapes
+                 if s.fillcolor == dashboard.MUTED]
+        self.assertTrue(faixa)
+        self.assertEqual(faixa[0].y0, 0)                     # começa no zero
+        self.assertGreater(faixa[0].y1, 0)                   # sobe só p/ cima
+        self.assertIn("8 em aberto",
+                      [a.text for a in chart.layout.annotations])
         returns = next(trace for trace in chart.data
                        if trace.name == "Positivo")
         self.assertEqual(list(returns.customdata[0]), [26, 26, 8])
