@@ -1271,11 +1271,16 @@ def main() -> None:
         if refresh_col.button("↻ Atualizar", width="stretch"):
             with st.spinner("Buscando os dados mais recentes no GitHub…"):
                 refresh_result = monitor.sync_dashboard_data()
-            if refresh_result.get("updated"):
-                load_strategy.clear()
-                load_losses.clear()
-                load_timeline.clear()
-                load_market.clear()
+            # Sempre recomputa ao clicar Atualizar. O cache do Streamlit não
+            # sabe que os arquivos no disco mudaram; limpar só quando o sync
+            # reportava `updated=True` deixava o painel preso num cálculo antigo
+            # — parcelas que já resolveram continuavam "em aberto" porque o sync
+            # não detectava novidade (ex.: o dado já estava local). O botão
+            # existe para forçar o recálculo; então sempre invalidamos o cache.
+            load_strategy.clear()
+            load_losses.clear()
+            load_timeline.clear()
+            load_market.clear()
             st.session_state["refresh_notice"] = refresh_result
             st.rerun()
 
