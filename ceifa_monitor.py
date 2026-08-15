@@ -242,7 +242,12 @@ def equity_chart(stats: dict) -> go.Figure:
 
 def daily_chart(stats: dict, days: int | None = None) -> go.Figure:
     daily = pd.DataFrame(stats.get("per_day", []))
-    pending_by_day = stats.get("pending_by_day", {})
+    # O retorno pertence ao dia em que a parcela foi feita (Brasília), mas uma
+    # pendência pertence à data-alvo do contrato. Usar o dia da entrada aqui
+    # fazia uma posição feita à noite para o mercado do dia seguinte aparecer
+    # como "em aberto" no dia anterior, mesmo sem atraso de resolução.
+    pending_by_day = stats.get(
+        "pending_by_market_day", stats.get("pending_by_day", {}))
     if daily.empty and not pending_by_day:
         return go.Figure()
     pending = pd.DataFrame(

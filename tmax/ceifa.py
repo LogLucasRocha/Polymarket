@@ -1178,6 +1178,7 @@ def _stats_relative_available_stake(signals: list, days: int,
         "pending_candidate_signals": list(pending_candidates),
         "pending_signals": pending_stats["signals"],
         "pending_by_day": pending_stats["by_day"],
+        "pending_by_market_day": pending_stats["by_market_day"],
         "pending_n": len(pending_stats["signals"]),
         "stake_frac": stake_frac,
         "position_cap_frac": position_cap_frac,
@@ -1197,6 +1198,7 @@ def _pending_position_cap_stats(signals: list, stake_frac: float,
     for signal in signals:
         by_day[_day_bucket(signal)].append(signal)
     placed, counts = [], defaultdict(int)
+    market_day_counts: dict = defaultdict(int)
     allocated_by_contract: dict[tuple, float] = defaultdict(float)
     parcels_by_contract: dict[tuple, int] = defaultdict(int)
     for day in sorted(by_day):
@@ -1220,7 +1222,12 @@ def _pending_position_cap_stats(signals: list, stake_frac: float,
             available -= stake
             placed.append(dict(signal, stake=stake))
             counts[day] += 1
-    return {"signals": placed, "by_day": dict(counts)}
+            market_day_counts[str(signal.get("day") or day)] += 1
+    return {
+        "signals": placed,
+        "by_day": dict(counts),
+        "by_market_day": dict(market_day_counts),
+    }
 
 
 def _stats(signals: list, days: int) -> dict:

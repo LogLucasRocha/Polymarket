@@ -601,7 +601,7 @@ class BrasiliaDayBucketTests(unittest.TestCase):
 
     def test_pending_parcels_are_counted_without_affecting_return(self):
         signals = [{
-            "icao": "EGLC", "day": "2026-08-13", "day_br": "2026-08-13",
+            "icao": "EGLC", "day": "2026-08-14", "day_br": "2026-08-13",
             "faixa": "30°C", "ts": pd.Timestamp(
                 f"2026-08-13T13:{minute:02d}:00Z"),
             "price": 0.97, "won": None, "resolved": False,
@@ -612,6 +612,8 @@ class BrasiliaDayBucketTests(unittest.TestCase):
         self.assertEqual(stats["n"], 0)
         self.assertEqual(stats["pending_n"], 3)
         self.assertEqual(stats["pending_by_day"], {"2026-08-13": 3})
+        self.assertEqual(
+            stats["pending_by_market_day"], {"2026-08-14": 3})
         self.assertEqual(stats["real_mult"], 1.0)
 
 

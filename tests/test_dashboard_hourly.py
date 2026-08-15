@@ -119,13 +119,14 @@ class DashboardHourlyTest(unittest.TestCase):
         labels = dashboard.brasilia_time_labels(stamps)
         self.assertEqual(labels.tolist(), ["10/08/2026 21:50"])
 
-    def test_daily_chart_shows_pending_parcels_in_gray(self):
+    def test_daily_chart_shows_pending_on_market_day_not_entry_day(self):
         stats = {
             "per_day": [{
                 "day": "2026-08-13", "ret": 0.0026,
                 "n": 26, "wins": 26, "cap": 1.0026,
             }],
             "pending_by_day": {"2026-08-13": 8},
+            "pending_by_market_day": {"2026-08-14": 8},
         }
 
         chart = dashboard.daily_chart(stats)
@@ -146,9 +147,13 @@ class DashboardHourlyTest(unittest.TestCase):
         self.assertGreater(faixa[0].y1, 0)                   # sobe só p/ cima
         self.assertIn("8 em aberto",
                       [a.text for a in chart.layout.annotations])
+        self.assertEqual(
+            pd.Timestamp(faixa[0].x0).date(), pd.Timestamp("2026-08-13 12:00").date())
+        self.assertEqual(
+            pd.Timestamp(faixa[0].x1).date(), pd.Timestamp("2026-08-14 12:00").date())
         returns = next(trace for trace in chart.data
                        if trace.name == "Positivo")
-        self.assertEqual(list(returns.customdata[0]), [26, 26, 8])
+        self.assertEqual(list(returns.customdata[0]), [26, 26, 0])
 
     def test_daily_chart_accepts_resolved_days_without_pending_parcels(self):
         stats = {"per_day": [{
