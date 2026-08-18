@@ -4,10 +4,12 @@ name: Compilar documentação (PDF)
 # generated_numbers.tex a cada 3 dias) e commita o PDF. O commit do PDF usa
 # [skip ci], então recompilar o próprio PDF não dispara o workflow de novo.
 on:
-  push:
-    paths:
-      - "docs/**"
-      - ".github/workflows/docs.yml"
+  # PROJETO PAUSADO: gatilho automático por push desativado.
+  # Para reativar, descomente o bloco push abaixo.
+  # push:
+  #   paths:
+  #     - "docs/**"
+  #     - ".github/workflows/docs.yml"
   workflow_dispatch:
 
 permissions:

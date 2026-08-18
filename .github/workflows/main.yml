@@ -1,9 +1,11 @@
 name: Previsão Tmax → Telegram
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"
-  workflow_dispatch:        
+  # PROJETO PAUSADO: agendamento automático desativado.
+  # Para reativar, descomente o bloco schedule abaixo.
+  # schedule:
+  #   - cron: "*/5 * * * *"
+  workflow_dispatch:
 
 permissions:
   contents: write  # commitar o arquivo de dados ao vivo (dados/) 1x/dia

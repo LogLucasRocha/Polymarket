@@ -1,8 +1,10 @@
 name: Backtest de sinais
 
 on:
-  schedule:
-    - cron: "0 9 */3 * *"   # a cada 3 dias, 09:00 UTC (06:00 em Brasília)
+  # PROJETO PAUSADO: agendamento automático desativado.
+  # Para reativar, descomente o bloco schedule abaixo.
+  # schedule:
+  #   - cron: "0 9 */3 * *"   # a cada 3 dias, 09:00 UTC (06:00 em Brasília)
   workflow_dispatch:
 
 permissions:
